@@ -1,0 +1,52 @@
+{
+  "version": "0.7.2",
+  "python": "3.14.2",
+  "test_document": {
+    "chapters": 5,
+    "sections_per_chapter": 4,
+    "paragraphs_per_section": 6,
+    "input_chars": 35120
+  },
+  "chunking": {
+    "l1_chapters": 5,
+    "l2_sections": 20,
+    "l3_passages": 20,
+    "total_l3_tokens": 5640,
+    "l3_token_min": 282,
+    "l3_token_max": 282,
+    "l3_token_median": 282,
+    "l3_token_mean": 282,
+    "median_time_s": 0.0043,
+    "throughput_chars_per_s": 8182904
+  },
+  "token_counting": {
+    "text_chars": 22500,
+    "token_count": 5001,
+    "median_per_call_ms": 1.48
+  },
+  "storage_roundtrip": {
+    "save_median_s": 0.0064,
+    "load_median_s": 0.0021
+  },
+  "content_coverage": {
+    "input_leaf_chars": 35120,
+    "l3_output_chars": 35120,
+    "coverage_ratio": 1.0
+  },
+  "hierarchy_linkage": {
+    "l3_orphan_count": 0,
+    "l2_orphan_count": 0
+  },
+  "disk_footprint": {
+    "total_bytes": 128617,
+    "file_count": 47
+  },
+  "search_index_counts": {
+    "bm25_doc_count": 20,
+    "concept_index_term_count": 23
+  },
+  "overlap_verification": {
+    "overlap_pairs_total": 0,
+    "overlap_pairs_with_shared_content": 0
+  }
+}
