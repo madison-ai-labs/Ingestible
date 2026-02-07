@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ingestion-tool"
+version = "0.7.2"
+description = "PDF ingestion pipeline — transforms PDFs into a queryable knowledge store"
+requires-python = ">=3.11"
+dependencies = [
+    "docling>=2.0",
+    "pymupdf4llm>=0.0.10",
+    "openai>=1.0",
+    "anthropic>=0.40",
+    "sentence-transformers>=3.0",
+    "chromadb>=0.5",
+    "rank-bm25>=0.2",
+    "tiktoken>=0.7",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[project.scripts]
+ingest = "ingestion_tool.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ingestion_tool"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
