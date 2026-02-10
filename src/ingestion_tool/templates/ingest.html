@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}Upload — IngestionTool{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-bold mb-6">Upload Document</h1>
+
+{% if error %}
+<div class="bg-red-50 border border-red-200 text-red-700 rounded-lg p-4 mb-6 text-sm">
+  <strong>Ingestion failed:</strong> {{ error }}
+</div>
+{% endif %}
+
+<div class="bg-white rounded-lg shadow p-6 max-w-xl">
+  <form
+    action="/upload"
+    method="post"
+    enctype="multipart/form-data"
+    id="upload-form"
+  >
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2">Document File</label>
+      <div
+        id="drop-zone"
+        class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-indigo-400 transition-colors"
+      >
+        <input
+          type="file"
+          name="file"
+          accept=".pdf,.md,.txt,.docx,.html"
+          required
+          class="hidden"
+          id="file-input"
+        >
+        <p class="text-gray-500 text-sm mb-2" id="drop-text">
+          Drag & drop a file here, or
+          <button type="button" onclick="document.getElementById('file-input').click()" class="text-indigo-600 hover:underline">browse</button>
+        </p>
+        <p class="text-xs text-gray-400">Supported: PDF, Markdown, TXT, DOCX, HTML</p>
+      </div>
+    </div>
+
+    <div class="mb-6">
+      <label class="flex items-center gap-2 text-sm text-gray-700">
+        <input type="checkbox" name="skip_enrichment" value="true" class="rounded border-gray-300">
+        Skip enrichment (faster, no LLM calls)
+      </label>
+    </div>
+
+    <button
+      type="submit"
+      id="submit-btn"
+      class="w-full bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      Ingest Document
+    </button>
+
+    <div id="upload-progress" class="hidden mt-4">
+      <div class="flex items-center gap-3 text-sm text-gray-600">
+        <svg class="animate-spin h-5 w-5 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        Running ingestion pipeline... This may take a minute.
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

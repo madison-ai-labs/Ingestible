@@ -1,0 +1,127 @@
+{
+  "version": "0.8.0",
+  "python": "3.14.2",
+  "test_document": {
+    "chapters": 5,
+    "sections_per_chapter": 4,
+    "paragraphs_per_section": 6,
+    "input_chars": 35120
+  },
+  "content_coverage": {
+    "input_leaf_chars": 35120,
+    "l3_output_chars": 35120,
+    "coverage_ratio": 1.0
+  },
+  "hierarchy_linkage": {
+    "l3_orphan_count": 0,
+    "l2_orphan_count": 0
+  },
+  "disk_footprint": {
+    "total_bytes": 128617,
+    "file_count": 47
+  },
+  "search_index_counts": {
+    "bm25_doc_count": 20,
+    "concept_index_term_count": 23
+  },
+  "overlap_verification": {
+    "overlap_pairs_total": 0,
+    "overlap_pairs_with_shared_content": 0
+  },
+  "chunking": {
+    "l1_chapters": 5,
+    "l2_sections": 20,
+    "l3_passages": 20,
+    "total_l3_tokens": 5640,
+    "l3_token_min": 282,
+    "l3_token_max": 282,
+    "l3_token_median": 282,
+    "l3_token_mean": 282,
+    "median_time_s": 0.0044,
+    "throughput_chars_per_s": 7968914
+  },
+  "token_counting": {
+    "text_chars": 22500,
+    "token_count": 5001,
+    "median_per_call_ms": 1.45
+  },
+  "storage_roundtrip": {
+    "save_median_s": 0.0064,
+    "load_median_s": 0.0022
+  },
+  "multiformat_parsing": {
+    "supported_formats": [
+      ".docx",
+      ".htm",
+      ".html",
+      ".md",
+      ".pdf",
+      ".txt"
+    ],
+    "formats_tested": [
+      "docx",
+      "html",
+      "md",
+      "txt"
+    ],
+    "results": {
+      "md": {
+        "title_detected": "Machine Learning Primer",
+        "source_format": "md",
+        "toc_entries": 3,
+        "content_chars": 259,
+        "content_tokens": 57,
+        "has_table": true,
+        "parse_time_s": 0.0004
+      },
+      "txt": {
+        "title_detected": "Introduction to Neural Networks",
+        "source_format": "txt",
+        "toc_entries": 0,
+        "content_chars": 244,
+        "content_tokens": 37,
+        "has_table": false,
+        "parse_time_s": 0.0
+      },
+      "html": {
+        "title_detected": "Web Standards Guide",
+        "source_format": "html",
+        "toc_entries": 3,
+        "content_chars": 213,
+        "content_tokens": 56,
+        "has_table": true,
+        "parse_time_s": 0.037
+      },
+      "docx": {
+        "title_detected": "API Design Handbook",
+        "source_format": "docx",
+        "toc_entries": 3,
+        "content_chars": 222,
+        "content_tokens": 48,
+        "has_table": true,
+        "parse_time_s": 0.004
+      }
+    }
+  },
+  "semantic_chunking": {
+    "input_topics": 3,
+    "input_chars": 1493,
+    "input_tokens": 245,
+    "semantic": {
+      "l3_passages": 4,
+      "total_tokens": 246,
+      "token_min": 37,
+      "token_max": 107,
+      "token_mean": 62,
+      "time_s": 0.0106
+    },
+    "paragraph": {
+      "l3_passages": 3,
+      "total_tokens": 245,
+      "token_min": 75,
+      "token_max": 87,
+      "token_mean": 82,
+      "time_s": 0.0002
+    }
+  }
+}

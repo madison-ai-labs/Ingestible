@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}Documents — IngestionTool{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-bold mb-6">Ingested Documents</h1>
+
+{% if documents %}
+<div class="bg-white rounded-lg shadow overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 border-b">
+      <tr>
+        <th class="text-left px-4 py-3 font-medium text-gray-600">Title</th>
+        <th class="text-left px-4 py-3 font-medium text-gray-600">Document ID</th>
+        <th class="text-right px-4 py-3 font-medium text-gray-600">Pages</th>
+        <th class="text-left px-4 py-3 font-medium text-gray-600">Ingested</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for doc in documents %}
+      <tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location='/doc/{{ doc.doc_id }}'">
+        <td class="px-4 py-3 font-medium text-indigo-600">{{ doc.title }}</td>
+        <td class="px-4 py-3 text-gray-500 font-mono text-xs">{{ doc.doc_id }}</td>
+        <td class="px-4 py-3 text-right">{{ doc.total_pages }}</td>
+        <td class="px-4 py-3 text-gray-500">{{ doc.ingestion_date[:10] if doc.ingestion_date else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="text-center py-16 text-gray-500">
+  <p class="text-lg mb-2">No documents ingested yet.</p>
+  <a href="/upload" class="text-indigo-600 hover:underline">Upload your first document</a>
+</div>
+{% endif %}
+{% endblock %}

@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ingestion-tool"
-version = "0.7.2"
-description = "PDF ingestion pipeline — transforms PDFs into a queryable knowledge store"
+version = "0.9.0"
+description = "Document ingestion pipeline — transforms documents into a queryable knowledge store"
 requires-python = ">=3.11"
 dependencies = [
     "docling>=2.0",
@@ -19,6 +19,14 @@ dependencies = [
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "python-dotenv>=1.0",
+    "python-docx>=1.1",
+    "markdownify>=0.13",
+    "numpy>=1.24",
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "python-multipart>=0.0.12",
+    "jinja2>=3.1",
+    "aiofiles>=23.0",
 ]
 
 [project.optional-dependencies]

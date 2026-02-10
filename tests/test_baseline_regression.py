@@ -1,4 +1,4 @@
-"""Baseline regression test — compares current metrics against v0.7.2 baseline.
+"""Baseline regression test — compares current metrics against v0.8.0 baseline.
 
 Fails if chunk counts change or performance degrades beyond tolerance.
 
@@ -14,6 +14,7 @@ from pathlib import Path
 
 from ingestion_tool.config import Settings
 from ingestion_tool.models.document import DocumentStructure, StructureNode
+from ingestion_tool.pipeline.stage1_parsing import parse_document, SUPPORTED_FORMATS
 from ingestion_tool.pipeline.stage3_chunking import chunk_document
 from ingestion_tool.pipeline.stage6_storage import load_chunks, save_document
 from ingestion_tool.search.bm25_store import BM25Store
@@ -21,7 +22,7 @@ from ingestion_tool.search.concept_index import ConceptIndex
 from ingestion_tool.utils.text import split_paragraphs
 from ingestion_tool.utils.tokens import count_tokens
 
-BASELINE_PATH = Path(__file__).parent / "baseline_v0.7.2.json"
+BASELINE_PATH = Path(__file__).parent / "baseline_v0.9.0.json"
 
 
 def _load_baseline() -> dict:
@@ -389,4 +390,219 @@ def test_overlap_verification_regression(tmp_path):
     assert overlap_pairs_with_shared_content == b["overlap_pairs_with_shared_content"], (
         f"Overlap pairs with shared content changed: {overlap_pairs_with_shared_content} "
         f"vs baseline {b['overlap_pairs_with_shared_content']}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Regression: supported formats must not shrink
+# ---------------------------------------------------------------------------
+
+def test_supported_formats_regression():
+    """Supported format set must not lose formats from baseline."""
+    baseline = _load_baseline()
+    b = baseline.get("multiformat_parsing", {})
+    if not b:
+        return  # no baseline data yet
+
+    baseline_formats = set(b["supported_formats"])
+    current_formats = SUPPORTED_FORMATS
+
+    missing = baseline_formats - current_formats
+    assert not missing, (
+        f"Formats removed since baseline: {missing}. "
+        f"Baseline had {sorted(baseline_formats)}, now {sorted(current_formats)}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Regression: multi-format parsing output must be stable
+# ---------------------------------------------------------------------------
+
+def test_multiformat_parsing_regression(tmp_path):
+    """Title detection, TOC counts, and table extraction must match baseline."""
+    baseline = _load_baseline()
+    b = baseline.get("multiformat_parsing", {})
+    if not b:
+        return
+
+    from docx import Document as DocxDocument
+
+    # Recreate the exact same sample files used by _generate_baseline.py
+    sample_md = tmp_path / "sample.md"
+    sample_md.write_text(
+        "# Machine Learning Primer\n\n"
+        "## Supervised Learning\n\n"
+        "Supervised learning trains models on labeled data.\n\n"
+        "## Unsupervised Learning\n\n"
+        "Unsupervised learning finds patterns without labels.\n\n"
+        "| Method | Type |\n| --- | --- |\n| K-means | Clustering |\n| PCA | Reduction |\n"
+    )
+    sample_txt = tmp_path / "sample.txt"
+    sample_txt.write_text(
+        "Introduction to Neural Networks\n\n"
+        "Neural networks are computing systems inspired by biological neural networks.\n"
+        "They consist of layers of interconnected nodes called neurons.\n\n"
+        "Deep learning uses multiple layers to progressively extract features.\n"
+    )
+    sample_html = tmp_path / "sample.html"
+    sample_html.write_text(
+        "<html><body>"
+        "<h1>Web Standards Guide</h1>"
+        "<h2>HTML5</h2>"
+        "<p>HTML5 introduced semantic elements like article, section, and nav.</p>"
+        "<h2>CSS3</h2>"
+        "<p>CSS3 added animations, flexbox, and grid layout.</p>"
+        "<table><tr><th>Feature</th><th>Support</th></tr>"
+        "<tr><td>Flexbox</td><td>98%</td></tr></table>"
+        "<script>alert('ignored')</script>"
+        "</body></html>"
+    )
+    sample_docx = tmp_path / "sample.docx"
+    doc = DocxDocument()
+    doc.add_heading("API Design Handbook", level=1)
+    doc.add_heading("REST Principles", level=2)
+    doc.add_paragraph("REST APIs use HTTP methods to perform CRUD operations.")
+    doc.add_heading("GraphQL", level=2)
+    doc.add_paragraph("GraphQL provides a single endpoint with flexible querying.")
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "Protocol"
+    table.cell(0, 1).text = "Format"
+    table.cell(1, 0).text = "REST"
+    table.cell(1, 1).text = "JSON"
+    doc.save(str(sample_docx))
+
+    files = {"md": sample_md, "txt": sample_txt, "html": sample_html, "docx": sample_docx}
+
+    print(f"\n--- Multi-Format Parsing Regression ---")
+    for ext, path in files.items():
+        expected = b["results"].get(ext)
+        if not expected:
+            continue
+
+        parsed = parse_document(path)
+
+        print(f"  {ext}: title={parsed.title!r}, toc={len(parsed.toc)}, format={parsed.source_format}")
+
+        assert parsed.title == expected["title_detected"], (
+            f"{ext}: title changed: {parsed.title!r} vs baseline {expected['title_detected']!r}"
+        )
+        assert parsed.source_format == expected["source_format"], (
+            f"{ext}: source_format changed: {parsed.source_format!r} vs baseline {expected['source_format']!r}"
+        )
+        assert len(parsed.toc) == expected["toc_entries"], (
+            f"{ext}: TOC entries changed: {len(parsed.toc)} vs baseline {expected['toc_entries']}"
+        )
+        has_table = "|" in parsed.full_markdown
+        assert has_table == expected["has_table"], (
+            f"{ext}: table detection changed: {has_table} vs baseline {expected['has_table']}"
+        )
+        content_tokens = count_tokens(parsed.full_markdown) if parsed.full_markdown else 0
+        assert content_tokens == expected["content_tokens"], (
+            f"{ext}: token count changed: {content_tokens} vs baseline {expected['content_tokens']}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Regression: semantic chunking output must be stable
+# ---------------------------------------------------------------------------
+
+def test_semantic_chunking_regression(tmp_path):
+    """Semantic chunking chunk count and token stats must match baseline."""
+    from unittest.mock import MagicMock
+    import numpy as np
+
+    baseline = _load_baseline()
+    b = baseline.get("semantic_chunking", {})
+    if not b:
+        return
+
+    # Reproduce the exact same multi-topic document from _generate_baseline.py
+    topic_a_sents = [
+        "Machine learning algorithms learn patterns from large volumes of training data.",
+        "Supervised learning requires labeled examples for effective model training.",
+        "Neural networks use backpropagation to adjust connection weights across layers.",
+        "Gradient descent optimizes the loss function by iteratively updating parameters.",
+        "Regularization techniques like dropout prevent overfitting on the training set.",
+        "Transfer learning reuses pretrained model weights for new downstream tasks.",
+    ]
+    topic_b_sents = [
+        "The ocean covers approximately seventy percent of the earth's total surface area.",
+        "Marine ecosystems support incredible biodiversity especially in tropical coral reefs.",
+        "Deep sea hydrothermal vents host chemosynthetic organisms that thrive without sunlight.",
+        "Ocean currents distribute heat globally and regulate regional climate patterns.",
+        "Phytoplankton produce roughly half of the oxygen in the earth's atmosphere.",
+        "Overfishing threatens marine food chains and collapses commercially important fish stocks.",
+    ]
+    topic_c_sents = [
+        "Ancient Roman architecture pioneered the use of arches and concrete construction techniques.",
+        "The Colosseum could seat fifty thousand spectators for gladiatorial combat events.",
+        "Roman aqueducts transported fresh water across vast distances using gravity alone.",
+        "The Pantheon's unreinforced concrete dome remains the largest of its kind today.",
+        "Roman roads connected provinces across three continents enabling trade and military movement.",
+        "Public baths served as social gathering places central to daily Roman civic life.",
+    ]
+    content = (
+        " ".join(topic_a_sents) + "\n\n"
+        + " ".join(topic_b_sents) + "\n\n"
+        + " ".join(topic_c_sents)
+    )
+
+    sec = StructureNode(id="sec-topics", title="Mixed Topics", level=2, content=content)
+    ch = StructureNode(id="ch1", title="Chapter 1", level=1, page_start=1, page_end=3, children=[sec])
+    root = StructureNode(id="root", title="Multi-Topic Doc", level=0, page_end=3, children=[ch])
+    structure = DocumentStructure(doc_id="semantic-baseline", title="Multi-Topic Doc", root=root)
+
+    # Reproduce the exact same deterministic embedder
+    rng = np.random.RandomState(42)
+    dim = 64
+    center_a = rng.randn(dim); center_a /= np.linalg.norm(center_a)
+    center_b = rng.randn(dim); center_b /= np.linalg.norm(center_b)
+    center_c = rng.randn(dim); center_c /= np.linalg.norm(center_c)
+
+    def mock_embed(texts):
+        vectors = []
+        for text in texts:
+            t_lower = text.lower()
+            if any(w in t_lower for w in ["learning", "neural", "training", "algorithm", "backpropagation", "supervised"]):
+                base = center_a
+            elif any(w in t_lower for w in ["ocean", "marine", "reef", "trench", "sea", "biodiversity"]):
+                base = center_b
+            elif any(w in t_lower for w in ["roman", "colosseum", "arch", "aqueduct", "gladiator", "concrete"]):
+                base = center_c
+            else:
+                base = rng.randn(dim)
+            v = base + rng.randn(dim) * 0.05
+            v /= np.linalg.norm(v)
+            vectors.append(v.tolist())
+        return vectors
+
+    embedder = MagicMock()
+    embedder.embed_passages.side_effect = mock_embed
+
+    settings = Settings(
+        data_dir=tmp_path, chunking_strategy="semantic",
+        max_chunk_tokens=120, min_chunk_tokens=30, semantic_threshold_percentile=25,
+    )
+
+    chunks = chunk_document(structure, settings, embedder=embedder)
+    sem = b["semantic"]
+
+    sizes = sorted(count_tokens(c.content) for c in chunks.l3_chunks)
+
+    print(f"\n--- Semantic Chunking Regression ---")
+    print(f"  L3 passages: {len(chunks.l3_chunks)} (baseline {sem['l3_passages']})")
+    print(f"  Total tokens: {sum(sizes)} (baseline {sem['total_tokens']})")
+    print(f"  Token range: [{sizes[0]}-{sizes[-1]}] (baseline [{sem['token_min']}-{sem['token_max']}])")
+
+    assert len(chunks.l3_chunks) == sem["l3_passages"], (
+        f"Semantic L3 count changed: {len(chunks.l3_chunks)} vs baseline {sem['l3_passages']}"
+    )
+    assert sum(sizes) == sem["total_tokens"], (
+        f"Semantic total tokens changed: {sum(sizes)} vs baseline {sem['total_tokens']}"
+    )
+    assert sizes[0] == sem["token_min"], (
+        f"Semantic token min changed: {sizes[0]} vs baseline {sem['token_min']}"
+    )
+    assert sizes[-1] == sem["token_max"], (
+        f"Semantic token max changed: {sizes[-1]} vs baseline {sem['token_max']}"
     )

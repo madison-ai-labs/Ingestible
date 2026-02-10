@@ -1,0 +1,31 @@
+/* htmx indicator */
+.htmx-indicator {
+  opacity: 0;
+  transition: opacity 200ms ease-in;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-indicator.htmx-request {
+  opacity: 1;
+  animation: pulse-bar 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-bar {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+/* Smooth details/summary transitions */
+details > summary {
+  list-style: none;
+}
+
+details > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Drop zone active state */
+.drop-active {
+  border-color: #6366f1 !important;
+  background-color: #eef2ff;
+}

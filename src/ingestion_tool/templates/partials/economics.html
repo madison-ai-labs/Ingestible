@@ -1,0 +1,53 @@
+<div class="space-y-4">
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div>
+      <span class="text-xs text-gray-500 uppercase tracking-wide">Full Document</span>
+      <p class="text-lg font-semibold">{{ "{:,}".format(full_tokens) }} <span class="text-sm font-normal text-gray-400">tokens</span></p>
+    </div>
+    <div>
+      <span class="text-xs text-gray-500 uppercase tracking-wide">L0 Overview</span>
+      <p class="text-lg font-semibold">{{ "{:,}".format(l0_tokens) }} <span class="text-sm font-normal text-gray-400">tokens</span></p>
+    </div>
+    <div>
+      <span class="text-xs text-gray-500 uppercase tracking-wide">Avg Query</span>
+      <p class="text-lg font-semibold">{{ "{:,}".format(avg_query_tokens) }} <span class="text-sm font-normal text-gray-400">tokens</span></p>
+    </div>
+    <div>
+      <span class="text-xs text-gray-500 uppercase tracking-wide">Savings</span>
+      <p class="text-lg font-semibold text-green-600">{{ savings }}%</p>
+    </div>
+  </div>
+
+  <!-- Visual bars -->
+  <div class="space-y-2">
+    <div>
+      <div class="flex justify-between text-xs text-gray-500 mb-1">
+        <span>Full document in context</span>
+        <span>{{ "{:,}".format(full_tokens) }} tokens</span>
+      </div>
+      <div class="w-full bg-gray-100 rounded-full h-3">
+        <div class="bg-red-400 h-3 rounded-full" style="width: 100%"></div>
+      </div>
+    </div>
+    <div>
+      <div class="flex justify-between text-xs text-gray-500 mb-1">
+        <span>Average query (L0 + 3 passages)</span>
+        <span>{{ "{:,}".format(avg_query_tokens) }} tokens</span>
+      </div>
+      <div class="w-full bg-gray-100 rounded-full h-3">
+        {% set pct = (avg_query_tokens / full_tokens * 100) if full_tokens > 0 else 0 %}
+        <div class="bg-green-500 h-3 rounded-full" style="width: {{ pct|round(1) }}%"></div>
+      </div>
+    </div>
+    <div>
+      <div class="flex justify-between text-xs text-gray-500 mb-1">
+        <span>L0 overview only</span>
+        <span>{{ "{:,}".format(l0_tokens) }} tokens</span>
+      </div>
+      <div class="w-full bg-gray-100 rounded-full h-3">
+        {% set pct_l0 = (l0_tokens / full_tokens * 100) if full_tokens > 0 else 0 %}
+        <div class="bg-indigo-500 h-3 rounded-full" style="width: {{ pct_l0|round(1) }}%"></div>
+      </div>
+    </div>
+  </div>
+</div>

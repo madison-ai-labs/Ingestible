@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}{{ meta.title }} — IngestionTool{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+  <a href="/" class="text-sm text-gray-500 hover:text-gray-700">&larr; Back to Documents</a>
+</div>
+
+<!-- Overview -->
+<section class="bg-white rounded-lg shadow p-6 mb-6">
+  <h1 class="text-2xl font-bold mb-4">{{ meta.title }}</h1>
+
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+    <div>
+      <span class="text-xs text-gray-500 uppercase tracking-wide">Pages</span>
+      <p class="text-lg font-semibold">{{ l0.total_pages }}</p>
+    </div>
+    <div>
+      <span class="text-xs text-gray-500 uppercase tracking-wide">Chapters</span>
+      <p class="text-lg font-semibold">{{ l0.total_chapters }}</p>
+    </div>
+    <div>
+      <span class="text-xs text-gray-500 uppercase tracking-wide">Sections</span>
+      <p class="text-lg font-semibold">{{ l0.total_sections }}</p>
+    </div>
+    <div>
+      <span class="text-xs text-gray-500 uppercase tracking-wide">Passages</span>
+      <p class="text-lg font-semibold">{{ l0.total_passages }}</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+    {% if l0.author %}
+    <div><span class="text-gray-500">Author:</span> {{ l0.author }}</div>
+    {% endif %}
+    {% if l0.domain %}
+    <div><span class="text-gray-500">Domain:</span> {{ l0.domain }}</div>
+    {% endif %}
+    <div><span class="text-gray-500">Total Chunks:</span> {{ total_chunks }}</div>
+    {% if meta.content_hash %}
+    <div class="col-span-2">
+      <span class="text-gray-500">Content Hash:</span>
+      <code class="text-xs bg-gray-100 px-1 py-0.5 rounded">{{ meta.content_hash }}</code>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if l0.toc_summary %}
+  <div class="mt-4">
+    <h3 class="text-sm font-medium text-gray-500 mb-1">Table of Contents</h3>
+    <p class="text-sm whitespace-pre-line bg-gray-50 rounded p-3">{{ l0.toc_summary }}</p>
+  </div>
+  {% endif %}
+
+  {% if l0.key_concepts %}
+  <div class="mt-4">
+    <h3 class="text-sm font-medium text-gray-500 mb-2">Key Concepts</h3>
+    <div class="flex flex-wrap gap-2">
+      {% for concept in l0.key_concepts %}
+      <span class="px-2 py-1 bg-indigo-50 text-indigo-700 text-xs rounded-full">{{ concept }}</span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</section>
+
+<!-- Hierarchy -->
+<section class="bg-white rounded-lg shadow p-6 mb-6">
+  <h2 class="text-xl font-bold mb-4">Chunk Hierarchy</h2>
+  <div
+    hx-get="/doc/{{ doc_id }}/chunk-tree"
+    hx-trigger="load"
+    hx-indicator="#htmx-indicator"
+    class="min-h-[4rem]"
+  >
+    <p class="text-gray-400 text-sm">Loading hierarchy...</p>
+  </div>
+</section>
+
+<!-- Economics -->
+<section class="bg-white rounded-lg shadow p-6 mb-6">
+  <h2 class="text-xl font-bold mb-4">Token Economics</h2>
+  <div
+    hx-get="/doc/{{ doc_id }}/economics-panel"
+    hx-trigger="load"
+    hx-indicator="#htmx-indicator"
+    class="min-h-[4rem]"
+  >
+    <p class="text-gray-400 text-sm">Loading economics...</p>
+  </div>
+</section>
+
+<!-- Search -->
+<section class="bg-white rounded-lg shadow p-6 mb-6">
+  <h2 class="text-xl font-bold mb-4">Search</h2>
+  <form
+    hx-post="/doc/{{ doc_id }}/search-results"
+    hx-target="#search-results"
+    hx-indicator="#htmx-indicator"
+    class="flex gap-3 mb-4"
+  >
+    <input
+      type="text"
+      name="query"
+      placeholder="Search this document..."
+      class="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+      required
+    >
+    <input type="hidden" name="n_results" value="5">
+    <button type="submit" class="bg-indigo-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">
+      Search
+    </button>
+  </form>
+  <div id="search-results">
+    <p class="text-gray-400 text-sm">Enter a query to search this document.</p>
+  </div>
+</section>
+{% endblock %}
