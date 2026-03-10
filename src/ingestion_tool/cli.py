@@ -60,6 +60,34 @@ def main(argv: list[str] | None = None) -> None:
         "-n", "--results", type=int, default=5, help="Number of results (default: 5)"
     )
 
+    # --- export-cv ---
+    p_export = sub.add_parser("export-cv", help="Export documents to CognitiveVault")
+    p_export.add_argument(
+        "doc_ids",
+        nargs="*",
+        help="Document IDs to export (default: all)",
+    )
+    p_export.add_argument(
+        "--cv-url",
+        default=None,
+        help="CognitiveVault base URL (or set CV_URL env var)",
+    )
+    p_export.add_argument(
+        "--cv-api-key",
+        default=None,
+        help="CognitiveVault API key (or set CV_API_KEY env var)",
+    )
+    p_export.add_argument(
+        "--cv-vault-id",
+        default=None,
+        help="Target vault ID (or set CV_VAULT_ID env var)",
+    )
+    p_export.add_argument(
+        "--delete-removed",
+        action="store_true",
+        help="Delete CV entries whose sourcePaths are not in this export",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command is None:
@@ -72,6 +100,8 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_list()
     elif args.command == "search":
         _cmd_search(args)
+    elif args.command == "export-cv":
+        _cmd_export_cv(args)
 
 
 def _is_batch_input(file_path: str) -> bool:
@@ -193,6 +223,55 @@ def _cmd_search(args: argparse.Namespace) -> None:
         else:
             print(f"      {r.content[:200]}")
         print()
+
+
+def _cmd_export_cv(args: argparse.Namespace) -> None:
+    import os
+    from ingestion_tool.adapters.cv_export import CVConfig, export_batch_to_cv
+    from ingestion_tool.config import get_settings
+    from ingestion_tool.pipeline.stage6_storage import list_documents
+
+    import logging
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+    settings = get_settings()
+
+    cv_url = args.cv_url or os.environ.get("CV_URL")
+    cv_api_key = args.cv_api_key or os.environ.get("CV_API_KEY")
+    cv_vault_id = args.cv_vault_id or os.environ.get("CV_VAULT_ID")
+
+    if not cv_url or not cv_api_key or not cv_vault_id:
+        print("Error: CognitiveVault connection requires --cv-url, --cv-api-key, --cv-vault-id")
+        print("       (or set CV_URL, CV_API_KEY, CV_VAULT_ID environment variables)")
+        sys.exit(1)
+
+    config = CVConfig(base_url=cv_url, api_key=cv_api_key, vault_id=cv_vault_id)
+
+    # Resolve doc_ids
+    if args.doc_ids:
+        doc_ids = args.doc_ids
+    else:
+        docs = list_documents(settings)
+        doc_ids = [d.get("doc_id", "") for d in docs if d.get("doc_id")]
+        if not doc_ids:
+            print("No documents ingested yet. Run 'ingest ingest <file>' first.")
+            sys.exit(1)
+        print(f"Exporting all {len(doc_ids)} documents...")
+
+    results = export_batch_to_cv(
+        doc_ids, settings, config, delete_removed=args.delete_removed
+    )
+
+    succeeded = sum(1 for r in results if not r.error)
+    failed = sum(1 for r in results if r.error)
+
+    print(f"\nExport complete: {succeeded} succeeded, {failed} failed")
+    for r in results:
+        if r.error:
+            print(f"  {r.doc_id:40s}  FAILED: {r.error}")
+        else:
+            print(f"  {r.doc_id:40s}  created={r.created} updated={r.updated} unchanged={r.unchanged}")
 
 
 if __name__ == "__main__":
