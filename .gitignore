@@ -20,3 +20,5 @@ htmlcov/
 *.pickle
 
 .DS_Store
+
+.ckb/
