@@ -138,7 +138,7 @@ def _make_enriched_chunkset() -> tuple[DocumentStructure, ChunkSet]:
 # 1. Schema snapshot — catch any breaking changes to the ChunkSet shape
 # ---------------------------------------------------------------------------
 
-# To regenerate: run pytest with --update-snapshots (or just replace the dict below)
+# To update: run the test, copy the extracted output from the failure message
 CHUNKSET_SCHEMA_SNAPSHOT = {
     "doc_id": "string",
     "l0": {
@@ -189,7 +189,7 @@ CHUNKSET_SCHEMA_SNAPSHOT = {
             "index": "integer",
         },
         "parent_section_id": "string",
-        "position_in_section": "string",
+        "position_in_section": "enum[first,last,middle,only]",
         "context_prefix": "string",
         "summary": "string",
         "concepts": "list[string]",
@@ -225,6 +225,8 @@ def _extract_field_types(schema: dict, defs: dict) -> dict:
             for option in prop["anyOf"]:
                 types.append(option.get("type", "ref"))
             result[name] = "|".join(types)
+        elif "enum" in prop:
+            result[name] = f"enum[{','.join(str(v) for v in sorted(prop['enum']))}]"
         else:
             result[name] = prop.get("type", "unknown")
 
