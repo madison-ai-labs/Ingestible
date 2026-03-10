@@ -14,8 +14,8 @@ def main(argv: list[str] | None = None) -> None:
     sub = parser.add_subparsers(dest="command")
 
     # --- ingest ---
-    p_ingest = sub.add_parser("ingest", help="Ingest a document into the knowledge store")
-    p_ingest.add_argument("file_path", help="Path to the document (PDF, Markdown, TXT, DOCX, HTML)")
+    p_ingest = sub.add_parser("ingest", help="Ingest a document or directory into the knowledge store")
+    p_ingest.add_argument("file_path", help="Path to document, directory, or glob pattern")
     p_ingest.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     p_ingest.add_argument(
         "--skip-enrichment",
@@ -35,6 +35,18 @@ def main(argv: list[str] | None = None) -> None:
         "--force",
         action="store_true",
         help="Force re-ingestion even if document is unchanged",
+    )
+    p_ingest.add_argument(
+        "--parallel",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Number of parallel workers for batch ingestion (default: 1)",
+    )
+    p_ingest.add_argument(
+        "--no-recursive",
+        action="store_true",
+        help="Don't recurse into subdirectories",
     )
 
     # --- list ---
@@ -62,9 +74,18 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_search(args)
 
 
+def _is_batch_input(file_path: str) -> bool:
+    """Detect if input is a directory or glob pattern (batch mode)."""
+    from pathlib import Path
+
+    if "*" in file_path or "?" in file_path:
+        return True
+    p = Path(file_path)
+    return p.is_dir()
+
+
 def _cmd_ingest(args: argparse.Namespace) -> None:
     from ingestion_tool.config import get_settings
-    from ingestion_tool.pipeline.orchestrator import ingest
 
     overrides = {}
     if args.data_dir:
@@ -75,14 +96,38 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
         overrides["chunking_strategy"] = args.chunking
 
     settings = get_settings(**overrides)
-    doc_dir = ingest(
-        args.file_path,
-        settings,
-        skip_enrichment=args.skip_enrichment,
-        verbose=args.verbose,
-        force=args.force,
-    )
-    print(f"Ingested → {doc_dir}")
+
+    if _is_batch_input(args.file_path):
+        from ingestion_tool.pipeline.batch import ingest_batch
+
+        if args.verbose:
+            import logging
+
+            logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+        report = ingest_batch(
+            args.file_path,
+            settings,
+            skip_enrichment=args.skip_enrichment,
+            force=args.force,
+            parallel=args.parallel,
+            recursive=not args.no_recursive,
+        )
+        print(f"\nBatch complete: {report.succeeded} succeeded, {report.failed} failed ({report.elapsed_seconds}s)")
+        for r in report.results:
+            status = "OK" if not r.error else f"FAILED: {r.error}"
+            print(f"  {r.path.name:40s}  {status}")
+    else:
+        from ingestion_tool.pipeline.orchestrator import ingest
+
+        doc_dir = ingest(
+            args.file_path,
+            settings,
+            skip_enrichment=args.skip_enrichment,
+            verbose=args.verbose,
+            force=args.force,
+        )
+        print(f"Ingested → {doc_dir}")
 
 
 def _cmd_list() -> None:

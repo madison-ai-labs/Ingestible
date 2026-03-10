@@ -242,6 +242,74 @@ async def ingest_document(
         Path(tmp_path).unlink(missing_ok=True)
 
 
+class BatchIngestResult(BaseModel):
+    filename: str
+    doc_id: str | None = None
+    error: str | None = None
+    elapsed_seconds: float = 0.0
+
+
+class BatchIngestResponse(BaseModel):
+    total: int
+    succeeded: int
+    failed: int
+    elapsed_seconds: float
+    results: list[BatchIngestResult]
+
+
+@app.post("/ingest/batch", response_model=BatchIngestResponse)
+async def ingest_batch_endpoint(
+    files: list[UploadFile] = File(...),
+    skip_enrichment: bool = Form(False),
+):
+    """
+    Ingest multiple files in a single request.
+
+    Accepts multipart file uploads. Each file is ingested independently with
+    error isolation — one failure doesn't abort the batch.
+    """
+    from ingestion_tool.pipeline.batch import BatchReport, FileResult, _ingest_one
+    from ingestion_tool.pipeline.orchestrator import generate_doc_id
+
+    settings = get_cached_settings()
+    report = BatchReport(total=len(files))
+    results: list[BatchIngestResult] = []
+
+    for upload in files:
+        suffix = Path(upload.filename or "upload.pdf").suffix
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            content = await upload.read()
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
+
+        try:
+            result = _ingest_one(tmp_path, settings, skip_enrichment, force=False)
+            if result.error:
+                report.failed += 1
+                results.append(BatchIngestResult(
+                    filename=upload.filename or "unknown",
+                    error=result.error,
+                    elapsed_seconds=result.elapsed_seconds,
+                ))
+            else:
+                report.succeeded += 1
+                results.append(BatchIngestResult(
+                    filename=upload.filename or "unknown",
+                    doc_id=result.doc_id,
+                    elapsed_seconds=result.elapsed_seconds,
+                ))
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    return BatchIngestResponse(
+        total=report.total,
+        succeeded=report.succeeded,
+        failed=report.failed,
+        elapsed_seconds=sum(r.elapsed_seconds for r in results),
+        results=results,
+    )
+
+
 @app.get("/documents", response_model=list[DocumentSummary])
 async def list_docs():
     """List all ingested documents."""
