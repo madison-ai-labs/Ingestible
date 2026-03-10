@@ -123,7 +123,7 @@ def _l2_to_entry(l2: L2Chunk, doc_id: str, order: int) -> dict[str, Any]:
 
     tags = list(l2.concepts_introduced[:10])
 
-    return {
+    entry: dict[str, Any] = {
         "title": l2.title,
         "content": content,
         "entryType": "DOCUMENT",
@@ -134,6 +134,16 @@ def _l2_to_entry(l2: L2Chunk, doc_id: str, order: int) -> dict[str, Any]:
         "chunkOrder": order,
         "parentSourcePath": _source_path(doc_id, l2.parent_chapter_id),
     }
+
+    enrichment: dict[str, Any] = {}
+    if l2.section_summary:
+        enrichment["summary"] = l2.section_summary
+    if l2.concepts_introduced:
+        enrichment["conceptTags"] = l2.concepts_introduced
+    if enrichment:
+        entry["enrichment"] = enrichment
+
+    return entry
 
 
 def _l3_to_entry(l3: L3Chunk, doc_id: str, order: int) -> dict[str, Any]:
@@ -146,7 +156,7 @@ def _l3_to_entry(l3: L3Chunk, doc_id: str, order: int) -> dict[str, Any]:
 
     tags = list(l3.keywords[:10])
 
-    return {
+    entry: dict[str, Any] = {
         "title": title,
         "content": content,
         "entryType": "DOCUMENT",
@@ -157,6 +167,20 @@ def _l3_to_entry(l3: L3Chunk, doc_id: str, order: int) -> dict[str, Any]:
         "chunkOrder": order,
         "parentSourcePath": _source_path(doc_id, l3.parent_section_id),
     }
+
+    # Pass enrichment fields for CV's EntryMetrics
+    enrichment: dict[str, Any] = {}
+    if l3.summary:
+        enrichment["summary"] = l3.summary
+    if l3.hypothetical_questions:
+        enrichment["hypotheticalQuestions"] = l3.hypothetical_questions
+    concept_tags = list(set(l3.concepts + l3.keywords))
+    if concept_tags:
+        enrichment["conceptTags"] = concept_tags
+    if enrichment:
+        entry["enrichment"] = enrichment
+
+    return entry
 
 
 def chunkset_to_entries(chunks: ChunkSet) -> list[dict[str, Any]]:

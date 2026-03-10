@@ -439,6 +439,43 @@ The adapter uses `sourcePath` + `checksum` for upsert semantics:
 This means re-running `ingest export-cv` after re-ingesting a document is
 safe and incremental — only changed chunks are updated.
 
+### CV-side requirements
+
+The adapter depends on these CognitiveVault features (all implemented):
+
+| CV component | What it does | Status |
+|---|---|---|
+| Bulk endpoint chunk fields | Accepts `chunkLevel`, `chunkOrder`, `parentSourcePath`, `language` | Done (`ae851f4`) |
+| Parent resolution in bulk | Sorts by chunkLevel, maps `parentSourcePath` → internal IDs | Done (`ae851f4`) |
+| Post-bulk embedding | Calls `embedEntry()` for each created/updated entry | Done |
+| Post-bulk metrics | Calls `recomputeEntryMetrics()` for each touched entry | Done |
+| Enrichment passthrough | Writes `enrichment.summary`, `hypotheticalQuestions`, `conceptTags` to EntryMetrics | Done |
+| Schema: VaultEntry chunk fields | `parentId`, `chunkLevel`, `chunkOrder`, `language` | Done (`1e38485`) |
+| Schema: EntryMetrics enrichment | `summary`, `hypotheticalQuestions`, `conceptTags` | Done (`1e38485`) |
+| Default chunkLevel filter | `GET /entries` excludes chunked entries by default | Done (`1e38485`) |
+| Chunks endpoint | `GET /entries/:id/chunks` returns chunk tree via recursive CTE | Done (`1e38485`) |
+
+### Adapter scope — this is CV-specific, not generic
+
+The adapter (`cv_export.py`) is purpose-built for CognitiveVault's bulk API
+contract. It is **not** a generic "export ChunkSet to any system" abstraction.
+
+The generic part is `chunkset_to_entries()` — the pure transformation from
+ChunkSet to a list of flat dicts with `sourcePath`, `parentSourcePath`,
+`chunkLevel`, `chunkOrder`, and `enrichment`. Any system that accepts entries
+with those fields could reuse the transformation logic.
+
+The CV-specific parts are:
+- HTTP transport (`export_to_cv`) targeting CV's `/entries/bulk` endpoint
+- Auth header format (`Bearer` token)
+- Response shape (`{created, updated, unchanged, deleted}`)
+- `sourcePath` prefix convention (`ingest:{doc_id}/{chunk_id}`)
+
+To add a different export target (e.g., Qdrant, Pinecone, Notion), create a
+new adapter in `adapters/` that imports `chunkset_to_entries()` and handles
+its own transport. Do not generalize `cv_export.py` — keep adapters simple
+and single-purpose.
+
 ### When to use direct DB writes instead
 
 The API-based adapter is right for:

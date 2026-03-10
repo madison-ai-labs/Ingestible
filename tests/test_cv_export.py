@@ -194,6 +194,36 @@ class TestChunksetToEntries:
         for a, b in zip(entries_a, entries_b):
             assert a["checksum"] == b["checksum"]
 
+    def test_l3_enrichment_fields_included(self):
+        """L3 entries with enrichment data include an enrichment dict."""
+        chunks = _make_chunkset()
+        entries = chunkset_to_entries(chunks)
+        l3 = entries[3]  # p0 has summary, concepts, keywords
+
+        assert "enrichment" in l3
+        assert l3["enrichment"]["summary"] == "First passage about export."
+        assert "hypotheticalQuestions" not in l3["enrichment"]  # empty list → omitted
+        assert "export" in l3["enrichment"]["conceptTags"]
+        assert "adapter" in l3["enrichment"]["conceptTags"]
+
+    def test_l2_enrichment_fields_included(self):
+        """L2 entries with section_summary include enrichment."""
+        chunks = _make_chunkset()
+        entries = chunkset_to_entries(chunks)
+        l2 = entries[2]
+
+        assert "enrichment" in l2
+        assert l2["enrichment"]["summary"] == "Export basics."
+        assert "adapter pattern" in l2["enrichment"]["conceptTags"]
+
+    def test_no_enrichment_when_empty(self):
+        """Entries without enrichment data don't include the key."""
+        chunks = _make_chunkset()
+        entries = chunkset_to_entries(chunks)
+        l0 = entries[0]
+
+        assert "enrichment" not in l0
+
     def test_empty_chunkset_produces_one_entry(self):
         """Even an empty document has an L0."""
         chunks = ChunkSet(
