@@ -15,11 +15,11 @@ from pathlib import Path
 
 from sentence_transformers import SentenceTransformer
 
-from ingestion_tool.config import Settings
-from ingestion_tool.models.chunks import ChunkSet, L3Chunk
-from ingestion_tool.search.bm25_store import BM25Store
-from ingestion_tool.search.concept_index import ConceptIndex
-from ingestion_tool.search.vector_store import VectorStore
+from ingestible.config import Settings
+from ingestible.models.chunks import ChunkSet, L3Chunk
+from ingestible.search.bm25_store import BM25Store
+from ingestible.search.concept_index import ConceptIndex
+from ingestible.search.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 

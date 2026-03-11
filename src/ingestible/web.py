@@ -9,18 +9,18 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from ingestion_tool.config import get_settings
-from ingestion_tool.models.chunks import ChunkSet
-from ingestion_tool.pipeline.orchestrator import ingest
-from ingestion_tool.pipeline.stage5_embedding import Embedder
-from ingestion_tool.pipeline.stage6_storage import (
+from ingestible.config import get_settings
+from ingestible.models.chunks import ChunkSet
+from ingestible.pipeline.orchestrator import ingest
+from ingestible.pipeline.stage5_embedding import Embedder
+from ingestible.pipeline.stage6_storage import (
     list_documents,
     load_chunks,
     load_document_meta,
     load_structure,
 )
-from ingestion_tool.search.hybrid import load_searcher
-from ingestion_tool.utils.tokens import count_tokens
+from ingestible.search.hybrid import load_searcher
+from ingestible.utils.tokens import count_tokens
 
 router = APIRouter(default_response_class=HTMLResponse)
 

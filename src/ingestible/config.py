@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     )
 
     # LLM provider
-    llm_provider: Literal["openai", "anthropic"] = "openai"
+    llm_provider: Literal["openai", "anthropic"] = "anthropic"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     anthropic_api_key: str = ""

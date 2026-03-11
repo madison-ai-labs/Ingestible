@@ -1,5 +1,5 @@
-from ingestion_tool.search.bm25_store import BM25Store
-from ingestion_tool.search.concept_index import ConceptIndex
+from ingestible.search.bm25_store import BM25Store
+from ingestible.search.concept_index import ConceptIndex
 
 
 def test_bm25_roundtrip(tmp_path):

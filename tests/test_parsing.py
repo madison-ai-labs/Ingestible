@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from ingestion_tool.pipeline.stage1_parsing import parse_document
+from ingestible.pipeline.stage1_parsing import parse_document
 
 
 def test_parse_markdown(tmp_path):
@@ -160,12 +160,12 @@ def test_parse_file_not_found():
         parse_document("/nonexistent/file.md")
 
 
-@patch("ingestion_tool.pipeline.stage1_parsing.parse_pdf")
+@patch("ingestible.pipeline.stage1_parsing.parse_pdf")
 def test_parse_document_routes_pdf(mock_parse_pdf, tmp_path):
     pdf_file = tmp_path / "test.pdf"
     pdf_file.write_bytes(b"%PDF-1.4 fake")  # just needs to exist
 
-    from ingestion_tool.models.document import ParsedDocument
+    from ingestible.models.document import ParsedDocument
 
     mock_parse_pdf.return_value = ParsedDocument(
         title="Mock PDF", source_path=str(pdf_file), source_format="pdf"

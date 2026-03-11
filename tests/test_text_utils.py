@@ -1,4 +1,4 @@
-from ingestion_tool.utils.text import (
+from ingestible.utils.text import (
     extract_heading_level,
     is_code_block,
     is_table_block,

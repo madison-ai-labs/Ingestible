@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from ingestion_tool.config import Settings
-from ingestion_tool.models.document import DocumentStructure, StructureNode
-from ingestion_tool.pipeline.stage3_chunking import chunk_document
+from ingestible.config import Settings
+from ingestible.models.document import DocumentStructure, StructureNode
+from ingestible.pipeline.stage3_chunking import chunk_document
 
 
 def _make_structure(content: str, doc_id: str = "test") -> DocumentStructure:
@@ -83,7 +83,7 @@ def test_recursive_max_tokens_respected(tmp_path):
     structure = _make_structure(content)
     chunks = chunk_document(structure, settings)
     assert len(chunks.l3_chunks) >= 2
-    from ingestion_tool.utils.tokens import count_tokens
+    from ingestible.utils.tokens import count_tokens
 
     for c in chunks.l3_chunks:
         # Allow some tolerance (hard-split is approximate)

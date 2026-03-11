@@ -19,11 +19,11 @@ def _mock_chromadb(monkeypatch):
         monkeypatch.setitem(sys.modules, "chromadb.config", MagicMock())
 
 
-from ingestion_tool.config import Settings
+from ingestible.config import Settings
 
 
 def _import_dedup():
-    from ingestion_tool.pipeline.orchestrator import _check_duplicate_content
+    from ingestible.pipeline.orchestrator import _check_duplicate_content
     return _check_duplicate_content
 
 

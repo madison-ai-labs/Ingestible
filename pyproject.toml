@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ingestion-tool"
+name = "ingestible"
 version = "0.9.0"
 description = "Document ingestion pipeline — transforms documents into a queryable knowledge store"
 license = "Apache-2.0"
@@ -48,10 +48,10 @@ dev = [
 ]
 
 [project.scripts]
-ingest = "ingestion_tool.cli:main"
+ingest = "ingestible.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ingestion_tool"]
+packages = ["src/ingestible"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

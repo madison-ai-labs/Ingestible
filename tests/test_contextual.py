@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ingestion_tool.config import Settings
-from ingestion_tool.models.chunks import (
+from ingestible.config import Settings
+from ingestible.models.chunks import (
     ChunkPosition,
     ChunkSet,
     L0Chunk,
@@ -16,7 +16,7 @@ from ingestion_tool.models.chunks import (
     L2Chunk,
     L3Chunk,
 )
-from ingestion_tool.models.document import DocumentStructure, StructureNode
+from ingestible.models.document import DocumentStructure, StructureNode
 
 
 @pytest.fixture(autouse=True)
@@ -67,7 +67,7 @@ def _make_test_data():
 @pytest.mark.asyncio
 async def test_context_prefix_set_on_chunks():
     """Context prefix is set on L3 chunks when LLM succeeds."""
-    from ingestion_tool.pipeline.stage3c_contextual import add_context_prefixes
+    from ingestible.pipeline.stage3c_contextual import add_context_prefixes
 
     chunks, structure = _make_test_data()
     settings = Settings(
@@ -87,7 +87,7 @@ async def test_context_prefix_set_on_chunks():
     )
 
     with patch(
-        "ingestion_tool.pipeline.stage4_enrichment._make_client",
+        "ingestible.pipeline.stage4_enrichment._make_client",
         return_value=mock_client,
     ):
         result = await add_context_prefixes(chunks, structure, settings)
@@ -100,7 +100,7 @@ async def test_context_prefix_set_on_chunks():
 @pytest.mark.asyncio
 async def test_prompt_includes_titles():
     """The LLM prompt includes doc, chapter, and section titles."""
-    from ingestion_tool.pipeline.stage3c_contextual import add_context_prefixes
+    from ingestible.pipeline.stage3c_contextual import add_context_prefixes
 
     chunks, structure = _make_test_data()
     settings = Settings(
@@ -125,7 +125,7 @@ async def test_prompt_includes_titles():
     mock_client.generate_json.side_effect = capture_prompt
 
     with patch(
-        "ingestion_tool.pipeline.stage4_enrichment._make_client",
+        "ingestible.pipeline.stage4_enrichment._make_client",
         return_value=mock_client,
     ):
         await add_context_prefixes(chunks, structure, settings)
@@ -140,7 +140,7 @@ async def test_prompt_includes_titles():
 @pytest.mark.asyncio
 async def test_context_prefix_survives_llm_failure():
     """If LLM fails for a chunk, context_prefix stays empty (no crash)."""
-    from ingestion_tool.pipeline.stage3c_contextual import add_context_prefixes
+    from ingestible.pipeline.stage3c_contextual import add_context_prefixes
 
     chunks, structure = _make_test_data()
     settings = Settings(
@@ -153,7 +153,7 @@ async def test_context_prefix_survives_llm_failure():
     mock_client.generate_json.side_effect = RuntimeError("API error")
 
     with patch(
-        "ingestion_tool.pipeline.stage4_enrichment._make_client",
+        "ingestible.pipeline.stage4_enrichment._make_client",
         return_value=mock_client,
     ):
         result = await add_context_prefixes(chunks, structure, settings)

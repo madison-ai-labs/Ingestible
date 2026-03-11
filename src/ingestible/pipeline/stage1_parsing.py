@@ -11,7 +11,7 @@ import logging
 import re
 from pathlib import Path
 
-from ingestion_tool.models.document import PageContent, ParsedDocument, TOCEntry
+from ingestible.models.document import PageContent, ParsedDocument, TOCEntry
 
 logger = logging.getLogger(__name__)
 

@@ -115,7 +115,7 @@ def _is_batch_input(file_path: str) -> bool:
 
 
 def _cmd_ingest(args: argparse.Namespace) -> None:
-    from ingestion_tool.config import get_settings
+    from ingestible.config import get_settings
 
     overrides = {}
     if args.data_dir:
@@ -128,7 +128,7 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
     settings = get_settings(**overrides)
 
     if _is_batch_input(args.file_path):
-        from ingestion_tool.pipeline.batch import ingest_batch
+        from ingestible.pipeline.batch import ingest_batch
 
         if args.verbose:
             import logging
@@ -148,7 +148,7 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
             status = "OK" if not r.error else f"FAILED: {r.error}"
             print(f"  {r.path.name:40s}  {status}")
     else:
-        from ingestion_tool.pipeline.orchestrator import ingest
+        from ingestible.pipeline.orchestrator import ingest
 
         doc_dir = ingest(
             args.file_path,
@@ -161,8 +161,8 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
 
 
 def _cmd_list() -> None:
-    from ingestion_tool.config import get_settings
-    from ingestion_tool.pipeline.stage6_storage import list_documents
+    from ingestible.config import get_settings
+    from ingestible.pipeline.stage6_storage import list_documents
 
     settings = get_settings()
     docs = list_documents(settings)
@@ -183,10 +183,10 @@ def _cmd_list() -> None:
 def _cmd_search(args: argparse.Namespace) -> None:
     from pathlib import Path
 
-    from ingestion_tool.config import get_settings
-    from ingestion_tool.pipeline.stage5_embedding import Embedder
-    from ingestion_tool.pipeline.stage6_storage import load_chunks
-    from ingestion_tool.search.hybrid import load_searcher
+    from ingestible.config import get_settings
+    from ingestible.pipeline.stage5_embedding import Embedder
+    from ingestible.pipeline.stage6_storage import load_chunks
+    from ingestible.search.hybrid import load_searcher
 
     settings = get_settings()
     doc_dir = settings.documents_dir / args.doc_id
@@ -227,9 +227,9 @@ def _cmd_search(args: argparse.Namespace) -> None:
 
 def _cmd_export_cv(args: argparse.Namespace) -> None:
     import os
-    from ingestion_tool.adapters.cv_export import CVConfig, export_batch_to_cv
-    from ingestion_tool.config import get_settings
-    from ingestion_tool.pipeline.stage6_storage import list_documents
+    from ingestible.adapters.cv_export import CVConfig, export_batch_to_cv
+    from ingestible.config import get_settings
+    from ingestible.pipeline.stage6_storage import list_documents
 
     import logging
 

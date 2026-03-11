@@ -1,5 +1,5 @@
-from ingestion_tool.models.document import PageContent, ParsedDocument, TOCEntry
-from ingestion_tool.pipeline.stage2_structure import detect_structure
+from ingestible.models.document import PageContent, ParsedDocument, TOCEntry
+from ingestible.pipeline.stage2_structure import detect_structure
 
 
 def test_structure_from_toc():

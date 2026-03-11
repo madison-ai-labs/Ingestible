@@ -1,8 +1,8 @@
-# IngestionTool
+# Ingestible
 
 A document ingestion pipeline that transforms PDFs, Markdown, DOCX, HTML, and plain text into a hierarchical, searchable knowledge store optimized for AI retrieval.
 
-Instead of dumping 90,000 tokens into an LLM context window, IngestionTool gives your AI a **structured map** of the document and **hybrid search** across three indexes — so each query costs ~1,000-2,000 tokens instead.
+Instead of dumping 90,000 tokens into an LLM context window, Ingestible gives your AI a **structured map** of the document and **hybrid search** across three indexes — so each query costs ~1,000-2,000 tokens instead.
 
 ```
 513-page book:  92,598 tokens full  →  ~1,317 tokens per query  (99% reduction)
@@ -40,8 +40,8 @@ Passages found by multiple indexes rank higher. No score normalization needed.
 ## Quickstart
 
 ```bash
-git clone https://github.com/simplyliz/IngestionTool.git
-cd IngestionTool
+git clone https://github.com/simplyliz/Ingestible.git
+cd Ingestible
 
 # Requires Python 3.11-3.12 (ChromaDB incompatible with 3.14)
 python3.12 -m venv .venv
@@ -106,7 +106,7 @@ See the [Usage Guide](docs/usage.md) for full configuration options.
 
 ## Web UI
 
-IngestionTool includes a built-in web interface for browsing documents and searching:
+Ingestible includes a built-in web interface for browsing documents and searching:
 
 ```bash
 ingest serve
@@ -114,7 +114,7 @@ ingest serve
 
 ## Why Not Just Use LlamaIndex / LangChain?
 
-IngestionTool is purpose-built for one thing: turning documents into the most token-efficient, highest-precision knowledge stores possible.
+Ingestible is purpose-built for one thing: turning documents into the most token-efficient, highest-precision knowledge stores possible.
 
 - **Hierarchical chunking** (L0-L3) preserves document structure. Most RAG tools flatten everything.
 - **Three independent search indexes** fused with RRF. No single point of failure in retrieval.

@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ingestion_tool.config import Settings
-from ingestion_tool.models.chunks import (
+from ingestible.config import Settings
+from ingestible.models.chunks import (
     ChunkPosition,
     ChunkSet,
     L0Chunk,
@@ -25,17 +25,17 @@ from ingestion_tool.models.chunks import (
     L2Chunk,
     L3Chunk,
 )
-from ingestion_tool.models.document import DocumentStructure, StructureNode
-from ingestion_tool.utils.text import (
+from ingestible.models.document import DocumentStructure, StructureNode
+from ingestible.utils.text import (
     is_code_block,
     is_table_block,
     split_paragraphs,
     split_sentences,
 )
-from ingestion_tool.utils.tokens import count_tokens
+from ingestible.utils.tokens import count_tokens
 
 if TYPE_CHECKING:
-    from ingestion_tool.pipeline.stage5_embedding import Embedder
+    from ingestible.pipeline.stage5_embedding import Embedder
 
 logger = logging.getLogger(__name__)
 

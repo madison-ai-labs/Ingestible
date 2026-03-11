@@ -8,13 +8,13 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from ingestion_tool.config import Settings
-from ingestion_tool.models.chunks import ChunkSet, L3Chunk
-from ingestion_tool.models.search import SearchResponse, SearchResult
-from ingestion_tool.pipeline.stage5_embedding import Embedder
-from ingestion_tool.search.bm25_store import BM25Store
-from ingestion_tool.search.concept_index import ConceptIndex
-from ingestion_tool.search.vector_store import VectorStore
+from ingestible.config import Settings
+from ingestible.models.chunks import ChunkSet, L3Chunk
+from ingestible.models.search import SearchResponse, SearchResult
+from ingestible.pipeline.stage5_embedding import Embedder
+from ingestible.search.bm25_store import BM25Store
+from ingestible.search.concept_index import ConceptIndex
+from ingestible.search.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 

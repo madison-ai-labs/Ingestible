@@ -8,8 +8,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ingestion_tool.config import Settings
-from ingestion_tool.pipeline.stage1_parsing import SUPPORTED_FORMATS
+from ingestible.config import Settings
+from ingestible.pipeline.stage1_parsing import SUPPORTED_FORMATS
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ def _ingest_one(
     force: bool,
 ) -> FileResult:
     """Ingest a single file with error isolation. Runs in-process."""
-    from ingestion_tool.pipeline.orchestrator import generate_doc_id, ingest
+    from ingestible.pipeline.orchestrator import generate_doc_id, ingest
 
     start = time.monotonic()
     try:

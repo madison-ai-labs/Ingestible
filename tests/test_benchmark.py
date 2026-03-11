@@ -11,15 +11,15 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
-from ingestion_tool.config import Settings
-from ingestion_tool.models.document import DocumentStructure, StructureNode
-from ingestion_tool.pipeline.stage1_parsing import parse_document
-from ingestion_tool.pipeline.stage3_chunking import chunk_document
-from ingestion_tool.pipeline.stage6_storage import load_chunks, save_document
-from ingestion_tool.search.bm25_store import BM25Store
-from ingestion_tool.search.concept_index import ConceptIndex
-from ingestion_tool.utils.text import split_paragraphs
-from ingestion_tool.utils.tokens import count_tokens
+from ingestible.config import Settings
+from ingestible.models.document import DocumentStructure, StructureNode
+from ingestible.pipeline.stage1_parsing import parse_document
+from ingestible.pipeline.stage3_chunking import chunk_document
+from ingestible.pipeline.stage6_storage import load_chunks, save_document
+from ingestible.search.bm25_store import BM25Store
+from ingestible.search.concept_index import ConceptIndex
+from ingestible.utils.text import split_paragraphs
+from ingestible.utils.tokens import count_tokens
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +162,7 @@ def test_chunk_size_distribution(tmp_path):
 
 def test_storage_roundtrip_speed(tmp_path):
     """Measure save + load cycle for a realistic document."""
-    from ingestion_tool.pipeline.stage6_storage import load_chunks, save_document
+    from ingestible.pipeline.stage6_storage import load_chunks, save_document
 
     settings = Settings(data_dir=tmp_path)
     structure = _big_structure(n_chapters=5, n_sections=4, paragraph_count=6)

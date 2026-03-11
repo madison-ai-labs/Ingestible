@@ -17,22 +17,22 @@ from starlette.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from ingestion_tool.config import get_settings
-from ingestion_tool.models.chunks import ChunkSet, L0Chunk
-from ingestion_tool.models.document import DocumentStructure
-from ingestion_tool.models.search import SearchResponse, SearchResult
-from ingestion_tool.pipeline.orchestrator import ingest
-from ingestion_tool.pipeline.stage5_embedding import Embedder
-from ingestion_tool.pipeline.stage6_storage import (
+from ingestible.config import get_settings
+from ingestible.models.chunks import ChunkSet, L0Chunk
+from ingestible.models.document import DocumentStructure
+from ingestible.models.search import SearchResponse, SearchResult
+from ingestible.pipeline.orchestrator import ingest
+from ingestible.pipeline.stage5_embedding import Embedder
+from ingestible.pipeline.stage6_storage import (
     list_documents,
     load_chunks,
     load_document_meta,
     load_structure,
 )
-from ingestion_tool.search.hybrid import load_searcher
+from ingestible.search.hybrid import load_searcher
 
 app = FastAPI(
-    title="IngestionTool API",
+    title="Ingestible API",
     description="PDF ingestion pipeline with hierarchical retrieval",
     version="0.1.0",
 )
@@ -227,7 +227,7 @@ async def ingest_document(
         meta = load_document_meta(doc_dir)
         chunks = load_chunks(doc_dir)
 
-        from ingestion_tool.utils.tokens import count_tokens
+        from ingestible.utils.tokens import count_tokens
         l0_tokens = count_tokens(_l0_overview_text(chunks.l0))
 
         return IngestResponse(
@@ -268,8 +268,8 @@ async def ingest_batch_endpoint(
     Accepts multipart file uploads. Each file is ingested independently with
     error isolation — one failure doesn't abort the batch.
     """
-    from ingestion_tool.pipeline.batch import BatchReport, FileResult, _ingest_one
-    from ingestion_tool.pipeline.orchestrator import generate_doc_id
+    from ingestible.pipeline.batch import BatchReport, FileResult, _ingest_one
+    from ingestible.pipeline.orchestrator import generate_doc_id
 
     settings = get_cached_settings()
     report = BatchReport(total=len(files))
@@ -340,7 +340,7 @@ async def get_document(doc_id: str):
 
     l0_content = _l0_overview_text(chunks.l0)
 
-    from ingestion_tool.utils.tokens import count_tokens
+    from ingestible.utils.tokens import count_tokens
     l0_tokens = count_tokens(l0_content)
 
     chapters = [c.title for c in chunks.l1_chunks]
@@ -390,7 +390,7 @@ async def get_token_economics(doc_id: str):
 
     chunks = load_chunks(doc_dir)
 
-    from ingestion_tool.utils.tokens import count_tokens
+    from ingestible.utils.tokens import count_tokens
 
     # Calculate full document tokens (sum of all L3 chunks)
     full_tokens = 0
@@ -463,7 +463,7 @@ async def get_structure(doc_id: str):
 # Web UI
 # ---------------------------------------------------------------------------
 
-from ingestion_tool.web import router as web_router  # noqa: E402
+from ingestible.web import router as web_router  # noqa: E402
 
 app.include_router(web_router)
 app.mount(
@@ -474,5 +474,5 @@ app.mount(
 
 
 # ---------------------------------------------------------------------------
-# Run with: uvicorn ingestion_tool.api:app --port 8081
+# Run with: uvicorn ingestible.api:app --port 8081
 # ---------------------------------------------------------------------------

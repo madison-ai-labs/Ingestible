@@ -20,11 +20,11 @@ def _mock_chromadb(monkeypatch):
         monkeypatch.setitem(sys.modules, "chromadb.config", MagicMock())
 
 
-from ingestion_tool.config import Settings
+from ingestible.config import Settings
 
 
 def _import_orchestrator():
-    from ingestion_tool.pipeline.orchestrator import (
+    from ingestible.pipeline.orchestrator import (
         _check_existing,
         _compute_content_hash,
         generate_doc_id,

@@ -13,7 +13,7 @@ import hashlib
 import logging
 import re
 
-from ingestion_tool.models.document import (
+from ingestible.models.document import (
     DocumentStructure,
     ParsedDocument,
     StructureNode,

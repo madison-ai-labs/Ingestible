@@ -140,7 +140,7 @@ data/documents/{doc_id}/
 ## Project Structure
 
 ```
-src/ingestion_tool/
+src/ingestible/
   cli.py                 # CLI: ingest, list, search
   config.py              # pydantic-settings, INGEST_ env prefix
   models/

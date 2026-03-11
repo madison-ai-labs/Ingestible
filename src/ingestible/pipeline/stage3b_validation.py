@@ -11,8 +11,8 @@ import logging
 import statistics
 from dataclasses import dataclass, field
 
-from ingestion_tool.models.chunks import ChunkSet
-from ingestion_tool.utils.tokens import count_tokens
+from ingestible.models.chunks import ChunkSet
+from ingestible.utils.tokens import count_tokens
 
 logger = logging.getLogger(__name__)
 

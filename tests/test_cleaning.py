@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ingestion_tool.models.document import PageContent, ParsedDocument
-from ingestion_tool.pipeline.stage1b_clean import (
+from ingestible.models.document import PageContent, ParsedDocument
+from ingestible.pipeline.stage1b_clean import (
     _collapse_whitespace,
     _detect_repeated_lines,
     _filter_empty_sections,

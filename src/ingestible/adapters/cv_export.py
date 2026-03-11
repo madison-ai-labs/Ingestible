@@ -1,10 +1,10 @@
 """CognitiveVault adapter — export ChunkSets to CV's bulk entries API.
 
-Transforms IngestionTool's hierarchical chunks (L0-L3) into the format
+Transforms Ingestible's hierarchical chunks (L0-L3) into the format
 expected by CV's POST /api/v1/vaults/:vaultId/entries/bulk endpoint.
 
 Usage:
-    from ingestion_tool.adapters.cv_export import export_to_cv, CVConfig
+    from ingestible.adapters.cv_export import export_to_cv, CVConfig
 
     config = CVConfig(base_url="https://cv.example.com", api_key="...", vault_id="...")
     result = export_to_cv(chunks, config)
@@ -29,7 +29,7 @@ from typing import Any
 
 import httpx
 
-from ingestion_tool.models.chunks import ChunkSet, L0Chunk, L1Chunk, L2Chunk, L3Chunk
+from ingestible.models.chunks import ChunkSet, L0Chunk, L1Chunk, L2Chunk, L3Chunk
 
 logger = logging.getLogger(__name__)
 
@@ -286,14 +286,14 @@ def export_batch_to_cv(
 
     Args:
         doc_ids: List of document IDs to export.
-        settings: IngestionTool Settings (for locating stored documents).
+        settings: Ingestible Settings (for locating stored documents).
         config: CV connection configuration.
         delete_removed: If True, delete entries not in the batch.
 
     Returns:
         List of ExportResult, one per document.
     """
-    from ingestion_tool.pipeline.stage6_storage import load_chunks
+    from ingestible.pipeline.stage6_storage import load_chunks
 
     results = []
     for doc_id in doc_ids:

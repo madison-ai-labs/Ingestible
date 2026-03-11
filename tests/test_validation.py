@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from ingestion_tool.models.chunks import (
+from ingestible.models.chunks import (
     ChunkPosition,
     ChunkSet,
     L0Chunk,
     L2Chunk,
     L3Chunk,
 )
-from ingestion_tool.pipeline.stage3b_validation import validate_chunks
+from ingestible.pipeline.stage3b_validation import validate_chunks
 
 
 def _make_chunk(chunk_id: str, content: str, section_id: str = "sec1") -> L3Chunk:

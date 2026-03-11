@@ -11,9 +11,9 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from ingestion_tool.config import Settings
-from ingestion_tool.models.chunks import ChunkSet
-from ingestion_tool.models.document import DocumentStructure
+from ingestible.config import Settings
+from ingestible.models.chunks import ChunkSet
+from ingestible.models.document import DocumentStructure
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ async def add_context_prefixes(
     settings: Settings,
 ) -> ChunkSet:
     """Generate context blurbs for all L3 chunks via LLM."""
-    from ingestion_tool.pipeline.stage4_enrichment import _make_client
+    from ingestible.pipeline.stage4_enrichment import _make_client
 
     client = _make_client(settings)
     sem = asyncio.Semaphore(settings.llm_concurrency)

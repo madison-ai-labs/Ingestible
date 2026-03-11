@@ -1,4 +1,4 @@
-# IngestionTool Documentation
+# Ingestible Documentation
 
 A 6-stage PDF ingestion pipeline that transforms arbitrary PDFs into a queryable knowledge store optimized for AI context retrieval.
 

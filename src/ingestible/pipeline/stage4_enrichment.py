@@ -1,22 +1,25 @@
 """Stage 4 — LLM Enrichment.
 
-Abstract LLMClient interface with OpenAI (default) and Anthropic implementations.
+Abstract LLMClient interface with Anthropic (default) and OpenAI implementations.
 Enriches chunks bottom-up: L3 → L2 → L1 → L0.
 Uses async + Semaphore for concurrency control.
+
+Anthropic client uses tool_use for structured JSON output — the tool's input_schema
+enforces the Pydantic model, so there are no parsing failures from free-text responses.
+OpenAI client uses json_schema response_format (structured output).
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from typing import Protocol, TypeVar
 
 from pydantic import BaseModel
 
-from ingestion_tool.config import Settings
-from ingestion_tool.models.chunks import ChunkSet, L0Chunk, L1Chunk, L2Chunk, L3Chunk
-from ingestion_tool.models.enrichment import (
+from ingestible.config import Settings
+from ingestible.models.chunks import ChunkSet, L0Chunk, L1Chunk, L2Chunk, L3Chunk
+from ingestible.models.enrichment import (
     L0Enrichment,
     L1Enrichment,
     L2Enrichment,
@@ -61,7 +64,7 @@ class OpenAIClient:
 
 
 class AnthropicClient:
-    """Alternative LLM client using Anthropic API."""
+    """Default LLM client using Anthropic API with tool_use for structured output."""
 
     def __init__(self, api_key: str, model: str):
         import anthropic
@@ -71,30 +74,41 @@ class AnthropicClient:
 
     async def generate_json(self, prompt: str, output_type: type[T]) -> T:
         schema = output_type.model_json_schema()
-        system = (
-            f"You must respond with valid JSON matching this schema:\n"
-            f"{json.dumps(schema, indent=2)}\n"
-            f"Output ONLY the JSON object, nothing else."
-        )
         response = await self._client.messages.create(
             model=self._model,
             max_tokens=2048,
-            system=system,
             messages=[{"role": "user", "content": prompt}],
+            tools=[{
+                "name": "output",
+                "description": "Structured output matching the requested schema",
+                "input_schema": schema,
+            }],
+            tool_choice={"type": "tool", "name": "output"},
         )
-        raw = response.content[0].text
-        return output_type.model_validate_json(raw)
+        tool_block = next(b for b in response.content if b.type == "tool_use")
+        return output_type.model_validate(tool_block.input)
 
 
 def _make_client(settings: Settings) -> LLMClient:
     if settings.llm_provider == "anthropic":
-        if not settings.anthropic_api_key:
-            raise ValueError("INGEST_ANTHROPIC_API_KEY is required when provider=anthropic")
-        return AnthropicClient(settings.anthropic_api_key, settings.anthropic_model)
+        if settings.anthropic_api_key:
+            return AnthropicClient(settings.anthropic_api_key, settings.anthropic_model)
+        # Graceful fallback: if no Anthropic key but OpenAI key exists, use OpenAI
+        if settings.openai_api_key:
+            logger.info("No INGEST_ANTHROPIC_API_KEY set, falling back to OpenAI")
+            return OpenAIClient(settings.openai_api_key, settings.openai_model)
+        raise ValueError(
+            "INGEST_ANTHROPIC_API_KEY is required (or set INGEST_OPENAI_API_KEY as fallback)"
+        )
     else:
-        if not settings.openai_api_key:
-            raise ValueError("INGEST_OPENAI_API_KEY is required when provider=openai")
-        return OpenAIClient(settings.openai_api_key, settings.openai_model)
+        if settings.openai_api_key:
+            return OpenAIClient(settings.openai_api_key, settings.openai_model)
+        if settings.anthropic_api_key:
+            logger.info("No INGEST_OPENAI_API_KEY set, falling back to Anthropic")
+            return AnthropicClient(settings.anthropic_api_key, settings.anthropic_model)
+        raise ValueError(
+            "INGEST_OPENAI_API_KEY is required (or set INGEST_ANTHROPIC_API_KEY as fallback)"
+        )
 
 
 async def enrich_chunks(chunks: ChunkSet, settings: Settings) -> ChunkSet:

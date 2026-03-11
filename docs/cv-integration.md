@@ -1,8 +1,8 @@
-# CV Integration Plan — IngestionTool Side
+# CV Integration Plan — Ingestible Side
 
 ## Context
 
-CognitiveVault needs a document ingestion pipeline. IngestionTool already has the right architecture (L0–L3 chunking, RRF hybrid search, LLM enrichment). Instead of rebuilding, we evolve IngestionTool to serve as CV's ingestor by swapping storage/inference layers and adding a CV integration mode.
+CognitiveVault needs a document ingestion pipeline. Ingestible already has the right architecture (L0–L3 chunking, RRF hybrid search, LLM enrichment). Instead of rebuilding, we evolve Ingestible to serve as CV's ingestor by swapping storage/inference layers and adding a CV integration mode.
 
 The CV-side plan lives at `~/Work/Projects/CognitiveVault/docs/plans/ingestor.md`.
 
@@ -35,7 +35,7 @@ Queue:        pg-boss (CV mode) / synchronous (standalone mode)
 API:          FastAPI (kept, extended with /ingest webhook endpoint)
 ```
 
-**Key principle**: IngestionTool keeps working as a standalone tool. CV integration is an additional storage/search backend, not a replacement.
+**Key principle**: Ingestible keeps working as a standalone tool. CV integration is an additional storage/search backend, not a replacement.
 
 ---
 
@@ -283,11 +283,11 @@ async def job_status(job_id: str):
 
 ## Dual-Mode Architecture
 
-IngestionTool must keep working standalone. CV integration is additive.
+Ingestible must keep working standalone. CV integration is additive.
 
 ```
 ┌─────────────────────────────────────────────────┐
-│                  IngestionTool                   │
+│                  Ingestible                   │
 │                                                  │
 │  Pipeline (always the same):                     │
 │    Parse → Structure → Chunk → Validate →        │
@@ -353,7 +353,7 @@ alternative to direct DB writes — no asyncpg, no shared database credentials.
 ### How it works
 
 ```
-IngestionTool                          CognitiveVault
+Ingestible                          CognitiveVault
 ─────────────                          ───────────────
 ingest file.pdf
   → Parse → Structure → Chunk
@@ -377,7 +377,7 @@ Parent-child relationships use `parentSourcePath` — CV's bulk endpoint resolve
 these to internal entry IDs. Entries are sorted by `chunkLevel` (0→3) in the
 payload so parents are always created before children.
 
-| IngestionTool | CV VaultEntry |
+| Ingestible | CV VaultEntry |
 |---------------|---------------|
 | L0 (document) | chunkLevel=0, no parent |
 | L1 (chapter)  | chunkLevel=1, parent=L0 |
@@ -386,7 +386,7 @@ payload so parents are always created before children.
 
 Enrichment fields from Stage 4 map to CV's `EntryMetrics`:
 
-| IngestionTool L3 field | CV EntryMetrics field |
+| Ingestible L3 field | CV EntryMetrics field |
 |------------------------|----------------------|
 | summary | summary |
 | hypothetical_questions | hypotheticalQuestions |
@@ -413,8 +413,8 @@ ingest export-cv
 ### Programmatic usage
 
 ```python
-from ingestion_tool.adapters.cv_export import CVConfig, export_to_cv
-from ingestion_tool.pipeline.stage6_storage import load_chunks
+from ingestible.adapters.cv_export import CVConfig, export_to_cv
+from ingestible.pipeline.stage6_storage import load_chunks
 
 config = CVConfig(
     base_url="https://cv.example.com",
@@ -480,7 +480,7 @@ and single-purpose.
 
 The API-based adapter is right for:
 - Low-to-medium volume (hundreds of documents)
-- Standard deployment (IngestionTool and CV on separate infrastructure)
+- Standard deployment (Ingestible and CV on separate infrastructure)
 - No shared database credentials needed
 
 For high-volume production (thousands of documents, continuous ingestion),
@@ -494,14 +494,14 @@ PostgreSQL, skipping HTTP overhead.
 
 ### Step 1 — Library swaps (no CV integration yet)
 
-These improve IngestionTool standalone, independent of CV:
+These improve Ingestible standalone, independent of CV:
 
 1. **marker for PDF parsing** — swap in `stage1_parsing.py`, keep Docling for DOCX/HTML
 2. **Claude tool_use for enrichment** — rewrite `AnthropicClient` in `stage4_enrichment.py`, make it default
 3. **Voyage API embedder** — add `VoyageEmbedder` in `stage5_embedding.py`, select via config
 4. **Cohere reranker** — add `CohereReranker` in `search/hybrid.py`, select via config
 
-Each is an independent PR. IngestionTool stays standalone, just with better libraries.
+Each is an independent PR. Ingestible stays standalone, just with better libraries.
 
 ### Step 2 — pgvector storage backend
 

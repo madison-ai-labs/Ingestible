@@ -1,12 +1,12 @@
-from ingestion_tool.models.chunks import ChunkPosition, ChunkSet, L0Chunk, L3Chunk
-from ingestion_tool.models.document import (
+from ingestible.models.chunks import ChunkPosition, ChunkSet, L0Chunk, L3Chunk
+from ingestible.models.document import (
     DocumentStructure,
     PageContent,
     ParsedDocument,
     StructureNode,
     TOCEntry,
 )
-from ingestion_tool.models.search import SearchResponse, SearchResult
+from ingestible.models.search import SearchResponse, SearchResult
 
 
 def test_parsed_document_properties():

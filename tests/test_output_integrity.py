@@ -11,8 +11,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ingestion_tool.config import Settings
-from ingestion_tool.models.chunks import (
+from ingestible.config import Settings
+from ingestible.models.chunks import (
     ChunkPosition,
     ChunkSet,
     L0Chunk,
@@ -20,9 +20,9 @@ from ingestion_tool.models.chunks import (
     L2Chunk,
     L3Chunk,
 )
-from ingestion_tool.models.document import DocumentStructure, StructureNode
-from ingestion_tool.pipeline.stage3_chunking import chunk_document
-from ingestion_tool.pipeline.stage6_storage import (
+from ingestible.models.document import DocumentStructure, StructureNode
+from ingestible.pipeline.stage3_chunking import chunk_document
+from ingestible.pipeline.stage6_storage import (
     load_chunks,
     load_document_meta,
     load_structure,

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ingestion_tool.pipeline.batch import (
+from ingestible.pipeline.batch import (
     BatchReport,
     FileResult,
     discover_files,
@@ -78,8 +78,8 @@ def test_discover_nonexistent_path():
 # ---------------------------------------------------------------------------
 
 
-@patch("ingestion_tool.pipeline.orchestrator.ingest")
-@patch("ingestion_tool.pipeline.orchestrator.generate_doc_id")
+@patch("ingestible.pipeline.orchestrator.ingest")
+@patch("ingestible.pipeline.orchestrator.generate_doc_id")
 def test_ingest_batch_sequential(mock_gen_id, mock_ingest, sample_dir: Path):
     """Batch ingestion processes all supported files and reports results."""
     mock_gen_id.side_effect = lambda p: f"id-{p.stem}"
@@ -95,8 +95,8 @@ def test_ingest_batch_sequential(mock_gen_id, mock_ingest, sample_dir: Path):
     assert len(report.results) == 5
 
 
-@patch("ingestion_tool.pipeline.orchestrator.ingest")
-@patch("ingestion_tool.pipeline.orchestrator.generate_doc_id")
+@patch("ingestible.pipeline.orchestrator.ingest")
+@patch("ingestible.pipeline.orchestrator.generate_doc_id")
 def test_ingest_batch_error_isolation(mock_gen_id, mock_ingest, sample_dir: Path):
     """One file failing doesn't abort the batch."""
 
@@ -120,8 +120,8 @@ def test_ingest_batch_error_isolation(mock_gen_id, mock_ingest, sample_dir: Path
     assert "PDF parse error" in failed[0].error
 
 
-@patch("ingestion_tool.pipeline.orchestrator.ingest")
-@patch("ingestion_tool.pipeline.orchestrator.generate_doc_id")
+@patch("ingestible.pipeline.orchestrator.ingest")
+@patch("ingestible.pipeline.orchestrator.generate_doc_id")
 def test_ingest_batch_empty_dir(mock_gen_id, mock_ingest, tmp_path: Path):
     """Empty directory produces empty report."""
     settings = MagicMock()

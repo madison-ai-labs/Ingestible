@@ -14,14 +14,14 @@ import json
 import httpx
 import pytest
 
-from ingestion_tool.adapters.cv_export import (
+from ingestible.adapters.cv_export import (
     CVConfig,
     ExportResult,
     chunkset_to_entries,
     export_to_cv,
     _source_path,
 )
-from ingestion_tool.models.chunks import (
+from ingestible.models.chunks import (
     ChunkPosition,
     ChunkSet,
     L0Chunk,

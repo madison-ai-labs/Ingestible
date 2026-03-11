@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from ingestion_tool.config import Settings
-from ingestion_tool.models.chunks import (
+from ingestible.config import Settings
+from ingestible.models.chunks import (
     ChunkPosition,
     ChunkSet,
     L0Chunk,
@@ -28,7 +28,7 @@ def _mock_chromadb(monkeypatch):
 
 
 def _import_searcher():
-    from ingestion_tool.search.hybrid import HybridSearcher
+    from ingestible.search.hybrid import HybridSearcher
     return HybridSearcher
 
 

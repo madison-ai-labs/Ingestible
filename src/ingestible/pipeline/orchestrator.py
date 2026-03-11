@@ -11,16 +11,16 @@ import json
 import logging
 from pathlib import Path
 
-from ingestion_tool.config import Settings
-from ingestion_tool.models.chunks import ChunkSet
-from ingestion_tool.models.document import DocumentStructure, ParsedDocument
-from ingestion_tool.pipeline.stage1_parsing import parse_document
-from ingestion_tool.pipeline.stage1b_clean import clean_document
-from ingestion_tool.pipeline.stage2_structure import detect_structure
-from ingestion_tool.pipeline.stage3_chunking import chunk_document
-from ingestion_tool.pipeline.stage3b_validation import validate_chunks
-from ingestion_tool.pipeline.stage5_embedding import Embedder, build_indexes
-from ingestion_tool.pipeline.stage6_storage import save_document
+from ingestible.config import Settings
+from ingestible.models.chunks import ChunkSet
+from ingestible.models.document import DocumentStructure, ParsedDocument
+from ingestible.pipeline.stage1_parsing import parse_document
+from ingestible.pipeline.stage1b_clean import clean_document
+from ingestible.pipeline.stage2_structure import detect_structure
+from ingestible.pipeline.stage3_chunking import chunk_document
+from ingestible.pipeline.stage3b_validation import validate_chunks
+from ingestible.pipeline.stage5_embedding import Embedder, build_indexes
+from ingestible.pipeline.stage6_storage import save_document
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +165,7 @@ def ingest(
     if settings.contextual_chunking and not skip_enrichment:
         _log("Adding contextual prefixes...")
         try:
-            from ingestion_tool.pipeline.stage3c_contextual import add_context_prefixes
+            from ingestible.pipeline.stage3c_contextual import add_context_prefixes
 
             chunks = asyncio.run(add_context_prefixes(chunks, structure, settings))
         except Exception as e:
@@ -175,7 +175,7 @@ def ingest(
     if not skip_enrichment:
         _log("LLM enrichment...")
         try:
-            from ingestion_tool.pipeline.stage4_enrichment import enrich_chunks
+            from ingestible.pipeline.stage4_enrichment import enrich_chunks
 
             chunks = asyncio.run(enrich_chunks(chunks, settings))
         except Exception as e:

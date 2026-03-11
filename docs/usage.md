@@ -3,7 +3,7 @@
 ## Installation
 
 ```bash
-cd IngestionTool
+cd Ingestible
 
 # Create virtual environment (requires Python 3.12, not 3.14 — ChromaDB incompatible)
 python3.12 -m venv .venv

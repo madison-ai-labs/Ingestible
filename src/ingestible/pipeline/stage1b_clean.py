@@ -10,7 +10,7 @@ import logging
 import re
 import unicodedata
 
-from ingestion_tool.models.document import PageContent, ParsedDocument
+from ingestible.models.document import PageContent, ParsedDocument
 
 logger = logging.getLogger(__name__)
 

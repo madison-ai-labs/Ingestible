@@ -6,9 +6,9 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 
-from ingestion_tool.config import Settings
-from ingestion_tool.models.document import DocumentStructure, StructureNode
-from ingestion_tool.pipeline.stage3_chunking import chunk_document
+from ingestible.config import Settings
+from ingestible.models.document import DocumentStructure, StructureNode
+from ingestible.pipeline.stage3_chunking import chunk_document
 
 
 def _make_structure(content: str, doc_id: str = "test") -> DocumentStructure:

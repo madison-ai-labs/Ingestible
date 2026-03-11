@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from ingestion_tool.config import Settings
+from ingestible.config import Settings
 
 
 @pytest.fixture

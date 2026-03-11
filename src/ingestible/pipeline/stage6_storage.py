@@ -18,9 +18,9 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ingestion_tool.config import Settings
-from ingestion_tool.models.chunks import ChunkSet, L0Chunk, L1Chunk, L2Chunk, L3Chunk
-from ingestion_tool.models.document import DocumentStructure
+from ingestible.config import Settings
+from ingestible.models.chunks import ChunkSet, L0Chunk, L1Chunk, L2Chunk, L3Chunk
+from ingestible.models.document import DocumentStructure
 
 logger = logging.getLogger(__name__)
 
