@@ -79,8 +79,8 @@ Export stored documents to JSONL, Parquet, LlamaIndex nodes, LangChain documents
 
 | WP | Feature | Status |
 |----|---------|--------|
-| 4.1 | Configurable Embedding Dimensions / Quantization | planned |
-| 4.2 | Language Detection + Multilingual BM25 | planned |
+| 4.1 | Configurable Embedding Dimensions / Quantization | **done** (v0.13) |
+| 4.2 | Language Detection + Multilingual BM25 | **done** (v0.13) |
 
 ---
 

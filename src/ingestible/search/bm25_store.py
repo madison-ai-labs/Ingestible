@@ -12,16 +12,18 @@ logger = logging.getLogger(__name__)
 
 
 class BM25Store:
-    def __init__(self):
+    def __init__(self, language: str = "en"):
         self._chunk_ids: list[str] = []
         self._corpus_tokens: list[list[str]] = []
         self._bm25: BM25Okapi | None = None
+        self._language: str = language
+        self._tokenize = _get_tokenize_fn(language)
 
     def add_documents(self, chunk_ids: list[str], texts: list[str]) -> None:
         """Add documents to the BM25 index. Call build() after all adds."""
         for cid, text in zip(chunk_ids, texts):
             self._chunk_ids.append(cid)
-            self._corpus_tokens.append(_tokenize(text))
+            self._corpus_tokens.append(self._tokenize(text))
 
     def build(self) -> None:
         """Build the BM25 index from added documents."""
@@ -36,7 +38,7 @@ class BM25Store:
         if self._bm25 is None:
             return []
 
-        tokens = _tokenize(text)
+        tokens = self._tokenize(text)
         scores = self._bm25.get_scores(tokens)
 
         ranked = sorted(
@@ -51,16 +53,18 @@ class BM25Store:
                 {
                     "chunk_ids": self._chunk_ids,
                     "corpus_tokens": self._corpus_tokens,
+                    "language": self._language,
                 },
                 f,
             )
-        logger.info("BM25 index saved to %s", path)
+        logger.info("BM25 index saved to %s (lang=%s)", path, self._language)
 
     @classmethod
     def load(cls, path: Path) -> BM25Store:
         with open(path, "rb") as f:
             data = pickle.load(f)
-        store = cls()
+        language = data.get("language", "en")
+        store = cls(language=language)
         store._chunk_ids = data["chunk_ids"]
         store._corpus_tokens = data["corpus_tokens"]
         store.build()
@@ -74,3 +78,10 @@ class BM25Store:
 def _tokenize(text: str) -> list[str]:
     """Simple whitespace + lowercase tokenizer."""
     return text.lower().split()
+
+
+def _get_tokenize_fn(language: str):
+    """Return a tokenization function, using language-aware stemmer if available."""
+    from ingestible.utils.language import get_tokenizer
+
+    return get_tokenizer(language)

@@ -23,6 +23,7 @@ from ingestible.pipeline.checkpoint import clear_checkpoints, load_checkpoint, s
 from ingestible.pipeline.fetch import is_url
 from ingestible.pipeline.metadata import extract_metadata
 from ingestible.pipeline.stage5_embedding import Embedder, build_indexes
+from ingestible.utils.language import detect_language
 from ingestible.pipeline.stage6_storage import save_document
 
 logger = logging.getLogger(__name__)
@@ -171,6 +172,11 @@ def ingest(
         parsed.metadata = meta_info
         if meta_info.language:
             parsed.detected_language = meta_info.language
+        # Detect language from content if not already set
+        if not parsed.detected_language or parsed.detected_language == "en":
+            detected = detect_language(parsed.full_markdown)
+            if detected:
+                parsed.detected_language = detected
         if use_checkpoint:
             save_checkpoint(doc_dir, "parsed", parsed)
 
@@ -259,7 +265,7 @@ def ingest(
     _log("Building indexes...")
     if embedder is None:
         embedder = Embedder(settings)
-    build_indexes(chunks, doc_dir, embedder)
+    build_indexes(chunks, doc_dir, embedder, language=parsed.detected_language)
 
     # Stage 6: Storage
     _log("Saving to disk...")

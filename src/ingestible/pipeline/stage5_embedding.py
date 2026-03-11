@@ -47,20 +47,38 @@ class Embedder:
         embeddings = self.model.encode(
             prefixed, normalize_embeddings=True, show_progress_bar=True
         )
-        return embeddings.tolist()
+        result = embeddings.tolist()
+        return [self._post_process(v) for v in result]
 
     def embed_query(self, query: str) -> list[float]:
         """Embed a query with the 'query: ' prefix."""
         embedding = self.model.encode(
             f"query: {query}", normalize_embeddings=True
         )
-        return embedding.tolist()
+        return self._post_process(embedding.tolist())
+
+    def _post_process(self, vector: list[float]) -> list[float]:
+        """Apply Matryoshka truncation and/or binary quantization."""
+        dims = self._settings.embedding_dimensions
+        if dims is not None and dims < len(vector):
+            vector = vector[:dims]
+            # Re-normalize after truncation
+            import math
+            norm = math.sqrt(sum(x * x for x in vector))
+            if norm > 0:
+                vector = [x / norm for x in vector]
+
+        if self._settings.embedding_quantization == "binary":
+            vector = [1.0 if x >= 0 else 0.0 for x in vector]
+
+        return vector
 
 
 def build_indexes(
     chunks: ChunkSet,
     doc_dir: Path,
     embedder: Embedder,
+    language: str = "en",
 ) -> tuple[VectorStore, BM25Store, ConceptIndex]:
     """Build all search indexes for a document."""
     l3 = chunks.l3_chunks
@@ -118,7 +136,7 @@ def build_indexes(
     logger.info("Vector store: %d embeddings indexed", vector_store.count)
 
     # --- BM25 ---
-    bm25_store = BM25Store()
+    bm25_store = BM25Store(language=language)
     bm25_ids = [c.chunk_id for c in l3]
     bm25_texts = []
     for c in l3:

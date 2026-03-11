@@ -24,6 +24,8 @@ class Settings(BaseSettings):
 
     # Embedding
     embedding_model: str = "intfloat/e5-large-v2"
+    embedding_dimensions: int | None = None  # Matryoshka truncation (None = full)
+    embedding_quantization: Literal["none", "binary"] = "none"
 
     # Storage
     data_dir: Path = Path("data")

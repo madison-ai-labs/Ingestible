@@ -18,11 +18,16 @@ BATCH_SIZE = 500
 
 
 class VectorStore:
-    def __init__(self, persist_dir: Path, collection_name: str = "chunks"):
+    def __init__(
+        self,
+        persist_dir: Path,
+        collection_name: str = "chunks",
+        distance_metric: str = "cosine",
+    ):
         self._client = chromadb.PersistentClient(path=str(persist_dir))
         self._collection = self._client.get_or_create_collection(
             name=collection_name,
-            metadata={"hnsw:space": "cosine"},
+            metadata={"hnsw:space": distance_metric},
         )
 
     def add_embeddings(
