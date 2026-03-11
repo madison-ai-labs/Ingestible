@@ -80,6 +80,10 @@ def main(argv: list[str] | None = None) -> None:
     p_enrich.add_argument("doc_id", help="Document ID to re-enrich")
     p_enrich.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
 
+    # --- versions ---
+    p_versions = sub.add_parser("versions", help="List archived versions of a document")
+    p_versions.add_argument("doc_id", help="Document ID")
+
     # --- export ---
     p_exp = sub.add_parser("export", help="Export document to portable format")
     p_exp.add_argument("doc_id", help="Document ID to export")
@@ -137,6 +141,8 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_corpus_search(args)
     elif args.command == "enrich":
         _cmd_enrich(args)
+    elif args.command == "versions":
+        _cmd_versions(args)
     elif args.command == "export":
         _cmd_export(args)
     elif args.command == "export-cv":
@@ -198,12 +204,19 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
     else:
         from ingestible.pipeline.orchestrator import ingest
 
+        callback = None
+        if args.verbose:
+            from ingestible.pipeline.progress import CLIProgress
+
+            callback = CLIProgress()
+
         doc_dir = ingest(
             args.file_path,
             settings,
             skip_enrichment=args.skip_enrichment,
             verbose=args.verbose,
             force=args.force,
+            progress_callback=callback,
         )
         print(f"Ingested → {doc_dir}")
 
@@ -326,6 +339,32 @@ def _cmd_enrich(args: argparse.Namespace) -> None:
 
     doc_dir = re_enrich(args.doc_id, settings)
     print(f"Re-enriched → {doc_dir}")
+
+
+def _cmd_versions(args: argparse.Namespace) -> None:
+    from ingestible.config import get_settings
+    from ingestible.pipeline.stage6_storage import list_versions
+
+    settings = get_settings()
+    doc_dir = settings.documents_dir / args.doc_id
+
+    if not doc_dir.exists():
+        print(f"Document not found: {args.doc_id}")
+        print("Run 'ingest list' to see available documents.")
+        sys.exit(1)
+
+    versions = list_versions(doc_dir)
+    if not versions:
+        print(f"No archived versions for {args.doc_id}.")
+        return
+
+    print(f"Versions for {args.doc_id}:")
+    for v in versions:
+        print(
+            f"  v{v['version']:3d}  "
+            f"archived={v.get('archived_at', '?')}  "
+            f"hash={v.get('content_hash', '?')[:12]}..."
+        )
 
 
 def _cmd_export(args: argparse.Namespace) -> None:

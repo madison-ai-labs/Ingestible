@@ -79,9 +79,28 @@ def build_indexes(
     doc_dir: Path,
     embedder: Embedder,
     language: str = "en",
+    previous_chunks: ChunkSet | None = None,
 ) -> tuple[VectorStore, BM25Store, ConceptIndex]:
-    """Build all search indexes for a document."""
+    """Build all search indexes for a document.
+
+    If ``previous_chunks`` is provided, unchanged chunks (by content_hash)
+    are skipped during embedding — their embeddings are reused from the
+    existing vector store.
+    """
     l3 = chunks.l3_chunks
+    # Build set of unchanged content hashes for cache reuse
+    unchanged_hashes: set[str] = set()
+    if previous_chunks:
+        old_hashes = {c.content_hash for c in previous_chunks.l3_chunks if c.content_hash}
+        unchanged_hashes = {
+            c.content_hash for c in l3 if c.content_hash and c.content_hash in old_hashes
+        }
+        if unchanged_hashes:
+            logger.info(
+                "Chunk cache: %d/%d chunks unchanged, will reuse embeddings",
+                len(unchanged_hashes),
+                len(l3),
+            )
 
     if not l3:
         logger.warning("No L3 chunks to index")
@@ -95,7 +114,13 @@ def build_indexes(
     embed_texts: list[str] = []
     embed_meta: list[dict] = []
 
+    skipped = 0
     for chunk in l3:
+        # Skip embedding for unchanged chunks (cache reuse)
+        if chunk.content_hash and chunk.content_hash in unchanged_hashes:
+            skipped += 1
+            continue
+
         base_meta = {
             "chunk_id": chunk.chunk_id,
             "chapter": chunk.position.chapter,
@@ -122,6 +147,8 @@ def build_indexes(
             embed_texts.append(q)
             embed_meta.append({**base_meta, "embedding_type": "question"})
 
+    if skipped:
+        logger.info("Skipped %d unchanged chunks (cache hit)", skipped)
     logger.info("Generating %d embeddings...", len(embed_texts))
     embeddings = embedder.embed_passages(embed_texts)
 

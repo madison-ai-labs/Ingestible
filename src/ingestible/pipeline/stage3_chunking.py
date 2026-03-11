@@ -259,6 +259,7 @@ def _make_l3(
     return L3Chunk(
         chunk_id=chunk_id,
         content=content,
+        content_hash=hashlib.md5(content.encode()).hexdigest(),
         parent_section_id=section_id,
         position=ChunkPosition(chapter=chapter_id, section=section_id, index=index),
     )
@@ -493,6 +494,7 @@ def _split_into_passages_semantic(
         content = chunk.content
         h = hashlib.md5(content.encode()).hexdigest()[:8]
         chunk.chunk_id = f"{doc_id}-{section_id}-p{i}-{h}"
+        chunk.content_hash = hashlib.md5(content.encode()).hexdigest()
         chunk.position = ChunkPosition(chapter=chapter_id, section=section_id, index=i)
 
     # Label positions

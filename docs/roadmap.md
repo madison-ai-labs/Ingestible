@@ -88,9 +88,9 @@ Export stored documents to JSONL, Parquet, LlamaIndex nodes, LangChain documents
 
 | WP | Feature | Status |
 |----|---------|--------|
-| 5.1 | Document Versioning | planned |
-| 5.2 | Streaming Progress Callbacks | planned |
-| 5.3 | Chunk-Level Cache Invalidation | planned |
+| 5.1 | Document Versioning | **done** (v0.14) |
+| 5.2 | Streaming Progress Callbacks | **done** (v0.14) |
+| 5.3 | Chunk-Level Cache Invalidation | **done** (v0.14) |
 
 ---
 

@@ -200,6 +200,7 @@ CHUNKSET_SCHEMA_SNAPSHOT = {
         "difficulty_level": "string",
         "depends_on": "list[string]",
         "cross_references": "list[string]",
+        "content_hash": "string",
     },
 }
 

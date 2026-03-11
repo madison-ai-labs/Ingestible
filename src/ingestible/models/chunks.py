@@ -16,6 +16,7 @@ class L3Chunk(BaseModel):
 
     chunk_id: str
     content: str
+    content_hash: str = ""
     page_start: int | None = None
     page_end: int | None = None
     position: ChunkPosition = Field(default_factory=ChunkPosition)

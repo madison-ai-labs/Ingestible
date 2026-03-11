@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import json
 import os
 import shutil
 import tempfile
@@ -600,6 +601,75 @@ async def export_document_endpoint(
         filename=f"{doc_id}.{format}{ext}",
         media_type=media_types.get(format, "application/octet-stream"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Versioning (WP 5.1)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/documents/{doc_id}/versions")
+async def get_versions(doc_id: str):
+    """List all archived versions of a document."""
+    from ingestible.pipeline.stage6_storage import list_versions
+
+    settings = get_cached_settings()
+    doc_dir = settings.documents_dir / doc_id
+
+    if not doc_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
+
+    versions = list_versions(doc_dir)
+    return {"doc_id": doc_id, "versions": versions}
+
+
+# ---------------------------------------------------------------------------
+# SSE Streaming Ingest (WP 5.2)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/ingest/stream")
+async def ingest_stream(
+    file: UploadFile = File(...),
+    skip_enrichment: bool = Form(False),
+):
+    """Ingest a document with Server-Sent Events progress streaming."""
+    from starlette.responses import StreamingResponse
+
+    from ingestible.pipeline.progress import SSEProgress
+
+    settings = get_cached_settings()
+
+    suffix = Path(file.filename or "upload.pdf").suffix
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    def generate():
+        progress = SSEProgress()
+
+        try:
+            doc_dir = ingest(
+                tmp_path,
+                settings,
+                skip_enrichment=skip_enrichment,
+                verbose=False,
+                progress_callback=progress,
+            )
+
+            # Yield all progress events
+            for evt in progress.events:
+                yield f"data: {json.dumps(evt)}\n\n"
+
+            meta = load_document_meta(doc_dir)
+            yield f"data: {json.dumps({'status': 'complete', 'doc_id': meta.get('doc_id', doc_dir.name)})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 # ---------------------------------------------------------------------------

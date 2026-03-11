@@ -4,6 +4,7 @@ Saves and loads the complete document data as a JSON file hierarchy:
   documents/{doc_id}/
     meta.json
     structure.json
+    versions.json
     chapters/{chapter_id}/
       meta.json
       sections/{section_id}/
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -48,6 +50,7 @@ def save_document(
         "author": chunks.l0.author,
         "creation_date": chunks.l0.creation_date,
         "source_language": chunks.l0.source_language,
+        "version": len(list_versions(doc_dir)) + 1,
         "l0": chunks.l0.model_dump(),
     }
     _write_json(doc_dir / "meta.json", meta)
@@ -167,6 +170,51 @@ def list_documents(settings: Settings) -> list[dict]:
         if meta_path.exists():
             results.append(_read_json(meta_path))
     return results
+
+
+def archive_version(doc_dir: Path) -> int | None:
+    """Archive the current version of a document before re-ingestion.
+
+    Copies the doc dir to ``{doc_id}_v{N}`` and records the version in
+    ``versions.json``. Returns the version number, or None if there's
+    nothing to archive.
+    """
+    meta_path = doc_dir / "meta.json"
+    if not meta_path.exists():
+        return None
+
+    meta = _read_json(meta_path)
+    versions = list_versions(doc_dir)
+    next_version = len(versions) + 1
+
+    # Archive directory
+    archive_dir = doc_dir.parent / f"{doc_dir.name}_v{next_version}"
+    shutil.copytree(doc_dir, archive_dir, dirs_exist_ok=False)
+
+    # Update versions.json in the main doc dir
+    versions.append({
+        "version": next_version,
+        "archived_at": datetime.now(timezone.utc).isoformat(),
+        "content_hash": meta.get("content_hash", ""),
+        "ingestion_date": meta.get("ingestion_date", ""),
+        "archive_path": archive_dir.name,
+    })
+    _write_json(doc_dir / "versions.json", {"versions": versions})
+
+    logger.info("Archived version %d of %s to %s", next_version, doc_dir.name, archive_dir.name)
+    return next_version
+
+
+def list_versions(doc_dir: Path) -> list[dict]:
+    """List all archived versions of a document."""
+    versions_path = doc_dir / "versions.json"
+    if not versions_path.exists():
+        return []
+    try:
+        data = _read_json(versions_path)
+        return data.get("versions", [])
+    except (json.JSONDecodeError, OSError):
+        return []
 
 
 def _write_json(path: Path, data: dict) -> None:

@@ -105,6 +105,7 @@ def ingest(
     verbose: bool = False,
     force: bool = False,
     resume: bool = True,
+    progress_callback=None,
 ) -> Path:
     """Run the full ingestion pipeline on a document. Returns the document directory.
 
@@ -133,6 +134,8 @@ def ingest(
         nonlocal step
         step += 1
         logger.info("[%d/%d] %s", step, total, msg)
+        if progress_callback is not None:
+            progress_callback(step, total, msg)
 
     logger.info("=== Ingesting %s as %s ===", file_path.name, doc_id)
 
@@ -155,9 +158,20 @@ def ingest(
             )
             return dup
 
+    # --- Version archival + cache on re-ingest ---
+    doc_dir = settings.documents_dir / doc_id
+    previous_chunks: ChunkSet | None = None
+    if force and (doc_dir / "meta.json").exists():
+        from ingestible.pipeline.stage6_storage import archive_version, load_chunks
+
+        try:
+            previous_chunks = load_chunks(doc_dir)
+        except Exception:
+            pass
+        archive_version(doc_dir)
+
     # --- Checkpoint setup ---
     use_checkpoint = settings.checkpoint_enabled and resume
-    doc_dir = settings.documents_dir / doc_id
     doc_dir.mkdir(parents=True, exist_ok=True)
 
     # Stage 1: Parse
@@ -265,7 +279,7 @@ def ingest(
     _log("Building indexes...")
     if embedder is None:
         embedder = Embedder(settings)
-    build_indexes(chunks, doc_dir, embedder, language=parsed.detected_language)
+    build_indexes(chunks, doc_dir, embedder, language=parsed.detected_language, previous_chunks=previous_chunks)
 
     # Stage 6: Storage
     _log("Saving to disk...")
