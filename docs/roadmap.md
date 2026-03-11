@@ -48,9 +48,9 @@ Detect URL input (`http://` / `https://`), download to temp file, detect content
 
 | WP | Feature | Status |
 |----|---------|--------|
-| 2.1 | Cross-Document Search | planned |
-| 2.2 | Re-enrichment Without Re-parsing | planned |
-| 2.3 | Export to Portable Formats | planned |
+| 2.1 | Cross-Document Search | **done** (v0.11) |
+| 2.2 | Re-enrichment Without Re-parsing | **done** (v0.11) |
+| 2.3 | Export to Portable Formats | **done** (v0.11) |
 
 ### WP 2.1: Cross-Document Search
 `CorpusSearcher` discovers all doc dirs, loads per-document `HybridSearcher` instances (with LRU cache), queries each in parallel, merges results via cross-document RRF.

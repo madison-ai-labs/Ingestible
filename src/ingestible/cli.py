@@ -65,6 +65,34 @@ def main(argv: list[str] | None = None) -> None:
         "-n", "--results", type=int, default=5, help="Number of results (default: 5)"
     )
 
+    # --- corpus-search ---
+    p_csearch = sub.add_parser("corpus-search", help="Search across all ingested documents")
+    p_csearch.add_argument("query", help="Search query")
+    p_csearch.add_argument(
+        "-n", "--results", type=int, default=10, help="Number of results (default: 10)"
+    )
+    p_csearch.add_argument(
+        "--doc-ids", nargs="*", default=None, help="Limit to specific document IDs"
+    )
+
+    # --- enrich ---
+    p_enrich = sub.add_parser("enrich", help="Re-enrich a document without re-parsing")
+    p_enrich.add_argument("doc_id", help="Document ID to re-enrich")
+    p_enrich.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+
+    # --- export ---
+    p_exp = sub.add_parser("export", help="Export document to portable format")
+    p_exp.add_argument("doc_id", help="Document ID to export")
+    p_exp.add_argument(
+        "--format",
+        choices=["jsonl", "parquet", "llamaindex", "langchain"],
+        required=True,
+        help="Export format",
+    )
+    p_exp.add_argument(
+        "-o", "--output", required=True, help="Output file path"
+    )
+
     # --- export-cv ---
     p_export = sub.add_parser("export-cv", help="Export documents to CognitiveVault")
     p_export.add_argument(
@@ -105,6 +133,12 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_list()
     elif args.command == "search":
         _cmd_search(args)
+    elif args.command == "corpus-search":
+        _cmd_corpus_search(args)
+    elif args.command == "enrich":
+        _cmd_enrich(args)
+    elif args.command == "export":
+        _cmd_export(args)
     elif args.command == "export-cv":
         _cmd_export_cv(args)
 
@@ -237,6 +271,84 @@ def _cmd_search(args: argparse.Namespace) -> None:
         else:
             print(f"      {r.content[:200]}")
         print()
+
+
+def _cmd_corpus_search(args: argparse.Namespace) -> None:
+    from ingestible.config import get_settings
+    from ingestible.search.corpus import CorpusSearcher
+
+    settings = get_settings()
+    searcher = CorpusSearcher(settings)
+    response = searcher.search(args.query, n_results=args.results, doc_ids=args.doc_ids)
+
+    if not response.results:
+        print("No results found.")
+        return
+
+    print(f"Search: \"{args.query}\" across {response.documents_searched} documents")
+    print(f"Found {response.total_candidates} candidates, showing top {len(response.results)}:\n")
+
+    for i, r in enumerate(response.results, 1):
+        sources = ", ".join(r.match_sources) if r.match_sources else "?"
+        pages = ""
+        if r.page_start:
+            pages = f"p.{r.page_start}"
+            if r.page_end and r.page_end != r.page_start:
+                pages += f"-{r.page_end}"
+
+        doc_label = r.doc_title or r.doc_id or "?"
+        print(f"  [{i}] score={r.score:.4f}  [{doc_label}]  ({sources})  {pages}")
+        if r.summary:
+            print(f"      {r.summary[:200]}")
+        else:
+            print(f"      {r.content[:200]}")
+        print()
+
+
+def _cmd_enrich(args: argparse.Namespace) -> None:
+    import logging
+
+    from ingestible.config import get_settings
+    from ingestible.pipeline.re_enrich import re_enrich
+
+    if args.verbose:
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    else:
+        logging.basicConfig(level=logging.WARNING)
+
+    settings = get_settings()
+
+    doc_dir = settings.documents_dir / args.doc_id
+    if not doc_dir.exists():
+        print(f"Document not found: {args.doc_id}")
+        print("Run 'ingest list' to see available documents.")
+        sys.exit(1)
+
+    doc_dir = re_enrich(args.doc_id, settings)
+    print(f"Re-enriched → {doc_dir}")
+
+
+def _cmd_export(args: argparse.Namespace) -> None:
+    from pathlib import Path
+
+    from ingestible.config import get_settings
+    from ingestible.export import export_document
+    from ingestible.pipeline.stage6_storage import load_chunks, load_document_meta
+
+    settings = get_settings()
+    doc_dir = settings.documents_dir / args.doc_id
+
+    if not doc_dir.exists():
+        print(f"Document not found: {args.doc_id}")
+        print("Run 'ingest list' to see available documents.")
+        sys.exit(1)
+
+    chunks = load_chunks(doc_dir)
+    meta = load_document_meta(doc_dir)
+    output_path = Path(args.output)
+
+    export_document(chunks, args.format, output_path, doc_title=meta.get("title", ""))
+    print(f"Exported {args.doc_id} to {output_path} ({args.format})")
 
 
 def _cmd_export_cv(args: argparse.Namespace) -> None:

@@ -497,6 +497,112 @@ async def get_structure(doc_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Corpus search (WP 2.1)
+# ---------------------------------------------------------------------------
+
+
+class CorpusSearchRequest(BaseModel):
+    query: str
+    n_results: int = Field(default=10, ge=1, le=50)
+    doc_ids: list[str] | None = None
+
+
+@app.post("/search")
+async def corpus_search(request: CorpusSearchRequest):
+    """Search across all ingested documents with cross-document RRF fusion."""
+    from ingestible.search.corpus import CorpusSearcher
+
+    settings = get_cached_settings()
+    searcher = CorpusSearcher(settings, embedder=get_cached_embedder())
+    return searcher.search(
+        request.query, n_results=request.n_results, doc_ids=request.doc_ids
+    )
+
+
+# ---------------------------------------------------------------------------
+# Re-enrichment (WP 2.2)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/documents/{doc_id}/enrich", response_model=IngestResponse)
+async def enrich_document(doc_id: str):
+    """Re-enrich a document without re-parsing. Re-runs enrichment + embedding."""
+    from ingestible.pipeline.re_enrich import re_enrich
+
+    settings = get_cached_settings()
+    doc_dir = settings.documents_dir / doc_id
+
+    if not doc_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
+
+    doc_dir = re_enrich(doc_id, settings)
+
+    meta = load_document_meta(doc_dir)
+    chunks = load_chunks(doc_dir)
+    from ingestible.utils.tokens import count_tokens
+    l0_tokens = count_tokens(_l0_overview_text(chunks.l0))
+
+    return IngestResponse(
+        doc_id=meta.get("doc_id", doc_dir.name),
+        title=meta.get("title", "Untitled"),
+        total_pages=meta.get("total_pages", 0),
+        total_chunks=len(chunks.l3_chunks),
+        l0_tokens=l0_tokens,
+        enriched=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Export (WP 2.3)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/documents/{doc_id}/export")
+async def export_document_endpoint(
+    doc_id: str,
+    format: str = Query(..., description="Export format: jsonl, parquet, llamaindex, langchain"),
+):
+    """Export a document to a portable format. Returns the file as a download."""
+    from starlette.responses import FileResponse
+
+    from ingestible.export import EXPORT_FORMATS, export_document
+
+    settings = get_cached_settings()
+    doc_dir = settings.documents_dir / doc_id
+
+    if not doc_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
+
+    if format not in EXPORT_FORMATS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown format '{format}'. Supported: {sorted(EXPORT_FORMATS)}",
+        )
+
+    chunks = load_chunks(doc_dir)
+    meta = load_document_meta(doc_dir)
+
+    ext_map = {"jsonl": ".jsonl", "parquet": ".parquet", "llamaindex": ".json", "langchain": ".json"}
+    ext = ext_map.get(format, ".json")
+    output_path = doc_dir / f"export{ext}"
+
+    export_document(chunks, format, output_path, doc_title=meta.get("title", ""))
+
+    media_types = {
+        "jsonl": "application/x-ndjson",
+        "parquet": "application/octet-stream",
+        "llamaindex": "application/json",
+        "langchain": "application/json",
+    }
+
+    return FileResponse(
+        path=str(output_path),
+        filename=f"{doc_id}.{format}{ext}",
+        media_type=media_types.get(format, "application/octet-stream"),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Web UI
 # ---------------------------------------------------------------------------
 
