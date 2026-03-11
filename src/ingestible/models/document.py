@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from ingestible.models.metadata import DocumentMetadata
+
 
 class TOCEntry(BaseModel):
     level: int
@@ -27,6 +29,7 @@ class ParsedDocument(BaseModel):
     detected_language: str = "en"
     toc: list[TOCEntry] = Field(default_factory=list)
     pages: list[PageContent] = Field(default_factory=list)
+    metadata: DocumentMetadata | None = None
 
     @property
     def full_markdown(self) -> str:

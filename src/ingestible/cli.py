@@ -48,6 +48,11 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Don't recurse into subdirectories",
     )
+    p_ingest.add_argument(
+        "--no-checkpoint",
+        action="store_true",
+        help="Disable pipeline checkpoint/resume",
+    )
 
     # --- list ---
     sub.add_parser("list", help="List all ingested documents")
@@ -104,10 +109,17 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_export_cv(args)
 
 
+def _is_url(file_path: str) -> bool:
+    """Detect if input is an HTTP(S) URL."""
+    return file_path.startswith("http://") or file_path.startswith("https://")
+
+
 def _is_batch_input(file_path: str) -> bool:
     """Detect if input is a directory or glob pattern (batch mode)."""
     from pathlib import Path
 
+    if _is_url(file_path):
+        return False
     if "*" in file_path or "?" in file_path:
         return True
     p = Path(file_path)
@@ -124,6 +136,8 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
         overrides["data_dir"] = Path(args.data_dir)
     if args.chunking:
         overrides["chunking_strategy"] = args.chunking
+    if args.no_checkpoint:
+        overrides["checkpoint_enabled"] = False
 
     settings = get_settings(**overrides)
 

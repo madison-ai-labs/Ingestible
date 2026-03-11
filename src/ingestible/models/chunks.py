@@ -77,6 +77,8 @@ class L0Chunk(BaseModel):
     title: str
     author: str = ""
     domain: str = ""
+    creation_date: str = ""
+    source_language: str = ""
     toc_summary: str = ""
     key_concepts: list[str] = Field(default_factory=list)
     total_pages: int = 0

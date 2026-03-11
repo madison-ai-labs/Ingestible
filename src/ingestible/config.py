@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # Dedup
     dedup_enabled: bool = True
 
+    # Checkpoint
+    checkpoint_enabled: bool = True
+
     # Search
     vector_weight: float = 0.7
     bm25_weight: float = 0.3

@@ -242,6 +242,43 @@ async def ingest_document(
         Path(tmp_path).unlink(missing_ok=True)
 
 
+class URLIngestRequest(BaseModel):
+    url: str
+    skip_enrichment: bool = False
+
+
+@app.post("/ingest/url", response_model=IngestResponse)
+async def ingest_url(request: URLIngestRequest):
+    """
+    Ingest a document from a URL.
+
+    Downloads the URL, detects content type, and runs the full pipeline.
+    """
+    settings = get_cached_settings()
+
+    doc_dir = ingest(
+        request.url,
+        settings,
+        skip_enrichment=request.skip_enrichment,
+        verbose=False,
+    )
+
+    meta = load_document_meta(doc_dir)
+    chunks = load_chunks(doc_dir)
+
+    from ingestible.utils.tokens import count_tokens
+    l0_tokens = count_tokens(_l0_overview_text(chunks.l0))
+
+    return IngestResponse(
+        doc_id=meta.get("doc_id", doc_dir.name),
+        title=meta.get("title", "Untitled"),
+        total_pages=meta.get("total_pages", 0),
+        total_chunks=len(chunks.l3_chunks),
+        l0_tokens=l0_tokens,
+        enriched=not request.skip_enrichment,
+    )
+
+
 class BatchIngestResult(BaseModel):
     filename: str
     doc_id: str | None = None

@@ -146,6 +146,8 @@ CHUNKSET_SCHEMA_SNAPSHOT = {
         "title": "string",
         "author": "string",
         "domain": "string",
+        "creation_date": "string",
+        "source_language": "string",
         "toc_summary": "string",
         "key_concepts": "list[string]",
         "total_pages": "integer",

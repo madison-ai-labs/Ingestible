@@ -45,6 +45,9 @@ def save_document(
         "total_passages": chunks.l0.total_passages,
         "ingestion_date": datetime.now(timezone.utc).isoformat(),
         "content_hash": content_hash,
+        "author": chunks.l0.author,
+        "creation_date": chunks.l0.creation_date,
+        "source_language": chunks.l0.source_language,
         "l0": chunks.l0.model_dump(),
     }
     _write_json(doc_dir / "meta.json", meta)

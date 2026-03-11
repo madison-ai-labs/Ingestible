@@ -19,6 +19,9 @@ from ingestible.pipeline.stage1b_clean import clean_document
 from ingestible.pipeline.stage2_structure import detect_structure
 from ingestible.pipeline.stage3_chunking import chunk_document
 from ingestible.pipeline.stage3b_validation import validate_chunks
+from ingestible.pipeline.checkpoint import clear_checkpoints, load_checkpoint, save_checkpoint
+from ingestible.pipeline.fetch import is_url
+from ingestible.pipeline.metadata import extract_metadata
 from ingestible.pipeline.stage5_embedding import Embedder, build_indexes
 from ingestible.pipeline.stage6_storage import save_document
 
@@ -100,8 +103,20 @@ def ingest(
     skip_enrichment: bool = False,
     verbose: bool = False,
     force: bool = False,
+    resume: bool = True,
 ) -> Path:
-    """Run the full ingestion pipeline on a document. Returns the document directory."""
+    """Run the full ingestion pipeline on a document. Returns the document directory.
+
+    ``file_path`` may be a local path **or** an HTTP(S) URL.
+    """
+    # --- URL fetch ---
+    _fetched_tmp: Path | None = None
+    if is_url(str(file_path)):
+        from ingestible.pipeline.fetch import fetch_url
+
+        _fetched_tmp = fetch_url(str(file_path))
+        file_path = _fetched_tmp
+
     file_path = Path(file_path).resolve()
 
     if verbose:
@@ -139,54 +154,109 @@ def ingest(
             )
             return dup
 
+    # --- Checkpoint setup ---
+    use_checkpoint = settings.checkpoint_enabled and resume
+    doc_dir = settings.documents_dir / doc_id
+    doc_dir.mkdir(parents=True, exist_ok=True)
+
     # Stage 1: Parse
-    _log("Parsing document...")
-    parsed = parse_document(file_path)
+    if use_checkpoint and (cp := load_checkpoint(doc_dir, "parsed")):
+        parsed = ParsedDocument(**cp)
+        logger.info("  Resumed from checkpoint: parsed")
+    else:
+        _log("Parsing document...")
+        parsed = parse_document(file_path)
+        # Extract file-level metadata and attach to parsed document
+        meta_info = extract_metadata(file_path)
+        parsed.metadata = meta_info
+        if meta_info.language:
+            parsed.detected_language = meta_info.language
+        if use_checkpoint:
+            save_checkpoint(doc_dir, "parsed", parsed)
 
     # Stage 1b: Clean (if enabled)
     if settings.cleaning_enabled:
-        _log("Cleaning document...")
-        parsed = clean_document(parsed)
+        if use_checkpoint and (cp := load_checkpoint(doc_dir, "cleaned")):
+            parsed = ParsedDocument(**cp)
+            logger.info("  Resumed from checkpoint: cleaned")
+        else:
+            _log("Cleaning document...")
+            parsed = clean_document(parsed)
+            if use_checkpoint:
+                save_checkpoint(doc_dir, "cleaned", parsed)
 
     # Stage 2: Structure detection
-    _log("Detecting structure...")
-    structure = detect_structure(parsed, doc_id)
+    if use_checkpoint and (cp := load_checkpoint(doc_dir, "structure")):
+        structure = DocumentStructure(**cp)
+        logger.info("  Resumed from checkpoint: structure")
+    else:
+        _log("Detecting structure...")
+        structure = detect_structure(parsed, doc_id)
+        if use_checkpoint:
+            save_checkpoint(doc_dir, "structure", structure)
 
-    # Stage 3: Chunking
-    _log("Chunking...")
-    embedder = Embedder(settings) if settings.chunking_strategy == "semantic" else None
-    chunks = chunk_document(structure, settings, embedder=embedder)
+    # Stage 3: Chunking + Stage 3b: Validation
+    embedder: Embedder | None = None
+    if use_checkpoint and (cp := load_checkpoint(doc_dir, "validated")):
+        chunks = ChunkSet(**cp)
+        logger.info("  Resumed from checkpoint: validated")
+    else:
+        _log("Chunking...")
+        if settings.chunking_strategy == "semantic":
+            embedder = Embedder(settings)
+        chunks = chunk_document(structure, settings, embedder=embedder)
 
-    # Stage 3b: Validation
-    _log("Validating chunks...")
-    chunks, quality_report = validate_chunks(chunks)
+        # Stage 3b: Validation
+        _log("Validating chunks...")
+        chunks, quality_report = validate_chunks(chunks)
+        if use_checkpoint:
+            save_checkpoint(doc_dir, "validated", chunks)
+
+    # Populate L0 metadata from parsed document
+    if parsed.metadata:
+        if parsed.metadata.author and not chunks.l0.author:
+            chunks.l0.author = parsed.metadata.author
+        if parsed.metadata.creation_date:
+            chunks.l0.creation_date = parsed.metadata.creation_date
+        if parsed.detected_language:
+            chunks.l0.source_language = parsed.detected_language
 
     # Stage 3c: Contextual chunking (if enabled + not skip_enrichment)
     if settings.contextual_chunking and not skip_enrichment:
-        _log("Adding contextual prefixes...")
-        try:
-            from ingestible.pipeline.stage3c_contextual import add_context_prefixes
+        if use_checkpoint and (cp := load_checkpoint(doc_dir, "contextual")):
+            chunks = ChunkSet(**cp)
+            logger.info("  Resumed from checkpoint: contextual")
+        else:
+            _log("Adding contextual prefixes...")
+            try:
+                from ingestible.pipeline.stage3c_contextual import add_context_prefixes
 
-            chunks = asyncio.run(add_context_prefixes(chunks, structure, settings))
-        except Exception as e:
-            logger.warning("Contextual chunking failed, continuing without it: %s", e)
+                chunks = asyncio.run(add_context_prefixes(chunks, structure, settings))
+                if use_checkpoint:
+                    save_checkpoint(doc_dir, "contextual", chunks)
+            except Exception as e:
+                logger.warning("Contextual chunking failed, continuing without it: %s", e)
 
     # Stage 4: Enrichment (optional)
     if not skip_enrichment:
-        _log("LLM enrichment...")
-        try:
-            from ingestible.pipeline.stage4_enrichment import enrich_chunks
+        if use_checkpoint and (cp := load_checkpoint(doc_dir, "enriched")):
+            chunks = ChunkSet(**cp)
+            logger.info("  Resumed from checkpoint: enriched")
+        else:
+            _log("LLM enrichment...")
+            try:
+                from ingestible.pipeline.stage4_enrichment import enrich_chunks
 
-            chunks = asyncio.run(enrich_chunks(chunks, settings))
-        except Exception as e:
-            logger.warning("Enrichment failed, continuing without it: %s", e)
+                chunks = asyncio.run(enrich_chunks(chunks, settings))
+                if use_checkpoint:
+                    save_checkpoint(doc_dir, "enriched", chunks)
+            except Exception as e:
+                logger.warning("Enrichment failed, continuing without it: %s", e)
     else:
         logger.info("  Skipping enrichment (--skip-enrichment)")
 
     # Stage 5: Embedding & indexing
     _log("Building indexes...")
-    doc_dir = settings.documents_dir / doc_id
-    doc_dir.mkdir(parents=True, exist_ok=True)
     if embedder is None:
         embedder = Embedder(settings)
     build_indexes(chunks, doc_dir, embedder)
@@ -194,6 +264,14 @@ def ingest(
     # Stage 6: Storage
     _log("Saving to disk...")
     doc_dir = save_document(structure, chunks, settings, content_hash=content_hash)
+
+    # Clean up checkpoints on success
+    if use_checkpoint:
+        clear_checkpoints(doc_dir)
+
+    # Clean up fetched temp file
+    if _fetched_tmp is not None:
+        _fetched_tmp.unlink(missing_ok=True)
 
     logger.info("=== Done. Document stored at %s ===", doc_dir)
     return doc_dir
