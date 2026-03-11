@@ -67,10 +67,10 @@ Export stored documents to JSONL, Parquet, LlamaIndex nodes, LangChain documents
 
 | WP | Feature | Status |
 |----|---------|--------|
-| 3.1 | EPUB | planned |
-| 3.2 | CSV/Excel | planned |
-| 3.3 | PowerPoint | planned |
-| 3.4 | RST & AsciiDoc | planned |
+| 3.1 | EPUB | **done** (v0.12) |
+| 3.2 | CSV/Excel | **done** (v0.12) |
+| 3.3 | PowerPoint | **done** (v0.12) |
+| 3.4 | RST & AsciiDoc | **done** (v0.12) |
 | 3.5 | Image/Figure Extraction from PDFs | planned |
 
 ---

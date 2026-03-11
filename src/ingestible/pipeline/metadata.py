@@ -21,6 +21,10 @@ def extract_metadata(file_path: Path) -> DocumentMetadata:
             return _extract_docx(file_path)
         elif ext in (".html", ".htm"):
             return _extract_html(file_path)
+        elif ext == ".epub":
+            return _extract_epub(file_path)
+        elif ext == ".pptx":
+            return _extract_pptx(file_path)
         else:
             return _extract_text(file_path)
     except Exception as e:
@@ -140,6 +144,53 @@ def _extract_html(file_path: Path) -> DocumentMetadata:
         keywords=keywords,
         language=lang,
         word_count=word_count,
+    )
+
+
+def _extract_epub(file_path: Path) -> DocumentMetadata:
+    """Extract metadata from EPUB file."""
+    from ebooklib import epub
+
+    book = epub.read_epub(str(file_path), options={"ignore_ncx": True})
+    author = ""
+    language = ""
+    keywords: list[str] = []
+
+    # Dublin Core metadata
+    creators = book.get_metadata("DC", "creator")
+    if creators:
+        author = creators[0][0] if creators[0] else ""
+
+    langs = book.get_metadata("DC", "language")
+    if langs:
+        language = langs[0][0] if langs[0] else ""
+
+    subjects = book.get_metadata("DC", "subject")
+    keywords = [s[0] for s in subjects if s and s[0]]
+
+    return DocumentMetadata(
+        author=author,
+        language=language,
+        keywords=keywords,
+    )
+
+
+def _extract_pptx(file_path: Path) -> DocumentMetadata:
+    """Extract metadata from PowerPoint file."""
+    from pptx import Presentation
+
+    prs = Presentation(str(file_path))
+    props = prs.core_properties
+
+    creation_date = ""
+    if props.created:
+        creation_date = props.created.isoformat()
+
+    return DocumentMetadata(
+        author=props.author or "",
+        subject=props.subject or "",
+        creation_date=creation_date,
+        page_count=len(prs.slides),
     )
 
 

@@ -26,8 +26,8 @@ def sample_dir(tmp_path: Path) -> Path:
     (tmp_path / "doc1.pdf").write_bytes(b"%PDF-1.4 fake")
     (tmp_path / "doc2.md").write_text("# Hello")
     (tmp_path / "notes.txt").write_text("plain text")
-    (tmp_path / "data.csv").write_text("a,b\n1,2")  # unsupported
     (tmp_path / "image.png").write_bytes(b"\x89PNG fake")  # unsupported
+    (tmp_path / "archive.zip").write_bytes(b"PK\x03\x04 fake")  # unsupported
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / "deep.docx").write_bytes(b"PK fake docx")
     (tmp_path / "sub" / "page.html").write_text("<h1>hi</h1>")
@@ -53,8 +53,8 @@ def test_discover_single_supported_file(tmp_path: Path):
 
 
 def test_discover_single_unsupported_file(tmp_path: Path):
-    f = tmp_path / "test.csv"
-    f.write_text("a,b")
+    f = tmp_path / "test.zip"
+    f.write_bytes(b"PK fake")
     assert discover_files(f) == []
 
 

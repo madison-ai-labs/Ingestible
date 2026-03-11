@@ -148,11 +148,11 @@ def test_parse_empty_file_docx(tmp_path):
 
 
 def test_parse_unsupported_format(tmp_path):
-    csv_file = tmp_path / "data.csv"
-    csv_file.write_text("a,b,c\n1,2,3")
+    xyz_file = tmp_path / "data.xyz"
+    xyz_file.write_text("some data")
 
     with pytest.raises(ValueError, match="Unsupported format"):
-        parse_document(csv_file)
+        parse_document(xyz_file)
 
 
 def test_parse_file_not_found():
