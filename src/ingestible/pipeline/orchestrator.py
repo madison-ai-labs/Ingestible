@@ -23,6 +23,7 @@ from ingestible.pipeline.checkpoint import clear_checkpoints, load_checkpoint, s
 from ingestible.pipeline.fetch import is_url
 from ingestible.pipeline.metadata import extract_metadata
 from ingestible.pipeline.stage5_embedding import Embedder, build_indexes
+from ingestible.profiles import PROFILES, ExtractionProfile, detect_profile
 from ingestible.utils.language import detect_language
 from ingestible.pipeline.stage6_storage import save_document
 
@@ -96,6 +97,24 @@ def _count_steps(settings: Settings, skip_enrichment: bool) -> int:
         if settings.contextual_chunking:
             steps += 1  # contextual prefixes
     return steps
+
+
+def _save_figure_images(parsed: ParsedDocument, doc_dir: Path) -> None:
+    """Save extracted figure images to {doc_dir}/figures/."""
+    all_figures = [fig for page in parsed.pages for fig in page.figures]
+    if not all_figures:
+        return
+
+    figures_dir = doc_dir / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+
+    for fig in all_figures:
+        # The image data may come from Docling's image URI or be absent
+        # For now we create a placeholder — actual image bytes are extracted
+        # separately if the Docling image ref has data
+        marker_path = figures_dir / fig.filename
+        if not marker_path.exists():
+            marker_path.write_bytes(b"")  # placeholder for image
 
 
 def ingest(
@@ -194,6 +213,9 @@ def ingest(
         if use_checkpoint:
             save_checkpoint(doc_dir, "parsed", parsed)
 
+    # Save extracted figure images to disk (before checkpoint serialization)
+    _save_figure_images(parsed, doc_dir)
+
     # Stage 1b: Clean (if enabled)
     if settings.cleaning_enabled:
         if use_checkpoint and (cp := load_checkpoint(doc_dir, "cleaned")):
@@ -204,6 +226,25 @@ def ingest(
             parsed = clean_document(parsed)
             if use_checkpoint:
                 save_checkpoint(doc_dir, "cleaned", parsed)
+
+    # --- Profile resolution ---
+    if settings.extraction_profile == "auto":
+        profile_name = detect_profile(parsed)
+    else:
+        profile_name = settings.extraction_profile
+    profile = PROFILES.get(profile_name, PROFILES["general"])
+    logger.info("Extraction profile: %s", profile.name)
+
+    # Apply profile overrides to settings for chunking
+    profile_overrides: dict = {}
+    if profile.max_chunk_tokens is not None:
+        profile_overrides["max_chunk_tokens"] = profile.max_chunk_tokens
+    if profile.min_chunk_tokens is not None:
+        profile_overrides["min_chunk_tokens"] = profile.min_chunk_tokens
+    if profile.chunking_strategy is not None:
+        profile_overrides["chunking_strategy"] = profile.chunking_strategy
+    if profile_overrides:
+        settings = settings.model_copy(update=profile_overrides)
 
     # Stage 2: Structure detection
     if use_checkpoint and (cp := load_checkpoint(doc_dir, "structure")):
@@ -267,7 +308,7 @@ def ingest(
             try:
                 from ingestible.pipeline.stage4_enrichment import enrich_chunks
 
-                chunks = asyncio.run(enrich_chunks(chunks, settings))
+                chunks = asyncio.run(enrich_chunks(chunks, settings, profile=profile))
                 if use_checkpoint:
                     save_checkpoint(doc_dir, "enriched", chunks)
             except Exception as e:
@@ -283,7 +324,11 @@ def ingest(
 
     # Stage 6: Storage
     _log("Saving to disk...")
-    doc_dir = save_document(structure, chunks, settings, content_hash=content_hash)
+    doc_dir = save_document(
+        structure, chunks, settings,
+        content_hash=content_hash,
+        extraction_profile=profile.name,
+    )
 
     # Clean up checkpoints on success
     if use_checkpoint:

@@ -23,6 +23,7 @@ from pathlib import Path
 from ingestible.config import Settings
 from ingestible.models.chunks import ChunkSet, L0Chunk, L1Chunk, L2Chunk, L3Chunk
 from ingestible.models.document import DocumentStructure
+from ingestible.models.enrichment import Citation
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ def save_document(
     chunks: ChunkSet,
     settings: Settings,
     content_hash: str = "",
+    extraction_profile: str = "",
 ) -> Path:
     """Persist a processed document to disk as a JSON file hierarchy."""
     doc_dir = settings.documents_dir / chunks.doc_id
@@ -51,12 +53,26 @@ def save_document(
         "creation_date": chunks.l0.creation_date,
         "source_language": chunks.l0.source_language,
         "version": len(list_versions(doc_dir)) + 1,
+        "extraction_profile": extraction_profile,
         "l0": chunks.l0.model_dump(),
     }
     _write_json(doc_dir / "meta.json", meta)
 
+    # citations.json — structured citations from enrichment
+    if chunks.citations:
+        _write_json(
+            doc_dir / "citations.json",
+            {"citations": [c.model_dump() for c in chunks.citations]},
+        )
+
     # structure.json
     _write_json(doc_dir / "structure.json", structure.model_dump())
+
+    # figures.json — manifest of extracted figures
+    figures_dir = doc_dir / "figures"
+    if figures_dir.exists() and any(figures_dir.iterdir()):
+        figure_files = sorted(f.name for f in figures_dir.iterdir() if f.is_file())
+        _write_json(doc_dir / "figures.json", {"figures": figure_files})
 
     # Chapter hierarchy
     for ch in chunks.l1_chunks:
@@ -144,12 +160,23 @@ def load_chunks(doc_dir: Path) -> ChunkSet:
             chunk_data = _read_json(chunk_file)
             l3_chunks.append(L3Chunk(**chunk_data))
 
+    # Citations
+    citations: list[Citation] = []
+    citations_path = doc_dir / "citations.json"
+    if citations_path.exists():
+        try:
+            cit_data = _read_json(citations_path)
+            citations = [Citation(**c) for c in cit_data.get("citations", [])]
+        except (json.JSONDecodeError, OSError):
+            pass
+
     return ChunkSet(
         doc_id=doc_id,
         l0=l0,
         l1_chunks=l1_chunks,
         l2_chunks=l2_chunks,
         l3_chunks=l3_chunks,
+        citations=citations,
     )
 
 

@@ -53,6 +53,12 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Disable pipeline checkpoint/resume",
     )
+    p_ingest.add_argument(
+        "--profile",
+        choices=["auto", "paper", "article", "documentation", "general"],
+        default=None,
+        help="Extraction profile (default: auto-detect from content)",
+    )
 
     # --- list ---
     sub.add_parser("list", help="List all ingested documents")
@@ -96,6 +102,9 @@ def main(argv: list[str] | None = None) -> None:
     p_exp.add_argument(
         "-o", "--output", required=True, help="Output file path"
     )
+
+    # --- config ---
+    sub.add_parser("config", help="Show effective configuration (all sources merged)")
 
     # --- export-cv ---
     p_export = sub.add_parser("export-cv", help="Export documents to CognitiveVault")
@@ -145,6 +154,8 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_versions(args)
     elif args.command == "export":
         _cmd_export(args)
+    elif args.command == "config":
+        _cmd_config()
     elif args.command == "export-cv":
         _cmd_export_cv(args)
 
@@ -178,6 +189,8 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
         overrides["chunking_strategy"] = args.chunking
     if args.no_checkpoint:
         overrides["checkpoint_enabled"] = False
+    if args.profile:
+        overrides["extraction_profile"] = args.profile
 
     settings = get_settings(**overrides)
 
@@ -388,6 +401,14 @@ def _cmd_export(args: argparse.Namespace) -> None:
 
     export_document(chunks, args.format, output_path, doc_title=meta.get("title", ""))
     print(f"Exported {args.doc_id} to {output_path} ({args.format})")
+
+
+def _cmd_config() -> None:
+    from ingestible.config import get_settings
+
+    settings = get_settings()
+    for key, value in settings.model_dump().items():
+        print(f"{key}={value}")
 
 
 def _cmd_export_cv(args: argparse.Namespace) -> None:

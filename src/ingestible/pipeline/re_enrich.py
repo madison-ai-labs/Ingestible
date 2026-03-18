@@ -39,6 +39,13 @@ def re_enrich(doc_id: str, settings: Settings) -> Path:
     meta = load_document_meta(doc_dir)
     content_hash = meta.get("content_hash", "")
 
+    # Resolve extraction profile
+    stored_profile = meta.get("extraction_profile", settings.extraction_profile)
+    if stored_profile == "auto":
+        stored_profile = "general"
+    from ingestible.profiles import PROFILES, ExtractionProfile
+    profile = PROFILES.get(stored_profile, PROFILES["general"])
+
     # Clear old enrichment fields
     for c in chunks.l3_chunks:
         c.summary = ""
@@ -48,6 +55,7 @@ def re_enrich(doc_id: str, settings: Settings) -> Path:
         c.difficulty_level = ""
         c.depends_on = []
         c.cross_references = []
+        c.cited_references = []
         c.context_prefix = ""
 
     for c in chunks.l2_chunks:
@@ -61,6 +69,17 @@ def re_enrich(doc_id: str, settings: Settings) -> Path:
         c.learning_objectives = []
         c.prerequisite_chapters = []
         c.key_takeaways = []
+
+    # Clear L0 digest fields
+    chunks.l0.executive_summary = ""
+    chunks.l0.key_findings = []
+    chunks.l0.methodology = ""
+    chunks.l0.limitations = ""
+    chunks.l0.document_type = ""
+    chunks.l0.target_audience = ""
+    chunks.l0.domain = ""
+    chunks.l0.key_concepts = []
+    chunks.citations = []
 
     step = 0
     total = 3  # contextual + enrich + embed/save
@@ -87,7 +106,7 @@ def re_enrich(doc_id: str, settings: Settings) -> Path:
     try:
         from ingestible.pipeline.stage4_enrichment import enrich_chunks
 
-        chunks = asyncio.run(enrich_chunks(chunks, settings))
+        chunks = asyncio.run(enrich_chunks(chunks, settings, profile=profile))
     except Exception as e:
         logger.warning("Enrichment failed, continuing without it: %s", e)
 

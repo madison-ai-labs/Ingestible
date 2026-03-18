@@ -154,6 +154,12 @@ CHUNKSET_SCHEMA_SNAPSHOT = {
         "total_chapters": "integer",
         "total_sections": "integer",
         "total_passages": "integer",
+        "executive_summary": "string",
+        "key_findings": "list[string]",
+        "methodology": "string",
+        "limitations": "string",
+        "document_type": "string",
+        "target_audience": "string",
     },
     "l1_chunks": {
         "chunk_id": "string",
@@ -200,7 +206,18 @@ CHUNKSET_SCHEMA_SNAPSHOT = {
         "difficulty_level": "string",
         "depends_on": "list[string]",
         "cross_references": "list[string]",
+        "cited_references": "list[string]",
         "content_hash": "string",
+    },
+    "citations": {
+        "citation_id": "string",
+        "authors": "list[string]",
+        "title": "string",
+        "year": "string",
+        "venue": "string",
+        "doi": "string",
+        "raw_text": "string",
+        "inline_references": "list[string]",
     },
 }
 

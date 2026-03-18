@@ -125,10 +125,24 @@ def _l0_overview_text(l0: L0Chunk) -> str:
         parts.append(f"Author: {l0.author}")
     if l0.domain:
         parts.append(f"Domain: {l0.domain}")
+    if l0.document_type:
+        parts.append(f"Type: {l0.document_type}")
     parts.append(
         f"Pages: {l0.total_pages} | Chapters: {l0.total_chapters} | "
         f"Sections: {l0.total_sections} | Passages: {l0.total_passages}"
     )
+    if l0.executive_summary:
+        parts.append(f"Summary: {l0.executive_summary}")
+    if l0.key_findings:
+        parts.append("Key findings:")
+        for f in l0.key_findings:
+            parts.append(f"  - {f}")
+    if l0.methodology:
+        parts.append(f"Methodology: {l0.methodology}")
+    if l0.limitations:
+        parts.append(f"Limitations: {l0.limitations}")
+    if l0.target_audience:
+        parts.append(f"Audience: {l0.target_audience}")
     if l0.toc_summary:
         parts.append(f"TOC: {l0.toc_summary}")
     if l0.key_concepts:
@@ -202,6 +216,7 @@ async def health():
 async def ingest_document(
     file: UploadFile = File(...),
     skip_enrichment: bool = Form(False),
+    profile: str = Form("auto"),
 ):
     """
     Ingest a PDF into the knowledge store.
@@ -218,6 +233,10 @@ async def ingest_document(
         tmp_path = tmp.name
 
     try:
+        if profile != "auto":
+            from ingestible.config import get_settings as _gs
+            settings = _gs(extraction_profile=profile)
+
         doc_dir = ingest(
             tmp_path,
             settings,
@@ -246,6 +265,7 @@ async def ingest_document(
 class URLIngestRequest(BaseModel):
     url: str
     skip_enrichment: bool = False
+    profile: str = "auto"
 
 
 @app.post("/ingest/url", response_model=IngestResponse)
@@ -256,6 +276,10 @@ async def ingest_url(request: URLIngestRequest):
     Downloads the URL, detects content type, and runs the full pipeline.
     """
     settings = get_cached_settings()
+
+    if request.profile != "auto":
+        from ingestible.config import get_settings as _gs
+        settings = _gs(extraction_profile=request.profile)
 
     doc_dir = ingest(
         request.url,
@@ -483,6 +507,19 @@ async def get_chunks(doc_id: str):
         raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
 
     return load_chunks(doc_dir)
+
+
+@app.get("/documents/{doc_id}/citations")
+async def get_citations(doc_id: str):
+    """Get extracted citations for a document."""
+    settings = get_cached_settings()
+    doc_dir = settings.documents_dir / doc_id
+
+    if not doc_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
+
+    chunks = load_chunks(doc_dir)
+    return {"doc_id": doc_id, "citations": [c.model_dump() for c in chunks.citations]}
 
 
 @app.get("/documents/{doc_id}/structure", response_model=DocumentStructure)

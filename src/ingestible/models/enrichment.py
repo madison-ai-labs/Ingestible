@@ -13,6 +13,7 @@ class L3Enrichment(BaseModel):
     difficulty_level: str = "intermediate"
     depends_on: list[str] = Field(default_factory=list)
     cross_references: list[str] = Field(default_factory=list)
+    cited_references: list[str] = Field(default_factory=list)
 
 
 class L2Enrichment(BaseModel):
@@ -38,3 +39,28 @@ class L0Enrichment(BaseModel):
 
     domain: str = ""
     key_concepts: list[str] = Field(default_factory=list)
+    executive_summary: str = ""
+    key_findings: list[str] = Field(default_factory=list)
+    methodology: str = ""
+    limitations: str = ""
+    document_type: str = ""
+    target_audience: str = ""
+
+
+class Citation(BaseModel):
+    """A structured citation extracted from the document."""
+
+    citation_id: str = ""
+    authors: list[str] = Field(default_factory=list)
+    title: str = ""
+    year: str = ""
+    venue: str = ""
+    doi: str = ""
+    raw_text: str = ""
+    inline_references: list[str] = Field(default_factory=list)
+
+
+class CitationList(BaseModel):
+    """LLM output schema for batch citation extraction."""
+
+    citations: list[Citation] = Field(default_factory=list)

@@ -1,8 +1,13 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    pass
+
+from ingestible.models.enrichment import Citation
 
 
 class ChunkPosition(BaseModel):
@@ -34,6 +39,7 @@ class L3Chunk(BaseModel):
     difficulty_level: str = ""
     depends_on: list[str] = Field(default_factory=list)
     cross_references: list[str] = Field(default_factory=list)
+    cited_references: list[str] = Field(default_factory=list)
 
 
 class L2Chunk(BaseModel):
@@ -87,6 +93,14 @@ class L0Chunk(BaseModel):
     total_sections: int = 0
     total_passages: int = 0
 
+    # Digest fields (populated by Stage 4)
+    executive_summary: str = ""
+    key_findings: list[str] = Field(default_factory=list)
+    methodology: str = ""
+    limitations: str = ""
+    document_type: str = ""
+    target_audience: str = ""
+
 
 class ChunkSet(BaseModel):
     """Complete set of chunks for a document (output of Stage 3)."""
@@ -96,3 +110,6 @@ class ChunkSet(BaseModel):
     l1_chunks: list[L1Chunk] = Field(default_factory=list)
     l2_chunks: list[L2Chunk] = Field(default_factory=list)
     l3_chunks: list[L3Chunk] = Field(default_factory=list)
+
+    # Structured citations (populated by Stage 4 when profile enables it)
+    citations: list[Citation] = Field(default_factory=list)

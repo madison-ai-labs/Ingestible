@@ -1,9 +1,39 @@
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic.fields import FieldInfo
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
+
+
+class TomlConfigSource(PydanticBaseSettingsSource):
+    """Load settings from ./ingestible.toml or ~/.config/ingestible/config.toml."""
+
+    PATHS = [
+        Path("ingestible.toml"),
+        Path.home() / ".config" / "ingestible" / "config.toml",
+    ]
+
+    def __init__(self, settings_cls: type[BaseSettings]):
+        super().__init__(settings_cls)
+        self._data: dict[str, Any] = {}
+        # Local file wins over user-level
+        for p in self.PATHS:
+            if p.is_file():
+                with open(p, "rb") as f:
+                    self._data = tomllib.load(f)
+                break
+
+    def get_field_value(
+        self, field: FieldInfo, field_name: str
+    ) -> tuple[Any, str, bool]:
+        val = self._data.get(field_name)
+        return val, field_name, val is None
+
+    def __call__(self) -> dict[str, Any]:
+        return {k: v for k, v in self._data.items() if v is not None}
 
 
 class Settings(BaseSettings):
@@ -13,6 +43,24 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ):
+        # Priority: init > env > dotenv > TOML > defaults
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            TomlConfigSource(settings_cls),
+            file_secret_settings,
+        )
 
     # LLM provider
     llm_provider: Literal["openai", "anthropic"] = "anthropic"
@@ -40,6 +88,9 @@ class Settings(BaseSettings):
     chunking_strategy: Literal["paragraph", "semantic", "recursive"] = "paragraph"
     semantic_threshold_percentile: int = 10
     contextual_chunking: bool = False
+
+    # Extraction profile
+    extraction_profile: str = "auto"  # "auto", "paper", "article", "documentation", "general"
 
     # Dedup
     dedup_enabled: bool = True

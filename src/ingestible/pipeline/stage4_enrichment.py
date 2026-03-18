@@ -20,11 +20,14 @@ from pydantic import BaseModel
 from ingestible.config import Settings
 from ingestible.models.chunks import ChunkSet, L0Chunk, L1Chunk, L2Chunk, L3Chunk
 from ingestible.models.enrichment import (
+    Citation,
+    CitationList,
     L0Enrichment,
     L1Enrichment,
     L2Enrichment,
     L3Enrichment,
 )
+from ingestible.profiles import ExtractionProfile
 
 logger = logging.getLogger(__name__)
 
@@ -111,14 +114,23 @@ def _make_client(settings: Settings) -> LLMClient:
         )
 
 
-async def enrich_chunks(chunks: ChunkSet, settings: Settings) -> ChunkSet:
+async def enrich_chunks(
+    chunks: ChunkSet,
+    settings: Settings,
+    profile: ExtractionProfile | None = None,
+) -> ChunkSet:
     """Enrich all chunks with LLM-generated metadata. Bottom-up: L3 → L2 → L1 → L0."""
     client = _make_client(settings)
     sem = asyncio.Semaphore(settings.llm_concurrency)
+    prompt_suffix = profile.l3_prompt_suffix if profile else ""
+    extract_citations = profile.extract_citations if profile else False
 
     # --- L3 enrichment ---
     logger.info("Enriching %d L3 chunks...", len(chunks.l3_chunks))
-    l3_tasks = [_enrich_l3(c, client, sem) for c in chunks.l3_chunks]
+    l3_tasks = [
+        _enrich_l3(c, client, sem, prompt_suffix=prompt_suffix, extract_citations=extract_citations)
+        for c in chunks.l3_chunks
+    ]
     enriched_l3 = await asyncio.gather(*l3_tasks, return_exceptions=True)
 
     for i, result in enumerate(enriched_l3):
@@ -133,6 +145,7 @@ async def enrich_chunks(chunks: ChunkSet, settings: Settings) -> ChunkSet:
         chunk.difficulty_level = result.difficulty_level
         chunk.depends_on = result.depends_on
         chunk.cross_references = result.cross_references
+        chunk.cited_references = result.cited_references
 
     # --- L2 enrichment ---
     logger.info("Enriching %d L2 chunks...", len(chunks.l2_chunks))
@@ -164,21 +177,51 @@ async def enrich_chunks(chunks: ChunkSet, settings: Settings) -> ChunkSet:
         chunk.prerequisite_chapters = result.prerequisite_chapters
         chunk.key_takeaways = result.key_takeaways
 
-    # --- L0 enrichment ---
-    logger.info("Enriching L0...")
+    # --- L0 enrichment (now produces full digest) ---
+    logger.info("Enriching L0 (document digest)...")
     try:
-        l0_result = await _enrich_l0(chunks.l0, chunks, client, sem)
+        l0_suffix = profile.l0_prompt_suffix if profile else ""
+        l0_result = await _enrich_l0(chunks.l0, chunks, client, sem, prompt_suffix=l0_suffix)
         chunks.l0.domain = l0_result.domain
         chunks.l0.key_concepts = l0_result.key_concepts
+        chunks.l0.executive_summary = l0_result.executive_summary
+        chunks.l0.key_findings = l0_result.key_findings
+        chunks.l0.methodology = l0_result.methodology
+        chunks.l0.limitations = l0_result.limitations
+        chunks.l0.document_type = l0_result.document_type
+        chunks.l0.target_audience = l0_result.target_audience
     except Exception as e:
         logger.warning("L0 enrichment failed: %s", e)
+
+    # --- Citation extraction (if profile enables it) ---
+    if extract_citations:
+        logger.info("Extracting citations...")
+        try:
+            citations = await _extract_citations(chunks, client, sem)
+            chunks.citations = citations
+        except Exception as e:
+            logger.warning("Citation extraction failed: %s", e)
 
     return chunks
 
 
 async def _enrich_l3(
-    chunk: L3Chunk, client: LLMClient, sem: asyncio.Semaphore
+    chunk: L3Chunk,
+    client: LLMClient,
+    sem: asyncio.Semaphore,
+    prompt_suffix: str = "",
+    extract_citations: bool = False,
 ) -> L3Enrichment:
+    citation_instruction = ""
+    if extract_citations:
+        citation_instruction = (
+            "\n- cited_references: citation markers found in this passage "
+            '(e.g. "[1]", "[Smith2024]", "(Jones et al., 2023)"). '
+            "Extract the exact markers as they appear."
+        )
+
+    suffix = f"\n\n{prompt_suffix}" if prompt_suffix else ""
+
     prompt = f"""Analyze this text passage and generate structured metadata.
 
 PASSAGE:
@@ -191,7 +234,7 @@ Generate JSON with these fields:
 - keywords: specific terms that appear in the text (for search)
 - difficulty_level: "beginner", "intermediate", or "advanced"
 - depends_on: concepts this assumes the reader already knows
-- cross_references: other topics this connects to"""
+- cross_references: other topics this connects to{citation_instruction}{suffix}"""
 
     async with sem:
         return await client.generate_json(prompt, L3Enrichment)
@@ -250,7 +293,11 @@ Generate JSON with:
 
 
 async def _enrich_l0(
-    chunk: L0Chunk, all_chunks: ChunkSet, client: LLMClient, sem: asyncio.Semaphore
+    chunk: L0Chunk,
+    all_chunks: ChunkSet,
+    client: LLMClient,
+    sem: asyncio.Semaphore,
+    prompt_suffix: str = "",
 ) -> L0Enrichment:
     chapter_summaries = []
     for c in all_chunks.l1_chunks:
@@ -258,16 +305,83 @@ async def _enrich_l0(
             chapter_summaries.append(f"- {c.title}: {c.chapter_summary}")
 
     context = "\n".join(chapter_summaries) if chapter_summaries else chunk.toc_summary
+    suffix = f"\n\n{prompt_suffix}" if prompt_suffix else ""
 
-    prompt = f"""Analyze this document overview and generate metadata.
+    prompt = f"""Analyze this document overview and generate a comprehensive digest.
 
 DOCUMENT: {chunk.title}
 CHAPTER SUMMARIES:
 {context}
 
 Generate JSON with:
-- domain: the subject domain of this document (e.g., "software engineering", "machine learning")
-- key_concepts: the most important concepts across the entire document (10-20 items)"""
+- domain: the subject domain (e.g., "software engineering", "machine learning")
+- key_concepts: the most important concepts across the entire document (10-20 items)
+- executive_summary: 3-5 sentence overview of the entire document — what it is, what it covers, and why it matters
+- key_findings: 5-10 main findings, claims, or contributions (ordered by importance)
+- methodology: research methodology used (leave empty string if not applicable)
+- limitations: known limitations or caveats (leave empty string if not applicable)
+- document_type: one of "paper", "article", "documentation", "general"
+- target_audience: who this document is intended for (1 sentence){suffix}"""
 
     async with sem:
         return await client.generate_json(prompt, L0Enrichment)
+
+
+async def _extract_citations(
+    chunks: ChunkSet, client: LLMClient, sem: asyncio.Semaphore
+) -> list[Citation]:
+    """Extract structured citations from the document.
+
+    Looks for a references/bibliography section first, falls back to
+    scanning the last L3 chunks.
+    """
+    # Find reference-like sections by title
+    ref_content = ""
+    for l2 in chunks.l2_chunks:
+        title_lower = l2.title.lower()
+        if any(kw in title_lower for kw in ("references", "bibliography", "works cited")):
+            # Gather all L3 chunks under this section
+            child_texts = [
+                c.content for c in chunks.l3_chunks if c.parent_section_id == l2.chunk_id
+            ]
+            ref_content = "\n\n".join(child_texts)
+            break
+
+    # Fallback: use the last few L3 chunks (often contain references)
+    if not ref_content and chunks.l3_chunks:
+        tail = chunks.l3_chunks[-min(5, len(chunks.l3_chunks)):]
+        ref_content = "\n\n".join(c.content for c in tail)
+
+    if not ref_content.strip():
+        return []
+
+    # Truncate to avoid token limits
+    ref_content = ref_content[:8000]
+
+    prompt = f"""Extract structured citations from this references section.
+
+TEXT:
+{ref_content}
+
+For each citation, extract:
+- citation_id: the label/number as it appears (e.g. "[1]", "Smith2024")
+- authors: list of author names
+- title: the work's title
+- year: publication year
+- venue: journal, conference, or publisher name
+- doi: DOI if present, empty string otherwise
+- raw_text: the original citation text as it appears
+
+Return a JSON object with a "citations" list. Only include items that are actual bibliographic references."""
+
+    async with sem:
+        result = await client.generate_json(prompt, CitationList)
+
+    # Wire up inline_references from L3 cited_references
+    citation_map = {c.citation_id: c for c in result.citations if c.citation_id}
+    for l3 in chunks.l3_chunks:
+        for ref_id in l3.cited_references:
+            if ref_id in citation_map:
+                citation_map[ref_id].inline_references.append(l3.chunk_id)
+
+    return result.citations
