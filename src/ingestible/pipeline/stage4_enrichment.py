@@ -118,91 +118,173 @@ async def enrich_chunks(
     chunks: ChunkSet,
     settings: Settings,
     profile: ExtractionProfile | None = None,
+    previous_chunks: ChunkSet | None = None,
 ) -> ChunkSet:
-    """Enrich all chunks with LLM-generated metadata. Bottom-up: L3 → L2 → L1 → L0."""
+    """Enrich all chunks with LLM-generated metadata. Bottom-up: L3 → L2 → L1 → L0.
+
+    If ``previous_chunks`` is provided, unchanged L3 chunks (by content_hash)
+    copy enrichment fields from the previous version instead of calling the LLM.
+    When ALL L3 chunks are unchanged, L2/L1/L0 enrichment is also skipped.
+    """
     client = _make_client(settings)
     sem = asyncio.Semaphore(settings.llm_concurrency)
     prompt_suffix = profile.l3_prompt_suffix if profile else ""
     extract_citations = profile.extract_citations if profile else False
 
+    # Build lookup of previous L3 enrichment by content_hash
+    prev_by_hash: dict[str, L3Chunk] = {}
+    if previous_chunks:
+        prev_by_hash = {
+            c.content_hash: c
+            for c in previous_chunks.l3_chunks
+            if c.content_hash and c.summary  # only reuse if actually enriched
+        }
+
     # --- L3 enrichment ---
     logger.info("Enriching %d L3 chunks...", len(chunks.l3_chunks))
-    l3_tasks = [
-        _enrich_l3(c, client, sem, prompt_suffix=prompt_suffix, extract_citations=extract_citations)
-        for c in chunks.l3_chunks
-    ]
-    enriched_l3 = await asyncio.gather(*l3_tasks, return_exceptions=True)
+    skipped = 0
+    l3_to_enrich: list[tuple[int, L3Chunk]] = []
 
-    for i, result in enumerate(enriched_l3):
-        if isinstance(result, Exception):
-            logger.warning("L3 enrichment failed for %s: %s", chunks.l3_chunks[i].chunk_id, result)
-            continue
-        chunk = chunks.l3_chunks[i]
-        chunk.summary = result.summary
-        chunk.concepts = result.concepts
-        chunk.hypothetical_questions = result.hypothetical_questions
-        chunk.keywords = result.keywords
-        chunk.difficulty_level = result.difficulty_level
-        chunk.depends_on = result.depends_on
-        chunk.cross_references = result.cross_references
-        chunk.cited_references = result.cited_references
+    for i, chunk in enumerate(chunks.l3_chunks):
+        prev = prev_by_hash.get(chunk.content_hash) if chunk.content_hash else None
+        if prev is not None:
+            # Copy enrichment fields from previous version
+            chunk.summary = prev.summary
+            chunk.concepts = prev.concepts
+            chunk.hypothetical_questions = prev.hypothetical_questions
+            chunk.keywords = prev.keywords
+            chunk.difficulty_level = prev.difficulty_level
+            chunk.depends_on = prev.depends_on
+            chunk.cross_references = prev.cross_references
+            chunk.cited_references = prev.cited_references
+            skipped += 1
+        else:
+            l3_to_enrich.append((i, chunk))
 
-    # --- L2 enrichment ---
-    logger.info("Enriching %d L2 chunks...", len(chunks.l2_chunks))
-    l2_tasks = [_enrich_l2(c, chunks, client, sem) for c in chunks.l2_chunks]
-    enriched_l2 = await asyncio.gather(*l2_tasks, return_exceptions=True)
+    if skipped:
+        logger.info(
+            "Skipping enrichment for %d/%d unchanged L3 chunks",
+            skipped, len(chunks.l3_chunks),
+        )
 
-    for i, result in enumerate(enriched_l2):
-        if isinstance(result, Exception):
-            logger.warning("L2 enrichment failed for %s: %s", chunks.l2_chunks[i].chunk_id, result)
-            continue
-        chunk = chunks.l2_chunks[i]
-        chunk.section_summary = result.section_summary
-        chunk.key_points = result.key_points
-        chunk.concepts_introduced = result.concepts_introduced
+    if l3_to_enrich:
+        l3_tasks = [
+            _enrich_l3(c, client, sem, prompt_suffix=prompt_suffix, extract_citations=extract_citations)
+            for _, c in l3_to_enrich
+        ]
+        enriched_l3 = await asyncio.gather(*l3_tasks, return_exceptions=True)
 
-    # --- L1 enrichment ---
-    logger.info("Enriching %d L1 chunks...", len(chunks.l1_chunks))
-    l1_tasks = [_enrich_l1(c, chunks, client, sem) for c in chunks.l1_chunks]
-    enriched_l1 = await asyncio.gather(*l1_tasks, return_exceptions=True)
+        for j, result in enumerate(enriched_l3):
+            idx, chunk = l3_to_enrich[j]
+            if isinstance(result, Exception):
+                logger.warning("L3 enrichment failed for %s: %s", chunk.chunk_id, result)
+                continue
+            chunk.summary = result.summary
+            chunk.concepts = result.concepts
+            chunk.hypothetical_questions = result.hypothetical_questions
+            chunk.keywords = result.keywords
+            chunk.difficulty_level = result.difficulty_level
+            chunk.depends_on = result.depends_on
+            chunk.cross_references = result.cross_references
+            chunk.cited_references = result.cited_references
 
-    for i, result in enumerate(enriched_l1):
-        if isinstance(result, Exception):
-            logger.warning("L1 enrichment failed for %s: %s", chunks.l1_chunks[i].chunk_id, result)
-            continue
-        chunk = chunks.l1_chunks[i]
-        chunk.chapter_summary = result.chapter_summary
-        chunk.main_topics = result.main_topics
-        chunk.learning_objectives = result.learning_objectives
-        chunk.prerequisite_chapters = result.prerequisite_chapters
-        chunk.key_takeaways = result.key_takeaways
+    # If ALL L3 chunks were unchanged, skip L2/L1/L0 enrichment entirely
+    all_l3_skipped = skipped == len(chunks.l3_chunks) and len(chunks.l3_chunks) > 0
+    if all_l3_skipped and previous_chunks:
+        logger.info("All L3 chunks unchanged — copying L2/L1/L0 enrichment from previous version")
+        _copy_upper_enrichment(chunks, previous_chunks)
+    else:
+        # --- L2 enrichment ---
+        logger.info("Enriching %d L2 chunks...", len(chunks.l2_chunks))
+        l2_tasks = [_enrich_l2(c, chunks, client, sem) for c in chunks.l2_chunks]
+        enriched_l2 = await asyncio.gather(*l2_tasks, return_exceptions=True)
 
-    # --- L0 enrichment (now produces full digest) ---
-    logger.info("Enriching L0 (document digest)...")
-    try:
-        l0_suffix = profile.l0_prompt_suffix if profile else ""
-        l0_result = await _enrich_l0(chunks.l0, chunks, client, sem, prompt_suffix=l0_suffix)
-        chunks.l0.domain = l0_result.domain
-        chunks.l0.key_concepts = l0_result.key_concepts
-        chunks.l0.executive_summary = l0_result.executive_summary
-        chunks.l0.key_findings = l0_result.key_findings
-        chunks.l0.methodology = l0_result.methodology
-        chunks.l0.limitations = l0_result.limitations
-        chunks.l0.document_type = l0_result.document_type
-        chunks.l0.target_audience = l0_result.target_audience
-    except Exception as e:
-        logger.warning("L0 enrichment failed: %s", e)
+        for i, result in enumerate(enriched_l2):
+            if isinstance(result, Exception):
+                logger.warning("L2 enrichment failed for %s: %s", chunks.l2_chunks[i].chunk_id, result)
+                continue
+            chunk = chunks.l2_chunks[i]
+            chunk.section_summary = result.section_summary
+            chunk.key_points = result.key_points
+            chunk.concepts_introduced = result.concepts_introduced
+
+        # --- L1 enrichment ---
+        logger.info("Enriching %d L1 chunks...", len(chunks.l1_chunks))
+        l1_tasks = [_enrich_l1(c, chunks, client, sem) for c in chunks.l1_chunks]
+        enriched_l1 = await asyncio.gather(*l1_tasks, return_exceptions=True)
+
+        for i, result in enumerate(enriched_l1):
+            if isinstance(result, Exception):
+                logger.warning("L1 enrichment failed for %s: %s", chunks.l1_chunks[i].chunk_id, result)
+                continue
+            chunk = chunks.l1_chunks[i]
+            chunk.chapter_summary = result.chapter_summary
+            chunk.main_topics = result.main_topics
+            chunk.learning_objectives = result.learning_objectives
+            chunk.prerequisite_chapters = result.prerequisite_chapters
+            chunk.key_takeaways = result.key_takeaways
+
+        # --- L0 enrichment (now produces full digest) ---
+        logger.info("Enriching L0 (document digest)...")
+        try:
+            l0_suffix = profile.l0_prompt_suffix if profile else ""
+            l0_result = await _enrich_l0(chunks.l0, chunks, client, sem, prompt_suffix=l0_suffix)
+            chunks.l0.domain = l0_result.domain
+            chunks.l0.key_concepts = l0_result.key_concepts
+            chunks.l0.executive_summary = l0_result.executive_summary
+            chunks.l0.key_findings = l0_result.key_findings
+            chunks.l0.methodology = l0_result.methodology
+            chunks.l0.limitations = l0_result.limitations
+            chunks.l0.document_type = l0_result.document_type
+            chunks.l0.target_audience = l0_result.target_audience
+        except Exception as e:
+            logger.warning("L0 enrichment failed: %s", e)
 
     # --- Citation extraction (if profile enables it) ---
     if extract_citations:
-        logger.info("Extracting citations...")
-        try:
-            citations = await _extract_citations(chunks, client, sem)
-            chunks.citations = citations
-        except Exception as e:
-            logger.warning("Citation extraction failed: %s", e)
+        if all_l3_skipped and previous_chunks and previous_chunks.citations:
+            logger.info("Reusing %d citations from previous version", len(previous_chunks.citations))
+            chunks.citations = previous_chunks.citations
+        else:
+            logger.info("Extracting citations...")
+            try:
+                citations = await _extract_citations(chunks, client, sem)
+                chunks.citations = citations
+            except Exception as e:
+                logger.warning("Citation extraction failed: %s", e)
 
     return chunks
+
+
+def _copy_upper_enrichment(chunks: ChunkSet, previous: ChunkSet) -> None:
+    """Copy L2/L1/L0 enrichment fields from previous ChunkSet by chunk_id."""
+    prev_l2 = {c.chunk_id: c for c in previous.l2_chunks}
+    for c in chunks.l2_chunks:
+        p = prev_l2.get(c.chunk_id)
+        if p:
+            c.section_summary = p.section_summary
+            c.key_points = p.key_points
+            c.concepts_introduced = p.concepts_introduced
+
+    prev_l1 = {c.chunk_id: c for c in previous.l1_chunks}
+    for c in chunks.l1_chunks:
+        p = prev_l1.get(c.chunk_id)
+        if p:
+            c.chapter_summary = p.chapter_summary
+            c.main_topics = p.main_topics
+            c.learning_objectives = p.learning_objectives
+            c.prerequisite_chapters = p.prerequisite_chapters
+            c.key_takeaways = p.key_takeaways
+
+    # L0
+    chunks.l0.domain = previous.l0.domain
+    chunks.l0.key_concepts = previous.l0.key_concepts
+    chunks.l0.executive_summary = previous.l0.executive_summary
+    chunks.l0.key_findings = previous.l0.key_findings
+    chunks.l0.methodology = previous.l0.methodology
+    chunks.l0.limitations = previous.l0.limitations
+    chunks.l0.document_type = previous.l0.document_type
+    chunks.l0.target_audience = previous.l0.target_audience
 
 
 async def _enrich_l3(

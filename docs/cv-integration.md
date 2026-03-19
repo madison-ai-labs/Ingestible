@@ -490,6 +490,117 @@ PostgreSQL, skipping HTTP overhead.
 
 ---
 
+## Selective Re-enrichment (Implemented)
+
+When re-ingesting a document with `--force`, unchanged chunks skip LLM
+enrichment entirely. The hash-based skip that already existed at Stage 5
+(embedding) now extends to Stage 4 (enrichment).
+
+### How it works
+
+`enrich_chunks()` accepts an optional `previous_chunks` parameter. When
+provided, it builds a lookup of previous L3 chunks by `content_hash`. For
+each current L3 chunk with a matching hash, enrichment fields (summary,
+concepts, questions, etc.) are copied from the previous version instead of
+calling the LLM.
+
+When **all** L3 chunks are unchanged, L2/L1/L0 enrichment is also skipped
+(their results would be identical since they aggregate from children).
+
+The orchestrator passes `previous_chunks` automatically during `--force`
+re-ingestion — no user action needed.
+
+### Targeted re-enrichment
+
+`re_enrich()` accepts an optional `changed_chunk_ids` parameter. When
+provided, only those specific L3 chunks are re-enriched. This is used by
+the webhook handler to selectively re-enrich chunks edited in CV's web UI.
+
+---
+
+## Sync Loop / Watch (Implemented)
+
+`ingest watch <dir>` monitors a directory for file changes and auto-ingests.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────┐
+│  FileWatcher                            │
+│                                         │
+│  watchdog.Observer (OS-native events)   │
+│        │                                │
+│        ▼                                │
+│  Debounce (2s, directory-level)         │
+│  Collects changed files into batch      │
+│        │                                │
+│        ▼                                │
+│  For each file: ingest(force=True)      │
+│  (dedup via content_hash)               │
+│        │                                │
+│        ▼ (if --cv-push)                 │
+│  export_to_cv() — single bulk call      │
+│  for entire batch                       │
+└─────────────────────────────────────────┘
+```
+
+- **Debounce**: 2-second window at directory level. Rapid writes (git
+  checkout, editor batch-saves) are collected and processed as one batch.
+- **File filter**: Only supported formats (pdf, md, txt, html, docx, etc.)
+- **CV push**: Optional `--cv-push` flag triggers `export_to_cv()` after
+  the entire batch completes (single bulk call, not per-file).
+- **Enrichment skip**: Benefits from selective re-enrichment — unchanged
+  chunks skip LLM calls automatically.
+
+### Installation
+
+```bash
+pip install -e ".[watch]"  # adds watchdog dependency
+```
+
+---
+
+## Webhook: CV → Ingestible (Implemented)
+
+When entries are edited in CV's web UI, a webhook notifies Ingestible to
+update the local chunk and re-enrich.
+
+### Ingestible side
+
+`POST /webhooks/cv` endpoint in `api.py`:
+
+1. Verifies HMAC-SHA256 signature (shared secret via `INGEST_WEBHOOK_SECRET`)
+2. Parses `sourcePath` → extracts `doc_id` + `chunk_id`
+3. Updates the chunk's content on disk
+4. Stores the CV checksum in `meta.json` (`cv_checksums` dict)
+5. Triggers selective re-enrichment for just that chunk
+
+### Conflict resolution (last-writer-wins guard)
+
+When the watcher or `export-cv` pushes a document to CV, each chunk's
+`cv_checksum` (stored in `meta.json`) tracks what CV last reported. If a
+chunk was edited in CV (checksum differs from what Ingestible last pushed),
+the push should skip that chunk to avoid reverting manual CV edits.
+
+To overwrite CV's edit, re-ingest the source file with `--force`.
+
+### Configuration
+
+```bash
+INGEST_WEBHOOK_SECRET=your-shared-secret  # required for webhook verification
+```
+
+### CognitiveVault side (not in this repo)
+
+CV needs to emit webhooks on entry PATCH:
+
+- `apps/web/src/lib/webhooks.ts` — `fireWebhook(event, payload)` utility
+  with HMAC-SHA256 signing
+- Route handler: after PATCH succeeds on an `ingest:`-sourced entry, call
+  `fireWebhook("entry.updated", { entryId, sourcePath, content, checksum })`
+
+---
+
 ## Implementation Order
 
 ### Step 1 — Library swaps (no CV integration yet)

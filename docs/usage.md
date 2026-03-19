@@ -168,6 +168,34 @@ ingest export <doc_id> --format jsonl -o output.jsonl
 
 **Supported formats:** `jsonl`, `parquet`, `llamaindex`, `langchain`
 
+### Watch a directory for changes
+
+```bash
+ingest watch /path/to/docs/ -v
+```
+
+Watches a directory for file changes and auto-ingests on create/modify. Uses OS-native filesystem events with a 2-second debounce window to batch rapid writes (e.g. `git checkout`, editor batch-saves).
+
+**Flags:**
+- `-v` / `--verbose` — show ingestion progress
+- `--skip-enrichment` — skip LLM enrichment for auto-ingested documents
+- `--data-dir /custom/path` — override the data directory
+- `--cv-push` — auto-push to CognitiveVault after each batch completes
+- `--cv-url`, `--cv-api-key`, `--cv-vault-id` — CognitiveVault connection (or use env vars)
+
+**Requires the `watch` extra:**
+```bash
+pip install -e ".[watch]"
+```
+
+**Example with CV auto-push:**
+```bash
+export CV_URL=https://cv.example.com
+export CV_API_KEY=cvk_...
+export CV_VAULT_ID=vault-abc
+ingest watch ./docs/ -v --cv-push
+```
+
 ### Export to CognitiveVault
 
 ```bash

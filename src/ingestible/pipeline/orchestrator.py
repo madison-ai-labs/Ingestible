@@ -311,7 +311,10 @@ def ingest(
             try:
                 from ingestible.pipeline.stage4_enrichment import enrich_chunks
 
-                chunks = asyncio.run(enrich_chunks(chunks, settings, profile=profile))
+                chunks = asyncio.run(enrich_chunks(
+                    chunks, settings, profile=profile,
+                    previous_chunks=previous_chunks,
+                ))
                 if use_checkpoint:
                     save_checkpoint(doc_dir, "enriched", chunks)
             except Exception as e:

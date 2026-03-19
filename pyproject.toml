@@ -55,6 +55,9 @@ dev = [
 export = [
     "pyarrow>=14.0",
 ]
+watch = [
+    "watchdog>=4.0",
+]
 
 [project.scripts]
 ingest = "ingestible.cli:main"

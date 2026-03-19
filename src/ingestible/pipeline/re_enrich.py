@@ -11,6 +11,7 @@ import logging
 from pathlib import Path
 
 from ingestible.config import Settings
+from ingestible.models.chunks import ChunkSet
 from ingestible.pipeline.stage5_embedding import Embedder, build_indexes
 from ingestible.pipeline.stage6_storage import (
     load_chunks,
@@ -22,8 +23,16 @@ from ingestible.pipeline.stage6_storage import (
 logger = logging.getLogger(__name__)
 
 
-def re_enrich(doc_id: str, settings: Settings) -> Path:
+def re_enrich(
+    doc_id: str,
+    settings: Settings,
+    changed_chunk_ids: set[str] | None = None,
+) -> Path:
     """Re-run enrichment + embedding on an already-ingested document.
+
+    If ``changed_chunk_ids`` is provided, only those L3 chunks are re-enriched.
+    All others keep their existing enrichment. This is used by the webhook handler
+    to selectively re-enrich chunks that were edited in CognitiveVault.
 
     Returns the document directory.
     """
@@ -43,43 +52,57 @@ def re_enrich(doc_id: str, settings: Settings) -> Path:
     stored_profile = meta.get("extraction_profile", settings.extraction_profile)
     if stored_profile == "auto":
         stored_profile = "general"
-    from ingestible.profiles import PROFILES, ExtractionProfile
+    from ingestible.profiles import PROFILES
+
     profile = PROFILES.get(stored_profile, PROFILES["general"])
 
-    # Clear old enrichment fields
-    for c in chunks.l3_chunks:
-        c.summary = ""
-        c.concepts = []
-        c.hypothetical_questions = []
-        c.keywords = []
-        c.difficulty_level = ""
-        c.depends_on = []
-        c.cross_references = []
-        c.cited_references = []
-        c.context_prefix = ""
+    # Build a "previous" ChunkSet for selective re-enrichment.
+    # When changed_chunk_ids is given, we treat unchanged chunks as "previous"
+    # so enrich_chunks() will copy their enrichment instead of calling the LLM.
+    previous_chunks: ChunkSet | None = None
+    if changed_chunk_ids is not None:
+        # Deep-copy the current chunks as "previous" — they have enrichment data.
+        # Then clear enrichment only on the changed chunks so they get re-enriched.
+        previous_chunks = chunks.model_copy(deep=True)
+        for c in chunks.l3_chunks:
+            if c.chunk_id in changed_chunk_ids:
+                # Mutate content_hash so it won't match the previous version
+                c.content_hash = ""
+    else:
+        # Full re-enrichment: clear all enrichment fields
+        for c in chunks.l3_chunks:
+            c.summary = ""
+            c.concepts = []
+            c.hypothetical_questions = []
+            c.keywords = []
+            c.difficulty_level = ""
+            c.depends_on = []
+            c.cross_references = []
+            c.cited_references = []
+            c.context_prefix = ""
 
-    for c in chunks.l2_chunks:
-        c.section_summary = ""
-        c.key_points = []
-        c.concepts_introduced = []
+        for c in chunks.l2_chunks:
+            c.section_summary = ""
+            c.key_points = []
+            c.concepts_introduced = []
 
-    for c in chunks.l1_chunks:
-        c.chapter_summary = ""
-        c.main_topics = []
-        c.learning_objectives = []
-        c.prerequisite_chapters = []
-        c.key_takeaways = []
+        for c in chunks.l1_chunks:
+            c.chapter_summary = ""
+            c.main_topics = []
+            c.learning_objectives = []
+            c.prerequisite_chapters = []
+            c.key_takeaways = []
 
-    # Clear L0 digest fields
-    chunks.l0.executive_summary = ""
-    chunks.l0.key_findings = []
-    chunks.l0.methodology = ""
-    chunks.l0.limitations = ""
-    chunks.l0.document_type = ""
-    chunks.l0.target_audience = ""
-    chunks.l0.domain = ""
-    chunks.l0.key_concepts = []
-    chunks.citations = []
+        # Clear L0 digest fields
+        chunks.l0.executive_summary = ""
+        chunks.l0.key_findings = []
+        chunks.l0.methodology = ""
+        chunks.l0.limitations = ""
+        chunks.l0.document_type = ""
+        chunks.l0.target_audience = ""
+        chunks.l0.domain = ""
+        chunks.l0.key_concepts = []
+        chunks.citations = []
 
     step = 0
     total = 3  # contextual + enrich + embed/save
@@ -106,7 +129,10 @@ def re_enrich(doc_id: str, settings: Settings) -> Path:
     try:
         from ingestible.pipeline.stage4_enrichment import enrich_chunks
 
-        chunks = asyncio.run(enrich_chunks(chunks, settings, profile=profile))
+        chunks = asyncio.run(enrich_chunks(
+            chunks, settings, profile=profile,
+            previous_chunks=previous_chunks,
+        ))
     except Exception as e:
         logger.warning("Enrichment failed, continuing without it: %s", e)
 

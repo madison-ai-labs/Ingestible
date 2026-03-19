@@ -710,6 +710,120 @@ async def ingest_stream(
 
 
 # ---------------------------------------------------------------------------
+# Webhook: CognitiveVault → Ingestible (P2)
+# ---------------------------------------------------------------------------
+
+
+def _find_chunk_file(doc_dir: Path, chunk_id: str) -> Path | None:
+    """Locate a chunk's JSON file in the document directory hierarchy."""
+    # Check orphan chunks first
+    orphan = doc_dir / "chunks" / f"{chunk_id}.json"
+    if orphan.exists():
+        return orphan
+    # Search within chapter/section hierarchy
+    chapters_dir = doc_dir / "chapters"
+    if chapters_dir.exists():
+        for chunk_file in chapters_dir.rglob(f"{chunk_id}.json"):
+            return chunk_file
+    return None
+
+
+class CVWebhookPayload(BaseModel):
+    """Payload from CognitiveVault entry.updated webhook."""
+    entry_id: str = Field(alias="entryId")
+    source_path: str = Field(alias="sourcePath")
+    content: str
+    checksum: str
+
+    model_config = {"populate_by_name": True}
+
+
+def _verify_webhook_signature(body: bytes, signature: str, secret: str) -> bool:
+    """Verify HMAC-SHA256 webhook signature."""
+    import hashlib
+    expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
+@app.post("/webhooks/cv")
+async def cv_webhook(request: Request):
+    """Receive entry.updated webhooks from CognitiveVault.
+
+    When a CV entry with an ``ingest:`` sourcePath is edited, this endpoint
+    updates the local chunk content and triggers selective re-enrichment.
+    """
+    secret = os.environ.get("INGEST_WEBHOOK_SECRET", "")
+    if not secret:
+        raise HTTPException(status_code=500, detail="INGEST_WEBHOOK_SECRET not configured")
+
+    # Verify HMAC signature
+    signature = request.headers.get("X-Webhook-Signature", "")
+    body = await request.body()
+    if not _verify_webhook_signature(body, signature, secret):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    # Parse envelope
+    try:
+        envelope = json.loads(body)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    event = envelope.get("event")
+    if event != "entry.updated":
+        return {"status": "ignored", "event": event}
+
+    payload = CVWebhookPayload.model_validate(envelope.get("payload", {}))
+
+    # Parse sourcePath: "ingest:{doc_id}/{chunk_id}"
+    if not payload.source_path.startswith("ingest:"):
+        return {"status": "ignored", "reason": "not an ingest-sourced entry"}
+
+    path_part = payload.source_path[len("ingest:"):]
+    parts = path_part.split("/", 1)
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail=f"Invalid sourcePath format: {payload.source_path}")
+
+    doc_id, chunk_id = parts
+
+    settings = get_cached_settings()
+    doc_dir = settings.documents_dir / doc_id
+
+    if not doc_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
+
+    # Find and update the chunk file on disk
+    import hashlib as _hashlib
+
+    chunk_file = _find_chunk_file(doc_dir, chunk_id)
+    if chunk_file is None:
+        raise HTTPException(status_code=404, detail=f"Chunk not found: {chunk_id}")
+
+    chunk_data = json.loads(chunk_file.read_text(encoding="utf-8"))
+    chunk_data["content"] = payload.content
+    chunk_data["content_hash"] = _hashlib.sha256(payload.content.encode()).hexdigest()
+    chunk_file.write_text(json.dumps(chunk_data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    # Store CV checksum so watcher/sync knows this chunk was edited in CV
+    meta = load_document_meta(doc_dir)
+    cv_checksums = meta.get("cv_checksums", {})
+    cv_checksums[chunk_id] = payload.checksum
+    meta["cv_checksums"] = cv_checksums
+    meta_path = doc_dir / "meta.json"
+    meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    # Selective re-enrichment for just this chunk
+    from ingestible.pipeline.re_enrich import re_enrich
+    re_enrich(doc_id, settings, changed_chunk_ids={chunk_id})
+
+    return {
+        "status": "ok",
+        "doc_id": doc_id,
+        "chunk_id": chunk_id,
+        "re_enriched": True,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Web UI
 # ---------------------------------------------------------------------------
 

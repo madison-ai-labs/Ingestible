@@ -106,6 +106,33 @@ def main(argv: list[str] | None = None) -> None:
     # --- config ---
     sub.add_parser("config", help="Show effective configuration (all sources merged)")
 
+    # --- watch ---
+    p_watch = sub.add_parser("watch", help="Watch a directory and auto-ingest on changes")
+    p_watch.add_argument("dir", help="Directory to watch")
+    p_watch.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    p_watch.add_argument(
+        "--skip-enrichment",
+        action="store_true",
+        help="Skip LLM enrichment for auto-ingested documents",
+    )
+    p_watch.add_argument(
+        "--data-dir", default=None, help="Override data directory (default: data/)"
+    )
+    p_watch.add_argument(
+        "--cv-push",
+        action="store_true",
+        help="Auto-push to CognitiveVault after each batch",
+    )
+    p_watch.add_argument(
+        "--cv-url", default=None, help="CognitiveVault base URL (or set CV_URL env var)"
+    )
+    p_watch.add_argument(
+        "--cv-api-key", default=None, help="CognitiveVault API key (or set CV_API_KEY env var)"
+    )
+    p_watch.add_argument(
+        "--cv-vault-id", default=None, help="Target vault ID (or set CV_VAULT_ID env var)"
+    )
+
     # --- export-cv ---
     p_export = sub.add_parser("export-cv", help="Export documents to CognitiveVault")
     p_export.add_argument(
@@ -156,6 +183,8 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_export(args)
     elif args.command == "config":
         _cmd_config()
+    elif args.command == "watch":
+        _cmd_watch(args)
     elif args.command == "export-cv":
         _cmd_export_cv(args)
 
@@ -409,6 +438,55 @@ def _cmd_config() -> None:
     settings = get_settings()
     for key, value in settings.model_dump().items():
         print(f"{key}={value}")
+
+
+def _cmd_watch(args: argparse.Namespace) -> None:
+    import logging
+    import os
+    from pathlib import Path
+
+    from ingestible.config import get_settings
+
+    if args.verbose:
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    else:
+        logging.basicConfig(level=logging.WARNING)
+
+    overrides = {}
+    if args.data_dir:
+        overrides["data_dir"] = Path(args.data_dir)
+    settings = get_settings(**overrides)
+
+    watch_dir = Path(args.dir).resolve()
+    if not watch_dir.is_dir():
+        print(f"Error: {args.dir} is not a directory")
+        sys.exit(1)
+
+    cv_config = None
+    if args.cv_push:
+        from ingestible.adapters.cv_export import CVConfig
+
+        cv_url = args.cv_url or os.environ.get("CV_URL")
+        cv_api_key = args.cv_api_key or os.environ.get("CV_API_KEY")
+        cv_vault_id = args.cv_vault_id or os.environ.get("CV_VAULT_ID")
+
+        if not cv_url or not cv_api_key or not cv_vault_id:
+            print("Error: --cv-push requires --cv-url, --cv-api-key, --cv-vault-id")
+            print("       (or set CV_URL, CV_API_KEY, CV_VAULT_ID environment variables)")
+            sys.exit(1)
+
+        cv_config = CVConfig(base_url=cv_url, api_key=cv_api_key, vault_id=cv_vault_id)
+
+    from ingestible.pipeline.watcher import FileWatcher
+
+    watcher = FileWatcher(
+        watch_dir=watch_dir,
+        settings=settings,
+        skip_enrichment=args.skip_enrichment,
+        cv_push=args.cv_push,
+        cv_config=cv_config,
+    )
+    watcher.start()
 
 
 def _cmd_export_cv(args: argparse.Namespace) -> None:
