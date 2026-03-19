@@ -11,11 +11,22 @@ class TOCEntry(BaseModel):
     page: int | None = None
 
 
+class FigureRef(BaseModel):
+    """Reference to an extracted figure/image from a document."""
+
+    figure_id: str
+    filename: str
+    caption: str = ""
+    label: str = ""
+    page_num: int | None = None
+    classification: str = ""
+
+
 class PageContent(BaseModel):
     page_num: int
     markdown: str = ""
     tables: list[str] = Field(default_factory=list)
-    figures: list[dict] = Field(default_factory=list)
+    figures: list[FigureRef] = Field(default_factory=list)
     has_code_blocks: bool = False
 
 

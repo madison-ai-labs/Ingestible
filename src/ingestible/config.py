@@ -91,6 +91,7 @@ class Settings(BaseSettings):
 
     # Extraction profile
     extraction_profile: str = "auto"  # "auto", "paper", "article", "documentation", "general"
+    profile_llm_fallback: bool = False  # Use LLM to classify ambiguous documents
 
     # Dedup
     dedup_enabled: bool = True

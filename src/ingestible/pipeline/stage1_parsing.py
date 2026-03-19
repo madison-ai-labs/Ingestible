@@ -12,7 +12,7 @@ import logging
 import re
 from pathlib import Path
 
-from ingestible.models.document import PageContent, ParsedDocument, TOCEntry
+from ingestible.models.document import FigureRef, PageContent, ParsedDocument, TOCEntry
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +124,16 @@ def _try_docling(pdf_path: Path, ocr: bool = False) -> ParsedDocument | None:
 
         title = _detect_title(full_md, pdf_path)
 
+        # Extract figures from Docling pictures
+        figures = _extract_docling_figures(doc_obj)
+        if figures:
+            # Attach figures to their respective pages (or first page)
+            page_map = {p.page_num: p for p in pages}
+            for fig in figures:
+                target_page = page_map.get(fig.page_num or 1) or (pages[0] if pages else None)
+                if target_page:
+                    target_page.figures.append(fig)
+
         return ParsedDocument(
             title=title,
             source_path=str(pdf_path),
@@ -134,6 +144,51 @@ def _try_docling(pdf_path: Path, ocr: bool = False) -> ParsedDocument | None:
     except Exception:
         logger.debug("Docling parsing failed", exc_info=True)
         return None
+
+
+def _extract_docling_figures(doc_obj) -> list[FigureRef]:
+    """Extract figure references from a Docling document object."""
+    figures: list[FigureRef] = []
+    try:
+        pictures = getattr(doc_obj, "pictures", None)
+        if not pictures:
+            return figures
+
+        for idx, pic in enumerate(pictures):
+            fig_id = f"fig-{idx + 1}"
+            caption = ""
+            if hasattr(pic, "captions") and pic.captions:
+                caption = pic.captions[0].text if hasattr(pic.captions[0], "text") else str(pic.captions[0])
+            label = getattr(pic, "label", "") or ""
+            classification = getattr(pic, "classification", "") or ""
+
+            # Determine page number from provenance
+            page_num = None
+            prov = getattr(pic, "prov", None)
+            if prov and len(prov) > 0:
+                page_num = getattr(prov[0], "page_no", None) or getattr(prov[0], "page", None)
+
+            # Determine image filename
+            image_ref = getattr(pic, "image", None)
+            uri = getattr(image_ref, "uri", None) if image_ref else None
+            if uri:
+                ext = Path(uri).suffix or ".png"
+                filename = f"{fig_id}{ext}"
+            else:
+                filename = f"{fig_id}.png"
+
+            figures.append(FigureRef(
+                figure_id=fig_id,
+                filename=filename,
+                caption=caption,
+                label=str(label),
+                page_num=page_num,
+                classification=str(classification),
+            ))
+    except Exception:
+        logger.debug("Figure extraction failed", exc_info=True)
+
+    return figures
 
 
 def _try_pymupdf(pdf_path: Path) -> ParsedDocument | None:

@@ -23,7 +23,7 @@ from ingestible.pipeline.checkpoint import clear_checkpoints, load_checkpoint, s
 from ingestible.pipeline.fetch import is_url
 from ingestible.pipeline.metadata import extract_metadata
 from ingestible.pipeline.stage5_embedding import Embedder, build_indexes
-from ingestible.profiles import PROFILES, ExtractionProfile, detect_profile
+from ingestible.profiles import PROFILES, ExtractionProfile, detect_profile, detect_profile_with_llm
 from ingestible.utils.language import detect_language
 from ingestible.pipeline.stage6_storage import save_document
 
@@ -229,7 +229,10 @@ def ingest(
 
     # --- Profile resolution ---
     if settings.extraction_profile == "auto":
-        profile_name = detect_profile(parsed)
+        if settings.profile_llm_fallback and not skip_enrichment:
+            profile_name = asyncio.run(detect_profile_with_llm(parsed, settings))
+        else:
+            profile_name = detect_profile(parsed)
     else:
         profile_name = settings.extraction_profile
     profile = PROFILES.get(profile_name, PROFILES["general"])

@@ -53,10 +53,14 @@ def _l0_overview_text(l0) -> str:
         parts.append(f"Author: {l0.author}")
     if l0.domain:
         parts.append(f"Domain: {l0.domain}")
+    if l0.document_type:
+        parts.append(f"Type: {l0.document_type}")
     parts.append(
         f"Pages: {l0.total_pages} | Chapters: {l0.total_chapters} | "
         f"Sections: {l0.total_sections} | Passages: {l0.total_passages}"
     )
+    if l0.executive_summary:
+        parts.append(f"Summary: {l0.executive_summary}")
     if l0.toc_summary:
         parts.append(f"TOC: {l0.toc_summary}")
     if l0.key_concepts:
@@ -122,6 +126,7 @@ async def document_detail(request: Request, doc_id: str):
             "doc_id": doc_id,
             "total_chunks": len(chunks.l3_chunks),
             "chapters": [c.title for c in chunks.l1_chunks],
+            "citations": chunks.citations,
         },
     )
 
@@ -191,6 +196,31 @@ async def search_results(request: Request, doc_id: str):
 
     return templates.TemplateResponse(
         "partials/search_results.html",
+        {"request": request, "results": response.results, "query": query},
+    )
+
+
+@router.get("/search", name="corpus_search")
+async def corpus_search_page(request: Request):
+    return templates.TemplateResponse("search.html", {"request": request})
+
+
+@router.post("/search-results", name="corpus_search_results")
+async def corpus_search_results(request: Request):
+    form = await request.form()
+    query = form.get("query", "")
+    if not query:
+        return HTMLResponse("<p class='text-gray-500 text-sm'>Enter a query to search.</p>")
+
+    from ingestible.search.corpus import CorpusSearcher
+
+    settings = _get_settings()
+    embedder = _get_embedder()
+    searcher = CorpusSearcher(settings, embedder=embedder)
+    response = searcher.search(str(query), n_results=10)
+
+    return templates.TemplateResponse(
+        "partials/corpus_search_results.html",
         {"request": request, "results": response.results, "query": query},
     )
 

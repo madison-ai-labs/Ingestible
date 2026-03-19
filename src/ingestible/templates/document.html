@@ -37,6 +37,14 @@
     {% if l0.domain %}
     <div><span class="text-gray-500">Domain:</span> {{ l0.domain }}</div>
     {% endif %}
+    {% if l0.document_type %}
+    <div><span class="text-gray-500">Type:</span>
+      <span class="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs rounded-full">{{ l0.document_type }}</span>
+    </div>
+    {% endif %}
+    {% if l0.target_audience %}
+    <div><span class="text-gray-500">Audience:</span> {{ l0.target_audience }}</div>
+    {% endif %}
     <div><span class="text-gray-500">Total Chunks:</span> {{ total_chunks }}</div>
     {% if meta.content_hash %}
     <div class="col-span-2">
@@ -45,6 +53,38 @@
     </div>
     {% endif %}
   </div>
+
+  {% if l0.executive_summary %}
+  <div class="mt-4">
+    <h3 class="text-sm font-medium text-gray-500 mb-1">Executive Summary</h3>
+    <p class="text-sm bg-indigo-50 rounded p-3 text-gray-800">{{ l0.executive_summary }}</p>
+  </div>
+  {% endif %}
+
+  {% if l0.key_findings %}
+  <div class="mt-4">
+    <h3 class="text-sm font-medium text-gray-500 mb-2">Key Findings</h3>
+    <ul class="list-disc list-inside text-sm space-y-1 bg-gray-50 rounded p-3">
+      {% for finding in l0.key_findings %}
+      <li>{{ finding }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if l0.methodology %}
+  <div class="mt-4">
+    <h3 class="text-sm font-medium text-gray-500 mb-1">Methodology</h3>
+    <p class="text-sm bg-gray-50 rounded p-3">{{ l0.methodology }}</p>
+  </div>
+  {% endif %}
+
+  {% if l0.limitations %}
+  <div class="mt-4">
+    <h3 class="text-sm font-medium text-gray-500 mb-1">Limitations</h3>
+    <p class="text-sm bg-gray-50 rounded p-3">{{ l0.limitations }}</p>
+  </div>
+  {% endif %}
 
   {% if l0.toc_summary %}
   <div class="mt-4">
@@ -64,6 +104,40 @@
   </div>
   {% endif %}
 </section>
+
+<!-- Citations -->
+{% if citations %}
+<section class="bg-white rounded-lg shadow p-6 mb-6">
+  <h2 class="text-xl font-bold mb-4">Citations <span class="text-sm font-normal text-gray-500">({{ citations|length }})</span></h2>
+  <div class="space-y-3">
+    {% for cit in citations %}
+    <div class="border-l-2 border-indigo-200 pl-3 py-1">
+      <div class="text-sm">
+        <span class="font-medium text-indigo-600">{{ cit.citation_id }}</span>
+        {% if cit.authors %}
+        <span class="text-gray-700">{{ cit.authors | join(', ') }}</span>
+        {% endif %}
+        {% if cit.year %}
+        <span class="text-gray-500">({{ cit.year }})</span>
+        {% endif %}
+      </div>
+      {% if cit.title %}
+      <div class="text-sm font-medium text-gray-800">{{ cit.title }}</div>
+      {% endif %}
+      {% if cit.venue %}
+      <div class="text-xs text-gray-500 italic">{{ cit.venue }}</div>
+      {% endif %}
+      {% if cit.doi %}
+      <div class="text-xs text-gray-400">DOI: {{ cit.doi }}</div>
+      {% endif %}
+      {% if cit.inline_references %}
+      <div class="text-xs text-gray-400 mt-1">Referenced in {{ cit.inline_references|length }} passage(s)</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
 
 <!-- Hierarchy -->
 <section class="bg-white rounded-lg shadow p-6 mb-6">

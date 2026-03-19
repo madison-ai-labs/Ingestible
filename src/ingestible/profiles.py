@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ingestible.models.document import ParsedDocument
+
+if TYPE_CHECKING:
+    from ingestible.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -103,43 +107,107 @@ _DOC_HEADINGS = re.compile(
 _CODE_BLOCK_RE = re.compile(r"```")
 
 
-def detect_profile(parsed: ParsedDocument) -> ProfileName:
-    """Detect the extraction profile from a parsed document using heuristics.
+class _DetectionResult:
+    """Internal: heuristic detection result with confidence."""
 
-    Checks TOC headings, content patterns, and source format.
-    """
+    def __init__(self, profile: ProfileName, confidence: str):
+        self.profile = profile
+        self.confidence: str = confidence  # "high" or "low"
+
+
+def _detect_heuristic(parsed: ParsedDocument) -> _DetectionResult:
+    """Run heuristic detection. Returns profile name + confidence level."""
     toc_text = parsed.toc if hasattr(parsed, "toc") and parsed.toc else ""
     if isinstance(toc_text, list):
         toc_text = " ".join(str(t) for t in toc_text)
 
-    # Grab first ~3000 chars for pattern matching
     content_sample = parsed.full_markdown[:3000] if hasattr(parsed, "full_markdown") else ""
-
     combined = f"{toc_text} {content_sample}"
 
-    # Paper detection: look for academic section headings
     paper_hits = len(_PAPER_HEADINGS.findall(combined))
     if paper_hits >= 3:
         logger.info("Profile auto-detected: paper (matched %d academic headings)", paper_hits)
-        return "paper"
+        return _DetectionResult("paper", "high")
 
-    # Documentation detection: format or heading signals
     source_fmt = getattr(parsed, "source_format", "")
     doc_hits = len(_DOC_HEADINGS.findall(combined))
     code_blocks = len(_CODE_BLOCK_RE.findall(content_sample))
 
     if doc_hits >= 2 or (source_fmt in (".rst", ".adoc") and code_blocks >= 2):
         logger.info("Profile auto-detected: documentation")
-        return "documentation"
+        return _DetectionResult("documentation", "high")
 
     if code_blocks >= 3 and source_fmt in (".md", ".rst", ".adoc", ".html"):
         logger.info("Profile auto-detected: documentation (code-heavy)")
-        return "documentation"
+        return _DetectionResult("documentation", "high")
 
-    # Article: if it's HTML/markdown with no strong signals, likely an article
     if source_fmt in (".html", ".md") and paper_hits < 2 and doc_hits < 2:
         logger.info("Profile auto-detected: article")
-        return "article"
+        return _DetectionResult("article", "high" if paper_hits == 0 else "low")
 
-    logger.info("Profile auto-detected: general")
-    return "general"
+    logger.info("Profile auto-detected: general (low confidence)")
+    return _DetectionResult("general", "low")
+
+
+def detect_profile(parsed: ParsedDocument) -> ProfileName:
+    """Detect the extraction profile using heuristics (synchronous, zero-cost)."""
+    return _detect_heuristic(parsed).profile
+
+
+class _LLMProfileResult(BaseModel):
+    """LLM output for profile classification."""
+
+    document_type: str = "general"
+    reasoning: str = ""
+
+
+async def detect_profile_with_llm(
+    parsed: ParsedDocument, settings: Settings
+) -> ProfileName:
+    """Detect profile using heuristics first, LLM fallback for low-confidence cases.
+
+    Enabled by ``settings.profile_llm_fallback``. Falls back to pure heuristic
+    if the LLM call fails or is disabled.
+    """
+    result = _detect_heuristic(parsed)
+
+    if result.confidence == "high":
+        return result.profile
+
+    # LLM fallback for ambiguous documents
+    if not getattr(settings, "profile_llm_fallback", False):
+        return result.profile
+
+    logger.info("Low-confidence profile detection, using LLM fallback...")
+
+    try:
+        from ingestible.pipeline.stage4_enrichment import _make_client
+
+        client = _make_client(settings)
+        sample = parsed.full_markdown[:2000] if hasattr(parsed, "full_markdown") else ""
+        title = parsed.title or ""
+
+        prompt = f"""Classify this document into one of these types: paper, article, documentation, general.
+
+TITLE: {title}
+CONTENT (first 2000 chars):
+{sample}
+
+Respond with JSON:
+- document_type: one of "paper", "article", "documentation", "general"
+- reasoning: one sentence explaining your choice"""
+
+        llm_result = await client.generate_json(prompt, _LLMProfileResult)
+        detected = llm_result.document_type.lower().strip()
+
+        if detected in PROFILES:
+            logger.info(
+                "LLM profile detection: %s (reason: %s)", detected, llm_result.reasoning
+            )
+            return detected  # type: ignore[return-value]
+
+        logger.warning("LLM returned unknown profile '%s', using heuristic result", detected)
+    except Exception as e:
+        logger.warning("LLM profile detection failed, using heuristic: %s", e)
+
+    return result.profile

@@ -147,6 +147,19 @@ def build_indexes(
             embed_texts.append(q)
             embed_meta.append({**base_meta, "embedding_type": "question"})
 
+    # 4) L0 digest embeddings (executive_summary + key_findings)
+    l0 = chunks.l0
+    l0_meta = {"chunk_id": l0.chunk_id, "chapter": "", "section": ""}
+    if l0.executive_summary:
+        embed_ids.append(f"{l0.chunk_id}::exec_summary")
+        embed_texts.append(l0.executive_summary)
+        embed_meta.append({**l0_meta, "embedding_type": "executive_summary"})
+
+    for i, finding in enumerate(l0.key_findings):
+        embed_ids.append(f"{l0.chunk_id}::finding{i}")
+        embed_texts.append(finding)
+        embed_meta.append({**l0_meta, "embedding_type": "key_finding"})
+
     if skipped:
         logger.info("Skipped %d unchanged chunks (cache hit)", skipped)
     logger.info("Generating %d embeddings...", len(embed_texts))

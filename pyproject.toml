@@ -50,6 +50,7 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
+    "ruff>=0.8",
 ]
 export = [
     "pyarrow>=14.0",
@@ -60,6 +61,13 @@ ingest = "ingestible.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ingestible"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
