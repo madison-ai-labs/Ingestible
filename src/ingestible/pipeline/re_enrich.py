@@ -68,6 +68,15 @@ def re_enrich(
             if c.chunk_id in changed_chunk_ids:
                 # Mutate content_hash so it won't match the previous version
                 c.content_hash = ""
+                # Clear enrichment so stale data doesn't persist if LLM fails
+                c.summary = ""
+                c.concepts = []
+                c.hypothetical_questions = []
+                c.keywords = []
+                c.difficulty_level = ""
+                c.depends_on = []
+                c.cross_references = []
+                c.cited_references = []
     else:
         # Full re-enrichment: clear all enrichment fields
         for c in chunks.l3_chunks:
