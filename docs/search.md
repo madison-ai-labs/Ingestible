@@ -19,7 +19,16 @@ Every query runs three search systems in parallel, then merges results into one 
 - Summary embedding ("Explains meltdowns as nervous system overload...")
 - 3-5 hypothetical question embeddings ("What happens during a meltdown?")
 
+**L0 digest embeddings** are also indexed:
+- Executive summary embedding — matches high-level queries about the document
+- Key findings embeddings — one per finding, matches specific result queries
+
 All embeddings point back to the same `chunk_id`. At query time, the search runs against all embeddings and deduplicates by chunk — keeping the best match. This means a query like "Was tun bei sensorischer Überlastung?" might match a hypothetical question embedding almost exactly, even if the raw content uses different wording.
+
+**Embedding configuration:**
+- Model: configurable via `INGEST_EMBEDDING_MODEL` (default: `intfloat/e5-large-v2`)
+- Matryoshka truncation: `INGEST_EMBEDDING_DIMENSIONS` (empty = full dimensions)
+- Binary quantization: `INGEST_EMBEDDING_QUANTIZATION` (`none` or `binary`)
 
 **E5-large-v2 specifics:**
 - Requires prefix `"passage: "` for indexed documents
@@ -38,6 +47,7 @@ All embeddings point back to the same `chunk_id`. At query time, the search runs
   - Passage length normalization
 - "Reizüberflutung" appearing in only 3 of 656 passages → very high signal when it does appear
 - Indexed over `content + keywords` (keywords populated by enrichment)
+- Language-aware tokenization — detected automatically per document
 
 **When BM25 beats vector search:**
 - Exact technical terms, names, acronyms
@@ -55,6 +65,16 @@ All embeddings point back to the same `chunk_id`. At query time, the search runs
 - Adds a small fixed score boost (0.005) to matched chunks
 
 **Without enrichment:** The concept index is empty. Concepts come from Stage 4 LLM analysis.
+
+## Optional: Cross-Encoder Reranking
+
+When configured (`INGEST_RERANKER_MODEL`), a cross-encoder reranker rescores the top candidates from the initial retrieval:
+
+1. RRF fusion produces a candidate list (top `INGEST_RERANKER_TOP_K`, default 50)
+2. Cross-encoder scores each (query, passage) pair
+3. Final ranking blends the RRF score with the reranker score (`INGEST_RERANKER_WEIGHT`)
+
+Cross-encoder models are more accurate than bi-encoders but slower — they process query and document together. This is why they're used as a second-pass reranker, not the primary retrieval.
 
 ## The Merge: Reciprocal Rank Fusion (RRF)
 
@@ -84,13 +104,27 @@ The first chunk wins — it appeared in both systems. This is the key property o
 
 The `match_sources` field on each result tells you which systems contributed: `["vector", "bm25"]` means both agreed, `["vector"]` means only semantic similarity matched.
 
+## Corpus Search (Cross-Document)
+
+**File:** `search/corpus.py`
+
+Corpus search queries all ingested documents simultaneously:
+
+1. Discovers all document directories under `data/documents/`
+2. Loads a `HybridSearcher` for each document (LRU-cached)
+3. Runs hybrid search against each document in parallel
+4. Merges results across documents via cross-document RRF
+5. Results include the source document title for attribution
+
+Use via CLI (`ingest corpus-search "query"`) or the web UI search page.
+
 ## The Full Retrieval Flow
 
 When an AI queries a document, the interaction follows three steps:
 
 ### Step 1: Get the Map (L0)
 
-The AI receives the document overview: title, total pages, and the full table of contents with chapter/section titles. This is ~500-800 tokens and gives the AI a structural understanding of where topics live.
+The AI receives the document overview: title, total pages, executive summary, and the full table of contents with chapter/section titles. This is ~500-800 tokens and gives the AI a structural understanding of where topics live.
 
 ### Step 2: Search
 
@@ -111,6 +145,7 @@ The AI can request full content of specific passages or sections based on what l
 | Aspect | Without Enrichment | With Enrichment |
 |--------|-------------------|-----------------|
 | Embeddings per passage | 1 (content only) | 5-6 (content + summary + questions) |
+| L0 digest embeddings | None | Executive summary + key findings |
 | BM25 index | Content only | Content + extracted keywords |
 | Concept index | Empty | Populated with LLM-extracted concepts |
 | Query matching | Must match content wording | Can match questions, summaries, concepts |

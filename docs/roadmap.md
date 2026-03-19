@@ -1,4 +1,4 @@
-# IngestionTool Feature Expansion — Full Roadmap
+# Ingestible Feature Expansion — Full Roadmap
 
 ## Phase 1: Foundation & Batch Operations (v0.10)
 
@@ -71,7 +71,7 @@ Export stored documents to JSONL, Parquet, LlamaIndex nodes, LangChain documents
 | 3.2 | CSV/Excel | **done** (v0.12) |
 | 3.3 | PowerPoint | **done** (v0.12) |
 | 3.4 | RST & AsciiDoc | **done** (v0.12) |
-| 3.5 | Image/Figure Extraction from PDFs | planned |
+| 3.5 | Image/Figure Extraction from PDFs | **done** |
 
 ---
 
