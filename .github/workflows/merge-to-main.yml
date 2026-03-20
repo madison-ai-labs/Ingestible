@@ -1,0 +1,31 @@
+name: Merge to Main
+
+# Runs additional checks when a PR targets main (release candidate)
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  # Standard CI runs via ci.yml (triggered by PR to main)
+
+  docker-build:
+    name: Docker build smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ingestible:test
+      - name: Verify container starts
+        run: |
+          docker run -d --name test-ingestible \
+            -e INGEST_DATA_DIR=/app/data \
+            -p 8081:8081 \
+            ingestible:test
+          sleep 5
+          curl -sf http://localhost:8081/health | grep '"status":"ok"'
+          docker stop test-ingestible

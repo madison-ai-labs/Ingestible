@@ -92,6 +92,10 @@ target-version = "py311"
 select = ["E", "F", "I", "W"]
 ignore = ["E501"]
 
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
+skips = ["B101"]  # assert is fine in non-web code
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
