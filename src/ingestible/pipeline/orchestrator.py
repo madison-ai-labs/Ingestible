@@ -80,7 +80,7 @@ def _parse_keyframe_timestamp(caption: str) -> float | None:
 
 def generate_doc_id(file_path: Path) -> str:
     """Generate a short deterministic document ID from the file path."""
-    h = hashlib.md5(str(file_path.resolve()).encode()).hexdigest()[:12]
+    h = hashlib.md5(str(file_path.resolve()).encode(), usedforsecurity=False).hexdigest()[:12]
     stem = file_path.stem[:30].lower().replace(" ", "-")
     return f"{stem}-{h}"
 

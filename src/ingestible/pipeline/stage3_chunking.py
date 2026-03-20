@@ -272,12 +272,12 @@ def _make_l3(
     tier: str = "T3",
 ) -> L3Chunk:
     content = "\n\n".join(paras)
-    h = hashlib.md5(content.encode()).hexdigest()[:8]
+    h = hashlib.md5(content.encode(), usedforsecurity=False).hexdigest()[:8]
     chunk_id = f"{doc_id}-{section_id}-p{index}-{h}"
     return L3Chunk(
         chunk_id=chunk_id,
         content=content,
-        content_hash=hashlib.md5(content.encode()).hexdigest(),
+        content_hash=hashlib.md5(content.encode(), usedforsecurity=False).hexdigest(),
         parent_section_id=section_id,
         position=ChunkPosition(chapter=chapter_id, section=section_id, index=index),
         content_tier=tier,
@@ -611,9 +611,9 @@ def _split_into_passages_semantic(
     # Re-index chunk IDs after insertions
     for i, chunk in enumerate(chunks):
         content = chunk.content
-        h = hashlib.md5(content.encode()).hexdigest()[:8]
+        h = hashlib.md5(content.encode(), usedforsecurity=False).hexdigest()[:8]
         chunk.chunk_id = f"{doc_id}-{section_id}-p{i}-{h}"
-        chunk.content_hash = hashlib.md5(content.encode()).hexdigest()
+        chunk.content_hash = hashlib.md5(content.encode(), usedforsecurity=False).hexdigest()
         chunk.position = ChunkPosition(chapter=chapter_id, section=section_id, index=i)
 
     # Label positions

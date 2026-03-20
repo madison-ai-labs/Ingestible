@@ -106,6 +106,14 @@ def main(argv: list[str] | None = None) -> None:
     # --- config ---
     sub.add_parser("config", help="Show effective configuration (all sources merged)")
 
+    # --- serve ---
+    p_serve = sub.add_parser("serve", help="Start the API server and web UI")
+    p_serve.add_argument("--host", default="0.0.0.0", help="Bind address (default: 0.0.0.0)")
+    p_serve.add_argument("--port", type=int, default=8081, help="Port (default: 8081)")
+    p_serve.add_argument(
+        "--reload", action="store_true", help="Auto-reload on code changes (dev mode)"
+    )
+
     # --- watch ---
     p_watch = sub.add_parser("watch", help="Watch a directory and auto-ingest on changes")
     p_watch.add_argument("dir", help="Directory to watch")
@@ -208,6 +216,15 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_export(args)
     elif args.command == "config":
         _cmd_config()
+    elif args.command == "serve":
+        import uvicorn
+
+        uvicorn.run(
+            "ingestible.api:app",
+            host=args.host,
+            port=args.port,
+            reload=args.reload,
+        )
     elif args.command == "watch":
         _cmd_watch(args)
     elif args.command == "eval":

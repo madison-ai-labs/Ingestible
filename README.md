@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Small%20Business-blue" alt="License"></a>
-  <img src="https://img.shields.io/badge/python-3.11--3.12-3776AB?logo=python&logoColor=white" alt="Python 3.11-3.12">
+  <img src="https://img.shields.io/badge/python-3.11--3.13-3776AB?logo=python&logoColor=white" alt="Python 3.11-3.13">
   <img src="https://img.shields.io/badge/stage-beta-orange" alt="Beta">
 </p>
 
@@ -85,7 +85,7 @@ Passages found by multiple indexes rank higher. No score normalization needed.
 git clone https://github.com/simplyliz/Ingestible.git
 cd Ingestible
 
-# Requires Python 3.11-3.12 (ChromaDB incompatible with 3.14)
+# Requires Python 3.11-3.13 (ChromaDB incompatible with 3.14)
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
