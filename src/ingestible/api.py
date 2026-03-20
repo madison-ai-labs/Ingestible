@@ -10,8 +10,6 @@ import shutil
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Annotated
-
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -29,7 +27,7 @@ from ingestible.config import get_settings
 from ingestible.logging import setup_logging
 from ingestible.models.chunks import ChunkSet, L0Chunk
 from ingestible.models.document import DocumentStructure
-from ingestible.models.search import SearchResponse, SearchResult
+from ingestible.models.search import SearchResponse
 from ingestible.pipeline.locking import document_lock
 from ingestible.pipeline.orchestrator import ingest
 from ingestible.pipeline.stage5_embedding import Embedder
@@ -554,10 +552,11 @@ async def ingest_batch_endpoint(
 
 @app.get("/documents", response_model=list[DocumentSummary])
 @limiter.limit(_RATE_DEFAULT)
-async def list_docs(request: Request):
+async def list_docs(request: Request, offset: int = Query(default=0, ge=0), limit: int = Query(default=100, ge=1, le=1000)):
     """List all ingested documents."""
     settings = get_cached_settings()
     docs = list_documents(settings)
+    paginated = docs[offset:offset + limit]
     return [
         DocumentSummary(
             doc_id=d.get("doc_id", "?"),
@@ -565,7 +564,7 @@ async def list_docs(request: Request):
             total_pages=d.get("total_pages", 0),
             ingestion_date=d.get("ingestion_date", ""),
         )
-        for d in docs
+        for d in paginated
     ]
 
 
@@ -650,9 +649,10 @@ async def get_token_economics(doc_id: str, request: Request):
     # L0 overview tokens
     l0_tokens = count_tokens(_l0_overview_text(chunks.l0))
 
-    # Average query: L0 + ~3 passages (~400 tokens each)
-    avg_passage_tokens = 400
-    avg_query_tokens = l0_tokens + (3 * avg_passage_tokens)
+    # Compute actual average passage tokens
+    passage_tokens = [count_tokens(c.content) for c in chunks.l3_chunks]
+    avg_passage_tokens = sum(passage_tokens) / len(passage_tokens) if passage_tokens else 400
+    avg_query_tokens = l0_tokens + (3 * int(avg_passage_tokens))
 
     savings = ((full_tokens - avg_query_tokens) / full_tokens * 100) if full_tokens > 0 else 0
 
@@ -720,6 +720,7 @@ async def get_citations(doc_id: str, request: Request):
 @limiter.limit(_RATE_DEFAULT)
 async def get_knowledge_graph(doc_id: str, request: Request):
     """Get extracted knowledge graph triples for a document."""
+    doc_id = _validate_doc_id(doc_id)
     settings = get_cached_settings()
     doc_dir = settings.documents_dir / doc_id
 
@@ -750,6 +751,7 @@ async def get_knowledge_graph(doc_id: str, request: Request):
 @limiter.limit(_RATE_DEFAULT)
 async def get_structure(doc_id: str, request: Request):
     """Get the document structure tree."""
+    doc_id = _validate_doc_id(doc_id)
     settings = get_cached_settings()
     doc_dir = settings.documents_dir / doc_id
 
@@ -792,6 +794,7 @@ async def corpus_search(body: CorpusSearchRequest, request: Request):
 @limiter.limit(_RATE_INGEST)
 async def enrich_document(doc_id: str, request: Request):
     """Re-enrich a document without re-parsing. Re-runs enrichment + embedding."""
+    doc_id = _validate_doc_id(doc_id)
     from ingestible.pipeline.re_enrich import re_enrich
 
     settings = get_cached_settings()
@@ -819,6 +822,27 @@ async def enrich_document(doc_id: str, request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Retrieval Evaluation
+# ---------------------------------------------------------------------------
+
+
+@app.post("/documents/{doc_id}/eval")
+@limiter.limit(_RATE_DEFAULT)
+async def eval_document(doc_id: str, request: Request, k: int = Query(default=5, ge=1, le=50)):
+    """Evaluate retrieval quality using synthetic queries from enrichment."""
+    doc_id = _validate_doc_id(doc_id)
+    settings = get_cached_settings()
+    doc_dir = settings.documents_dir / doc_id
+
+    if not doc_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
+
+    from ingestible.eval import evaluate_document
+    report = evaluate_document(doc_id, settings, k=k)
+    return report.to_dict()
+
+
+# ---------------------------------------------------------------------------
 # Export (WP 2.3)
 # ---------------------------------------------------------------------------
 
@@ -833,6 +857,7 @@ async def export_document_endpoint(
     ),
 ):
     """Export a document to a portable format. Returns the file as a download."""
+    doc_id = _validate_doc_id(doc_id)
     from starlette.responses import FileResponse
 
     from ingestible.export import EXPORT_FORMATS, export_document
@@ -886,6 +911,7 @@ async def export_document_endpoint(
 @limiter.limit(_RATE_DEFAULT)
 async def get_versions(doc_id: str, request: Request):
     """List all archived versions of a document."""
+    doc_id = _validate_doc_id(doc_id)
     from ingestible.pipeline.stage6_storage import list_versions
 
     settings = get_cached_settings()
@@ -943,7 +969,8 @@ async def ingest_stream(
             meta = load_document_meta(doc_dir)
             yield f"data: {json.dumps({'status': 'complete', 'doc_id': meta.get('doc_id', doc_dir.name)})}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
+            error_msg = str(e)[:200]  # truncate to avoid leaking internal details
+            yield f"data: {json.dumps({'status': 'error', 'error': error_msg})}\n\n"
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
@@ -991,13 +1018,18 @@ async def ingest_async(
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     tmp.write(content)
     tmp.close()
+    tmp_path = Path(tmp.name)
 
-    queue = get_task_queue(max_workers=settings.max_concurrent_ingestions)
-    job = queue.submit_ingestion(
-        tmp.name,
-        settings,
-        skip_enrichment=skip_enrichment,
-    )
+    try:
+        queue = get_task_queue(max_workers=settings.max_concurrent_ingestions)
+        job = queue.submit_ingestion(
+            tmp.name,
+            settings,
+            skip_enrichment=skip_enrichment,
+        )
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
     return JobResponse(job_id=job.job_id, status=job.status.value)
 
 

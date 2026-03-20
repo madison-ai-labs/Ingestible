@@ -27,6 +27,7 @@ from ingestible.models.chunks import (
 )
 from ingestible.models.document import DocumentStructure, StructureNode
 from ingestible.utils.text import (
+    extract_heading_level,
     is_code_block,
     is_table_block,
     split_paragraphs,
@@ -163,6 +164,11 @@ def _split_into_passages(
 
     if settings.chunking_strategy == "recursive":
         return _split_into_passages_recursive(
+            text, doc_id, chapter_id, section_id, settings
+        )
+
+    if settings.chunking_strategy == "docling":
+        return _split_into_passages_docling(
             text, doc_id, chapter_id, section_id, settings
         )
 
@@ -338,7 +344,11 @@ def _split_into_passages_recursive(
     for i, piece in enumerate(raw_pieces):
         if not piece.strip():
             continue
-        chunks.append(_make_l3([piece], doc_id, chapter_id, section_id, len(chunks)))
+        tier = "T3"
+        if settings.content_classification:
+            from ingestible.pipeline.stage1c_classify import classify_block
+            tier = classify_block(piece)
+        chunks.append(_make_l3([piece], doc_id, chapter_id, section_id, len(chunks), tier=tier))
 
     # Label positions
     for i, chunk in enumerate(chunks):
@@ -447,6 +457,109 @@ def _apply_recursive_overlap(
             result.append(pieces[i])
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Docling-style hierarchical chunking
+# ---------------------------------------------------------------------------
+
+
+def _split_into_passages_docling(
+    text: str,
+    doc_id: str,
+    chapter_id: str,
+    section_id: str,
+    settings: Settings,
+) -> list[L3Chunk]:
+    """Docling-style hierarchical chunking.
+
+    Key differences from paragraph chunking:
+    - Heading lines start new chunks unconditionally (strict hierarchy)
+    - Each chunk gets a metadata breadcrumb for context
+    - Code blocks and tables are always atomic (standalone chunks)
+    - Consecutive prose paragraphs are grouped by token budget
+    - No overlap (hierarchy provides context instead)
+    """
+    from ingestible.pipeline.stage1c_classify import classify_block
+
+    paragraphs = split_paragraphs(text)
+    if not paragraphs:
+        return []
+
+    max_tokens = settings.max_chunk_tokens
+    min_tokens = settings.min_chunk_tokens
+    classify = settings.content_classification
+
+    chunks: list[L3Chunk] = []
+    current_paras: list[str] = []
+    current_tokens = 0
+
+    def _flush():
+        nonlocal current_paras, current_tokens
+        if current_paras:
+            tier = "T3"
+            if classify and len(current_paras) == 1:
+                tier = classify_block(current_paras[0])
+            chunks.append(
+                _make_l3(current_paras, doc_id, chapter_id, section_id, len(chunks), tier=tier)
+            )
+            current_paras = []
+            current_tokens = 0
+
+    for para in paragraphs:
+        para_tokens = count_tokens(para)
+
+        # Headings always start a new chunk
+        heading_level = extract_heading_level(para.split("\n")[0]) if para else None
+        if heading_level is not None:
+            _flush()
+            # The heading itself becomes part of the next chunk
+            current_paras.append(para)
+            current_tokens += para_tokens
+            continue
+
+        # Atomic blocks (code, tables) always standalone
+        is_atomic = is_code_block(para) or is_table_block(para)
+        if classify:
+            tier = classify_block(para)
+            is_atomic = is_atomic or tier in ("T0", "T1")
+
+        if is_atomic:
+            _flush()
+            t = classify_block(para) if classify else ("T0" if is_code_block(para) else "T1" if is_table_block(para) else "T3")
+            chunks.append(
+                _make_l3([para], doc_id, chapter_id, section_id, len(chunks), tier=t)
+            )
+            continue
+
+        # Would adding this exceed budget?
+        if current_tokens + para_tokens > max_tokens and current_paras:
+            _flush()
+
+        current_paras.append(para)
+        current_tokens += para_tokens
+
+    _flush()
+
+    # Merge trailing runt into previous
+    if len(chunks) > 1 and count_tokens(chunks[-1].content) < min_tokens:
+        prev = chunks[-2]
+        merged = prev.content + "\n\n" + chunks[-1].content
+        chunks[-2] = prev.model_copy(update={"content": merged})
+        chunks.pop()
+
+    # Label positions
+    for i, chunk in enumerate(chunks):
+        if len(chunks) == 1:
+            chunk.position_in_section = "only"
+        elif i == 0:
+            chunk.position_in_section = "first"
+        elif i == len(chunks) - 1:
+            chunk.position_in_section = "last"
+        else:
+            chunk.position_in_section = "middle"
+
+    return chunks
 
 
 # ---------------------------------------------------------------------------

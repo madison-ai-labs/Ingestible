@@ -41,6 +41,7 @@ def save_document(
 
     # meta.json
     meta = {
+        "schema_version": 2,  # increment when chunk model changes
         "doc_id": chunks.doc_id,
         "title": structure.title,
         "total_pages": chunks.l0.total_pages,
@@ -124,12 +125,27 @@ def save_document(
 
 def load_document_meta(doc_dir: Path) -> dict:
     """Load meta.json for a document."""
-    return _read_json(doc_dir / "meta.json")
+    meta = _read_json(doc_dir / "meta.json")
+    schema_version = meta.get("schema_version", 1)
+    if schema_version > 2:
+        raise ValueError(
+            f"Document {doc_dir.name} uses schema version {schema_version}, "
+            f"but this version of Ingestible only supports up to version 2. "
+            f"Please upgrade Ingestible."
+        )
+    return meta
 
 
 def load_chunks(doc_dir: Path) -> ChunkSet:
     """Reconstruct a ChunkSet from the stored file hierarchy."""
     meta = _read_json(doc_dir / "meta.json")
+    schema_version = meta.get("schema_version", 1)
+    if schema_version > 2:
+        raise ValueError(
+            f"Document {doc_dir.name} uses schema version {schema_version}, "
+            f"but this version of Ingestible only supports up to version 2. "
+            f"Please upgrade Ingestible."
+        )
     doc_id = meta["doc_id"]
 
     l0 = L0Chunk(**meta["l0"])

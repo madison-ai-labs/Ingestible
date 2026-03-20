@@ -62,7 +62,13 @@ class BM25Store:
     @classmethod
     def load(cls, path: Path) -> BM25Store:
         with open(path, "rb") as f:
+            # NOTE: pickle is used for BM25Okapi compatibility; a JSON format
+            # would require re-serialising the tokenised corpus.  Validate the
+            # deserialised structure to catch corrupted or tampered files.
             data = pickle.load(f)
+        # Validate expected structure (defense against corrupted/malicious pickle)
+        if not isinstance(data, dict) or "chunk_ids" not in data:
+            raise ValueError("Invalid BM25 index format")
         language = data.get("language", "en")
         store = cls(language=language)
         store._chunk_ids = data["chunk_ids"]

@@ -27,17 +27,18 @@ class ConceptIndex:
             self.add(concept, chunk_id)
 
     def lookup(self, query: str) -> list[str]:
-        """Return chunk_ids matching any concept that contains the query string."""
+        """Find chunk_ids matching any concept that equals or contains the query as a whole word."""
         q = query.lower().strip()
-        matches: list[str] = []
-        seen: set[str] = set()
+        if not q:
+            return []
+        results: set[str] = set()
+        q_words = set(q.split())
         for concept, chunk_ids in self._index.items():
-            if q in concept or concept in q:
-                for cid in chunk_ids:
-                    if cid not in seen:
-                        matches.append(cid)
-                        seen.add(cid)
-        return matches
+            # Exact match or query words are a subset of concept words
+            concept_words = set(concept.split())
+            if q == concept or q_words <= concept_words:
+                results.update(chunk_ids)
+        return list(results)
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

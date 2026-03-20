@@ -85,7 +85,15 @@ Poll for job status.
 | `GET` | `/documents/{doc_id}/versions` | List archived versions |
 | `GET` | `/documents/{doc_id}/export?format=jsonl` | Export document (jsonl, parquet, llamaindex, langchain) |
 | `POST` | `/documents/{doc_id}/enrich` | Re-enrich without re-parsing |
+| `POST` | `/documents/{doc_id}/eval` | Evaluate retrieval quality |
 | `POST` | `/documents/{doc_id}/search` | Search within a document |
+
+### POST /documents/{doc_id}/eval
+
+Evaluate retrieval quality using synthetic queries from enrichment.
+
+- **Query params:** `k` (int, default: 5)
+- **Returns:** `{ "doc_id", "total_queries", "k", "hit_rate", "mrr", "mean_precision_at_k", "mean_recall_at_k" }`
 
 ### POST /documents/{doc_id}/search
 

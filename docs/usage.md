@@ -141,6 +141,15 @@ ingest ingest /path/to/document.pdf -v
 6. Embeddings are generated and indexed (ChromaDB + BM25 + concept index)
 7. Everything is saved to `data/documents/{doc_id}/`
 
+**Cloud storage:**
+```bash
+ingest ingest s3://my-bucket/docs/report.pdf -v
+ingest ingest gs://my-bucket/docs/paper.pdf -v
+ingest ingest az://my-container/docs/spec.pdf -v
+```
+
+Requires `pip install ingestible[cloud]`.
+
 **First run downloads the E5-large-v2 model (~1.3GB). Subsequent runs use the cache.**
 
 ### Batch ingestion
@@ -260,6 +269,50 @@ ingest cleanup --max-age 24
 
 Removes stale checkpoint directories, lock files, and temp uploads older than the specified hours. Also runs automatically on API startup.
 
+### Evaluate retrieval quality
+
+```bash
+# Auto-generate queries from enrichment hypothetical questions
+ingest eval <doc_id>
+
+# Use manual Q&A pairs
+ingest eval <doc_id> --queries eval_queries.jsonl
+
+# Compare hybrid vs vector-only vs BM25-only
+ingest eval <doc_id> --compare
+
+# Save detailed results
+ingest eval <doc_id> -k 10 --output results.json
+```
+
+Metrics: Hit Rate@K, MRR (Mean Reciprocal Rank), Precision@K, Recall@K.
+
+Synthetic mode uses the hypothetical questions generated during enrichment as queries — each question should retrieve the chunk it came from (self-consistency check).
+
+### Start MCP server
+
+```bash
+ingest mcp
+```
+
+Exposes Ingestible as an MCP (Model Context Protocol) server. AI agents can ingest documents, search the corpus, and retrieve chunk details directly.
+
+**Tools:** `ingest_document`, `search`, `list_documents`, `get_document_overview`, `get_chunk`, `get_knowledge_graph`, `delete_document`.
+
+**Requires:** `pip install ingestible[mcp]`
+
+**Claude Desktop config:**
+```json
+{
+    "mcpServers": {
+        "ingestible": {
+            "command": "python",
+            "args": ["-m", "ingestible.mcp_server"]
+        }
+    }
+}
+```
+
 ### Show configuration
 
 ```bash
@@ -306,6 +359,11 @@ Override with `--profile <name>`. For ambiguous documents, enable LLM-based clas
 | Plain text | `.txt` | Native |
 | Audio | `.mp3`, `.wav`, `.m4a`, `.flac`, `.ogg`, `.aac`, `.opus` | faster-whisper ASR (requires `pip install ingestible[audio]`) |
 | Video | `.mp4`, `.mkv`, `.avi`, `.mov`, `.webm`, `.wmv`, `.flv` | ffmpeg + faster-whisper (requires `ffmpeg` on PATH) |
+| Images | `.png`, `.jpg`, `.jpeg`, `.tiff`, `.bmp`, `.webp` | OCR + layout via Docling VLM |
+| Email | `.eml`, `.msg` | Headers, body, attachments |
+| XML | `.xml` | Structured to markdown |
+| JSON | `.json`, `.jsonl` | Object/array rendering |
+| ZIP | `.zip` | Auto-detects Notion, Confluence, or generic |
 
 PDF figure extraction: figures are extracted with captions, labels, page numbers, and classifications when using the Docling parser.
 

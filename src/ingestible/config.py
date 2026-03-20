@@ -107,7 +107,7 @@ class Settings(BaseSettings):
     max_chunk_tokens: int = 500
     min_chunk_tokens: int = 100
     chunk_overlap_fraction: float = 0.1
-    chunking_strategy: Literal["paragraph", "semantic", "recursive"] = "paragraph"
+    chunking_strategy: Literal["paragraph", "semantic", "recursive", "docling"] = "paragraph"
     semantic_threshold_percentile: int = 10
     contextual_chunking: bool = False
 

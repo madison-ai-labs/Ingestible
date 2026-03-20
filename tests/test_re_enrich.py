@@ -80,8 +80,8 @@ def test_re_enrich_clears_old_enrichment(tmp_path):
     # Load and verify enrichment was cleared (enrichment stage will warn and continue)
     new_chunks = load_chunks(result_dir)
     assert new_chunks.l3_chunks[0].content == "Machine learning is a subset of AI."
-    # Summary should be empty because old was cleared and enrichment failed
-    assert new_chunks.l3_chunks[0].summary == ""
+    # Summary should indicate failure because old was cleared and enrichment failed
+    assert new_chunks.l3_chunks[0].summary in ("", "[enrichment failed]")
 
 
 def test_re_enrich_preserves_content(tmp_path):

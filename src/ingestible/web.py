@@ -249,8 +249,20 @@ async def upload_submit(
     settings = _get_settings()
 
     suffix = Path(file.filename or "upload.pdf").suffix
-    content = await file.read()
-    _check_upload_size(content, settings)
+    # Read with size limit to avoid buffering oversized uploads
+    max_bytes = settings.max_upload_bytes
+    chunks: list[bytes] = []
+    received = 0
+    while True:
+        chunk = await file.read(8192)
+        if not chunk:
+            break
+        received += len(chunk)
+        if received > max_bytes:
+            max_mb = max_bytes / 1_000_000
+            raise HTTPException(status_code=413, detail=f"File too large. Maximum size: {max_mb:.0f}MB")
+        chunks.append(chunk)
+    content = b"".join(chunks)
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(content)
         tmp_path = tmp.name

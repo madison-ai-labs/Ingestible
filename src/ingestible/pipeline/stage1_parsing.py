@@ -1,9 +1,13 @@
 """Stage 1 — Document Parsing.
 
 Supported formats: PDF, Markdown, plain text, DOCX, HTML, EPUB,
-CSV, Excel, PowerPoint, RST, AsciiDoc.
+CSV, Excel, PowerPoint, RST, AsciiDoc, images (PNG/JPEG/TIFF/BMP/WebP),
+email (EML/MSG), XML, JSON/JSONL, ZIP archives (Notion / Confluence exports).
 PDF: Primary Docling (IBM), fallback PyMuPDF4LLM, OCR retry.
 DOCX: python-docx. HTML: markdownify. Markdown/TXT: direct read.
+Images: Docling VLM pipeline (OCR + layout). Email: stdlib email / extract-msg.
+XML/JSON: stdlib parsers with markdown conversion.
+ZIP: auto-detects Notion (.md with UUIDs) vs Confluence (HTML with index.html).
 """
 
 from __future__ import annotations
@@ -18,14 +22,24 @@ from ingestible.models.document import FigureRef, PageContent, ParsedDocument, T
 logger = logging.getLogger(__name__)
 
 CHARS_PER_PAGE_THRESHOLD = 100
+IMAGE_FORMATS = {".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp"}
+
 SUPPORTED_FORMATS = {
     ".pdf", ".md", ".txt", ".docx", ".html", ".htm",
     ".epub", ".csv", ".xlsx", ".xls", ".pptx",
     ".rst", ".adoc", ".asciidoc",
+    # Images
+    *IMAGE_FORMATS,
+    # Email
+    ".eml", ".msg",
+    # Structured data
+    ".xml", ".json", ".jsonl",
     # Audio
     ".mp3", ".wav", ".m4a", ".flac", ".ogg", ".wma", ".aac", ".opus",
     # Video
     ".mp4", ".mkv", ".avi", ".mov", ".webm", ".wmv", ".flv",
+    # Archives (Notion / Confluence exports)
+    ".zip",
 }
 
 AUDIO_FORMATS = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".wma", ".aac", ".opus"}
@@ -78,10 +92,22 @@ def parse_document(file_path: str | Path, force_ocr: bool = False, timeout: int 
         return _parse_rst(file_path)
     elif ext in (".adoc", ".asciidoc"):
         return _parse_asciidoc(file_path)
+    elif ext in IMAGE_FORMATS:
+        return _with_timeout(_parse_image, file_path, timeout=timeout)
+    elif ext == ".eml":
+        return _parse_eml(file_path)
+    elif ext == ".msg":
+        return _parse_msg(file_path)
+    elif ext == ".xml":
+        return _parse_xml(file_path)
+    elif ext in (".json", ".jsonl"):
+        return _parse_json(file_path)
     elif ext in AUDIO_FORMATS:
         return _with_timeout(_parse_audio, file_path, timeout=timeout)
     elif ext in VIDEO_FORMATS:
         return _with_timeout(_parse_video, file_path, timeout=timeout)
+    elif ext == ".zip":
+        return _parse_zip_archive(file_path)
 
     raise ValueError(f"Unsupported format: {ext}")  # unreachable, but defensive
 
@@ -812,6 +838,275 @@ def _asciidoc_to_markdown(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Image parser
+# ---------------------------------------------------------------------------
+
+
+def _parse_image(file_path: Path) -> ParsedDocument:
+    """Parse an image file via Docling's VLM pipeline (OCR + layout analysis)."""
+    doc = _try_docling(file_path, ocr=True)
+    if doc is None:
+        # Fallback: basic OCR description
+        logger.warning("Docling failed for image, creating minimal document")
+        return ParsedDocument(
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="image",
+            total_pages=1,
+            pages=[PageContent(page_num=1, markdown=f"[Image: {file_path.name}]")],
+        )
+    doc.source_format = "image"
+    return doc
+
+
+# ---------------------------------------------------------------------------
+# Email parsers
+# ---------------------------------------------------------------------------
+
+
+def _parse_eml(file_path: Path) -> ParsedDocument:
+    """Parse an EML email file. Extracts headers, body, and attachment names."""
+    import email
+    from email import policy
+
+    raw = file_path.read_bytes()
+    msg = email.message_from_bytes(raw, policy=policy.default)
+
+    md_parts: list[str] = []
+
+    # Headers
+    subject = msg.get("Subject", "")
+    from_addr = msg.get("From", "")
+    to_addr = msg.get("To", "")
+    date = msg.get("Date", "")
+
+    md_parts.append(f"# {subject or 'Untitled Email'}")
+    md_parts.append(f"**From:** {from_addr}")
+    md_parts.append(f"**To:** {to_addr}")
+    if date:
+        md_parts.append(f"**Date:** {date}")
+    md_parts.append("---")
+
+    # Body
+    body = msg.get_body(preferencelist=("plain", "html"))
+    if body:
+        content = body.get_content()
+        content_type = body.get_content_type()
+        if content_type == "text/html":
+            try:
+                from markdownify import markdownify
+                content = markdownify(content, heading_style="ATX").strip()
+            except Exception:
+                pass
+        md_parts.append(content.strip())
+
+    # Attachments list
+    attachments = []
+    for part in msg.iter_attachments():
+        filename = part.get_filename() or "unnamed"
+        attachments.append(filename)
+    if attachments:
+        md_parts.append("\n## Attachments")
+        for a in attachments:
+            md_parts.append(f"- {a}")
+
+    full_md = "\n\n".join(md_parts)
+    title = subject or file_path.stem
+
+    return ParsedDocument(
+        title=title,
+        source_path=str(file_path),
+        source_format="eml",
+        total_pages=1,
+        toc=_extract_toc_from_markdown(full_md),
+        pages=[PageContent(page_num=1, markdown=full_md)],
+    )
+
+
+def _parse_msg(file_path: Path) -> ParsedDocument:
+    """Parse an Outlook MSG file."""
+    try:
+        import extract_msg
+    except ImportError:
+        raise ImportError(
+            "MSG parsing requires extract-msg. Install with: pip install extract-msg"
+        )
+
+    msg = extract_msg.Message(str(file_path))
+    md_parts: list[str] = []
+
+    md_parts.append(f"# {msg.subject or 'Untitled Email'}")
+    md_parts.append(f"**From:** {msg.sender}")
+    md_parts.append(f"**To:** {msg.to}")
+    if msg.date:
+        md_parts.append(f"**Date:** {msg.date}")
+    md_parts.append("---")
+
+    if msg.body:
+        md_parts.append(msg.body.strip())
+
+    if msg.attachments:
+        md_parts.append("\n## Attachments")
+        for a in msg.attachments:
+            md_parts.append(f"- {a.longFilename or a.shortFilename or 'unnamed'}")
+
+    msg.close()
+
+    full_md = "\n\n".join(md_parts)
+    title = msg.subject or file_path.stem
+
+    return ParsedDocument(
+        title=title,
+        source_path=str(file_path),
+        source_format="msg",
+        total_pages=1,
+        toc=_extract_toc_from_markdown(full_md),
+        pages=[PageContent(page_num=1, markdown=full_md)],
+    )
+
+
+# ---------------------------------------------------------------------------
+# XML & JSON parsers
+# ---------------------------------------------------------------------------
+
+
+def _parse_xml(file_path: Path) -> ParsedDocument:
+    """Parse an XML file. Converts to a readable markdown representation."""
+    import xml.etree.ElementTree as ET
+
+    text = file_path.read_text(errors="replace")
+    if not text.strip():
+        return ParsedDocument(
+            title=file_path.stem, source_path=str(file_path),
+            source_format="xml", pages=[],
+        )
+
+    try:
+        root = ET.fromstring(text)
+        md = _xml_to_markdown(root)
+    except ET.ParseError:
+        # Fallback: treat as plain text
+        md = f"```xml\n{text[:10000]}\n```"
+
+    title = file_path.stem.replace("_", " ").replace("-", " ").title()
+    page = PageContent(page_num=1, markdown=md, has_code_blocks="```" in md)
+
+    return ParsedDocument(
+        title=title,
+        source_path=str(file_path),
+        source_format="xml",
+        total_pages=1,
+        pages=[page],
+    )
+
+
+def _xml_to_markdown(element, depth: int = 0) -> str:
+    """Convert an XML element tree to markdown headings + content."""
+    parts: list[str] = []
+    tag = element.tag.split("}")[-1] if "}" in element.tag else element.tag  # strip namespace
+
+    # Element with text content
+    text = (element.text or "").strip()
+    children = list(element)
+
+    if children:
+        # Container element → heading
+        level = min(depth + 1, 6)
+        parts.append(f"{'#' * level} {tag}")
+        if text:
+            parts.append(text)
+        for child in children:
+            parts.append(_xml_to_markdown(child, depth + 1))
+    elif text:
+        # Leaf element → key-value
+        parts.append(f"**{tag}:** {text}")
+    # Skip empty leaf elements
+
+    # Attributes
+    if element.attrib:
+        attrs = ", ".join(f"{k}={v}" for k, v in element.attrib.items())
+        parts.append(f"*({attrs})*")
+
+    return "\n\n".join(parts)
+
+
+def _parse_json(file_path: Path) -> ParsedDocument:
+    """Parse a JSON or JSONL file into readable markdown."""
+    import json
+
+    text = file_path.read_text(errors="replace").strip()
+    if not text:
+        return ParsedDocument(
+            title=file_path.stem, source_path=str(file_path),
+            source_format="json", pages=[],
+        )
+
+    ext = file_path.suffix.lower()
+    md_parts: list[str] = []
+
+    if ext == ".jsonl":
+        # JSONL: each line is a separate JSON object
+        for i, line in enumerate(text.split("\n")):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+                md_parts.append(f"## Record {i + 1}")
+                md_parts.append(_json_to_markdown(obj))
+            except json.JSONDecodeError:
+                md_parts.append(f"```\n{line}\n```")
+    else:
+        try:
+            data = json.loads(text)
+            md_parts.append(_json_to_markdown(data))
+        except json.JSONDecodeError:
+            md_parts.append(f"```json\n{text[:10000]}\n```")
+
+    full_md = "\n\n".join(md_parts)
+    title = file_path.stem.replace("_", " ").replace("-", " ").title()
+
+    # Split large JSON into pages (~50 records per page for JSONL)
+    pages = [PageContent(page_num=1, markdown=full_md)]
+
+    return ParsedDocument(
+        title=title,
+        source_path=str(file_path),
+        source_format="json",
+        total_pages=1,
+        pages=pages,
+    )
+
+
+def _json_to_markdown(data, depth: int = 0) -> str:
+    """Convert a JSON value to readable markdown."""
+    if isinstance(data, dict):
+        parts: list[str] = []
+        for key, value in data.items():
+            if isinstance(value, (dict, list)):
+                level = min(depth + 2, 6)
+                parts.append(f"{'#' * level} {key}")
+                parts.append(_json_to_markdown(value, depth + 1))
+            else:
+                parts.append(f"**{key}:** {value}")
+        return "\n\n".join(parts)
+    elif isinstance(data, list):
+        if not data:
+            return "*empty list*"
+        # If list of simple values, render as bullet list
+        if all(isinstance(item, (str, int, float, bool)) for item in data):
+            return "\n".join(f"- {item}" for item in data)
+        # List of objects: render each
+        parts = []
+        for i, item in enumerate(data):
+            parts.append(f"### Item {i + 1}")
+            parts.append(_json_to_markdown(item, depth + 1))
+        return "\n\n".join(parts)
+    else:
+        return str(data)
+
+
+# ---------------------------------------------------------------------------
 # Audio & Video parsers
 # ---------------------------------------------------------------------------
 
@@ -1105,6 +1400,189 @@ def _parse_video(file_path: Path) -> ParsedDocument:
         title=title,
         source_path=str(file_path),
         source_format="video",
+        total_pages=len(pages),
+        toc=toc,
+        pages=pages,
+    )
+
+
+# ---------------------------------------------------------------------------
+# ZIP archive parsers (Notion / Confluence exports)
+# ---------------------------------------------------------------------------
+
+
+def _parse_zip_archive(file_path: Path) -> ParsedDocument:
+    """Parse a ZIP archive — auto-detects Notion or Confluence export format."""
+    import zipfile
+
+    if not zipfile.is_zipfile(file_path):
+        raise ValueError(f"Not a valid ZIP file: {file_path}")
+
+    with zipfile.ZipFile(file_path, "r") as zf:
+        names = zf.namelist()
+
+        # Detect Confluence: has index.html at root
+        if "index.html" in names or any(n.endswith("/index.html") for n in names):
+            return _parse_confluence_zip(file_path, zf)
+
+        # Detect Notion: has .md files with UUIDs in names
+        md_files = [n for n in names if n.endswith(".md")]
+        if md_files:
+            return _parse_notion_zip(file_path, zf)
+
+        # Generic ZIP: try to extract and parse individual supported files
+        return _parse_generic_zip(file_path, zf)
+
+
+def _parse_notion_zip(file_path: Path, zf) -> ParsedDocument:
+    """Parse a Notion export ZIP. Each .md file becomes a page."""
+
+    pages: list[PageContent] = []
+    md_parts: list[str] = []
+
+    # Sort by path depth then name for consistent ordering
+    md_files = sorted(
+        [n for n in zf.namelist() if n.endswith(".md") and not n.startswith("__MACOSX")],
+        key=lambda n: (n.count("/"), n),
+    )
+
+    for page_num, name in enumerate(md_files, 1):
+        content = zf.read(name).decode("utf-8", errors="replace").strip()
+        if not content:
+            continue
+
+        # Clean Notion UUID from filename for display
+        # Notion exports: "Page Title abc123def456.md"
+        clean_name = Path(name).stem
+        clean_name = re.sub(r"\s+[0-9a-f]{32}$", "", clean_name)
+
+        # Add a heading if the file doesn't start with one
+        if not content.startswith("#"):
+            content = f"# {clean_name}\n\n{content}"
+
+        # Clean up Notion-specific link syntax: [text](Page%20Name%20uuid.md) → [text]
+        content = re.sub(r"\[([^\]]+)\]\([^)]*\.md\)", r"[\1]", content)
+
+        pages.append(PageContent(page_num=page_num, markdown=content, has_code_blocks="```" in content))
+        md_parts.append(content)
+
+    if not pages:
+        return ParsedDocument(
+            title=file_path.stem, source_path=str(file_path),
+            source_format="notion", pages=[],
+        )
+
+    full_md = "\n\n".join(md_parts)
+    toc = _extract_toc_from_markdown(full_md)
+    title = _detect_title(full_md, file_path)
+
+    return ParsedDocument(
+        title=title,
+        source_path=str(file_path),
+        source_format="notion",
+        total_pages=len(pages),
+        toc=toc,
+        pages=pages,
+    )
+
+
+def _parse_confluence_zip(file_path: Path, zf) -> ParsedDocument:
+    """Parse a Confluence HTML export ZIP."""
+    from markdownify import markdownify
+
+    pages: list[PageContent] = []
+    md_parts: list[str] = []
+
+    # Find all HTML files (excluding assets)
+    html_files = sorted([
+        n for n in zf.namelist()
+        if n.endswith(".html")
+        and not n.startswith("__MACOSX")
+        and "styles/" not in n
+        and "images/" not in n
+        and "attachments/" not in n
+    ])
+
+    for page_num, name in enumerate(html_files, 1):
+        html = zf.read(name).decode("utf-8", errors="replace")
+        if not html.strip():
+            continue
+
+        # Strip scripts and styles
+        html = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
+        html = re.sub(r"<style[^>]*>.*?</style>", "", html, flags=re.DOTALL | re.IGNORECASE)
+
+        # Convert to markdown
+        md = markdownify(html, heading_style="ATX").strip()
+        if not md:
+            continue
+
+        pages.append(PageContent(page_num=page_num, markdown=md, has_code_blocks="```" in md))
+        md_parts.append(md)
+
+    if not pages:
+        return ParsedDocument(
+            title=file_path.stem, source_path=str(file_path),
+            source_format="confluence", pages=[],
+        )
+
+    full_md = "\n\n".join(md_parts)
+    toc = _extract_toc_from_markdown(full_md)
+    title = _detect_title(full_md, file_path)
+
+    return ParsedDocument(
+        title=title,
+        source_path=str(file_path),
+        source_format="confluence",
+        total_pages=len(pages),
+        toc=toc,
+        pages=pages,
+    )
+
+
+def _parse_generic_zip(file_path: Path, zf) -> ParsedDocument:
+    """Parse a generic ZIP by extracting and concatenating supported text files."""
+    pages: list[PageContent] = []
+    md_parts: list[str] = []
+
+    text_exts = {".md", ".txt", ".html", ".htm", ".rst", ".adoc", ".csv", ".json", ".xml"}
+
+    for name in sorted(zf.namelist()):
+        ext = Path(name).suffix.lower()
+        if ext not in text_exts or name.startswith("__MACOSX"):
+            continue
+        try:
+            content = zf.read(name).decode("utf-8", errors="replace").strip()
+        except Exception:
+            continue
+        if not content:
+            continue
+
+        if ext in (".html", ".htm"):
+            try:
+                from markdownify import markdownify
+                content = markdownify(content, heading_style="ATX").strip()
+            except Exception:
+                pass
+
+        page_num = len(pages) + 1
+        pages.append(PageContent(page_num=page_num, markdown=content))
+        md_parts.append(content)
+
+    if not pages:
+        return ParsedDocument(
+            title=file_path.stem, source_path=str(file_path),
+            source_format="zip", pages=[],
+        )
+
+    full_md = "\n\n".join(md_parts)
+    toc = _extract_toc_from_markdown(full_md)
+    title = _detect_title(full_md, file_path)
+
+    return ParsedDocument(
+        title=title,
+        source_path=str(file_path),
+        source_format="zip",
         total_pages=len(pages),
         toc=toc,
         pages=pages,

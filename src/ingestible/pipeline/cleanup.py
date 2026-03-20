@@ -51,8 +51,21 @@ def cleanup_stale(settings: Settings, max_age_hours: int = 24) -> dict[str, int]
                 try:
                     mtime = lock_file.stat().st_mtime
                     if now - mtime > max_age_seconds:
-                        lock_file.unlink(missing_ok=True)
-                        logger.info("Cleaned stale lock: %s", lock_file)
+                        # Only delete if no process currently holds the lock
+                        import portalocker
+                        try:
+                            lock = portalocker.Lock(
+                                str(lock_file), mode="w",
+                                timeout=0, flags=portalocker.LOCK_EX | portalocker.LOCK_NB,
+                            )
+                            lock.acquire()
+                            lock.release()
+                            # Lock was free — safe to delete
+                            lock_file.unlink(missing_ok=True)
+                            logger.info("Cleaned stale lock: %s", lock_file)
+                        except portalocker.LockException:
+                            # Lock is held by another process — skip
+                            pass
                 except OSError:
                     continue
 

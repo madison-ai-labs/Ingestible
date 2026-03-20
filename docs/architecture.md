@@ -27,6 +27,11 @@ Converts a document into structured markdown text. Supports multiple formats:
 | Plain text | Native | |
 | Audio (MP3, WAV, FLAC, OGG, ...) | faster-whisper ASR | Timestamped transcription, 2-min page windows |
 | Video (MP4, MKV, AVI, MOV, ...) | ffmpeg + faster-whisper | Audio extraction → ASR + keyframe extraction |
+| Images (PNG, JPG, TIFF, BMP, WebP) | Docling VLM | OCR + layout analysis |
+| Email (EML, MSG) | Native | Headers, body, inline attachments |
+| XML | Native | Structured-to-markdown conversion |
+| JSON / JSONL | Native | Object/array rendering |
+| ZIP | Native | Auto-detects Notion, Confluence, or generic archive |
 
 For PDFs, Docling provides deep layout analysis, table detection via TableFormer, heading recognition, and figure extraction. PyMuPDF4LLM is the fallback — faster, simpler markdown extraction with per-page output. If average chars/page < 100 after first pass, parsing retries with OCR enabled.
 
@@ -220,7 +225,9 @@ data/documents/{doc_id}/
 
 ```
 src/ingestible/
-  cli.py                 # CLI: ingest, list, search, corpus-search, enrich, export, versions, config, serve
+  cli.py                 # CLI: ingest, list, search, corpus-search, enrich, export, versions, config, serve, eval, mcp
+  eval.py                # Retrieval evaluation framework
+  mcp_server.py          # MCP server for AI agents
   config.py              # pydantic-settings, INGEST_ env prefix
   profiles.py            # Extraction profiles (paper, article, documentation, general)
   web.py                 # Web UI (FastAPI + Jinja2 + htmx)
@@ -249,6 +256,8 @@ src/ingestible/
     fetch.py             # URL download
     metadata.py          # Document metadata extraction
     progress.py          # Progress callbacks
+    cloud.py               # Cloud storage connectors (S3, GCS, Azure)
+    stage1c_classify.py    # Content-tier classification (T0-T3)
     re_enrich.py         # Re-enrichment without re-parsing
     watcher.py           # Directory file watcher (watchdog)
     task_queue.py        # Background ingestion job queue

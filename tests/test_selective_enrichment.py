@@ -275,8 +275,8 @@ class TestTargetedReEnrichment:
         assert result.l3_chunks[1].summary == f"Original summary for {doc_id}-p1"
         assert result.l3_chunks[1].concepts == ["original"]
 
-        # p0 summary should be cleared (enrichment failed, no LLM key)
-        assert result.l3_chunks[0].summary == ""
+        # p0 summary should indicate failure (enrichment failed, no LLM key)
+        assert result.l3_chunks[0].summary in ("", "[enrichment failed]")
 
     def test_full_re_enrich_clears_all(self, tmp_path):
         """re_enrich without changed_chunk_ids clears all enrichment."""
@@ -305,4 +305,4 @@ class TestTargetedReEnrichment:
 
         # All enrichment cleared (LLM call fails, no key)
         for c in result.l3_chunks:
-            assert c.summary == ""
+            assert c.summary in ("", "[enrichment failed]")

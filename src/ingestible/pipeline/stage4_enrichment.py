@@ -91,7 +91,12 @@ class AnthropicClient:
             }],
             tool_choice={"type": "tool", "name": "output"},
         )
-        tool_block = next(b for b in response.content if b.type == "tool_use")
+        tool_block = next((b for b in response.content if b.type == "tool_use"), None)
+        if tool_block is None:
+            raise ValueError(
+                f"Anthropic response contained no tool_use block. "
+                f"Content types: {[b.type for b in response.content]}"
+            )
         return output_type.model_validate(tool_block.input)
 
 
@@ -197,6 +202,7 @@ async def enrich_chunks(
             idx, chunk = l3_to_enrich[j]
             if isinstance(result, Exception):
                 logger.warning("L3 enrichment failed for %s: %s", chunk.chunk_id, result)
+                chunk.summary = "[enrichment failed]"
                 continue
             chunk.summary = result.summary
             chunk.concepts = result.concepts
@@ -221,6 +227,7 @@ async def enrich_chunks(
         for i, result in enumerate(enriched_l2):
             if isinstance(result, Exception):
                 logger.warning("L2 enrichment failed for %s: %s", chunks.l2_chunks[i].chunk_id, result)
+                chunks.l2_chunks[i].section_summary = "[enrichment failed]"
                 continue
             chunk = chunks.l2_chunks[i]
             chunk.section_summary = result.section_summary
@@ -235,6 +242,7 @@ async def enrich_chunks(
         for i, result in enumerate(enriched_l1):
             if isinstance(result, Exception):
                 logger.warning("L1 enrichment failed for %s: %s", chunks.l1_chunks[i].chunk_id, result)
+                chunks.l1_chunks[i].chapter_summary = "[enrichment failed]"
                 continue
             chunk = chunks.l1_chunks[i]
             chunk.chapter_summary = result.chapter_summary

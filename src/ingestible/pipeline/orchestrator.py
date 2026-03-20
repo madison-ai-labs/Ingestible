@@ -173,14 +173,22 @@ def ingest(
 ) -> Path:
     """Run the full ingestion pipeline on a document. Returns the document directory.
 
-    ``file_path`` may be a local path **or** an HTTP(S) URL.
+    ``file_path`` may be a local path, an HTTP(S) URL, or a cloud URL (s3://, gs://, az://).
     """
-    # --- URL fetch ---
+    # --- Cloud / URL fetch ---
     _fetched_tmp: Path | None = None
-    if is_url(str(file_path)):
+    str_path = str(file_path)
+
+    from ingestible.pipeline.cloud import is_cloud_url
+    if is_cloud_url(str_path):
+        from ingestible.pipeline.cloud import fetch_cloud
+
+        _fetched_tmp = fetch_cloud(str_path, max_bytes=settings.max_upload_bytes)
+        file_path = _fetched_tmp
+    elif is_url(str_path):
         from ingestible.pipeline.fetch import fetch_url
 
-        _fetched_tmp = fetch_url(str(file_path), max_bytes=settings.max_upload_bytes)
+        _fetched_tmp = fetch_url(str_path, max_bytes=settings.max_upload_bytes)
         file_path = _fetched_tmp
 
     file_path = Path(file_path).resolve()
@@ -421,10 +429,6 @@ def ingest(
             if use_checkpoint:
                 clear_checkpoints(doc_dir)
 
-        # Clean up fetched temp file
-        if _fetched_tmp is not None:
-            _fetched_tmp.unlink(missing_ok=True)
-
         INGEST_TOTAL.labels(status="success").inc()
         logger.info("=== Done. Document stored at %s ===", doc_dir)
         return doc_dir
@@ -433,3 +437,6 @@ def ingest(
         raise
     finally:
         ACTIVE_INGESTIONS.dec()
+        # Clean up fetched temp file on both success and failure
+        if _fetched_tmp is not None:
+            _fetched_tmp.unlink(missing_ok=True)

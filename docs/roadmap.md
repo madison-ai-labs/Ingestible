@@ -169,6 +169,67 @@
 
 ---
 
+## Phase 12: Format Expansion & MCP Server (v0.17)
+
+| WP | Feature | Status |
+|----|---------|--------|
+| 12.1 | Image Parsing (PNG/JPEG/TIFF) | **done** |
+| 12.2 | Email Parsing (EML/MSG) | **done** |
+| 12.3 | XML/JSON/JSONL Parsing | **done** |
+| 12.4 | MCP Server | **done** |
+
+- **12.1** — Images routed through Docling's VLM pipeline for OCR + layout analysis. Supports PNG, JPEG, TIFF, BMP, WebP.
+- **12.2** — EML via stdlib `email` module (headers, body, attachments). MSG via optional `extract-msg` library.
+- **12.3** — XML converted to heading/key-value markdown. JSON/JSONL rendered as structured markdown with nested objects and arrays.
+- **12.4** — MCP server exposing 7 tools: `ingest_document`, `search`, `list_documents`, `get_document_overview`, `get_chunk`, `get_knowledge_graph`, `delete_document`. Run via `ingest mcp` or `python -m ingestible.mcp_server`. Requires `pip install ingestible[mcp]`.
+
+---
+
+## Phase 13: Docling Chunker & Archive Parsing (v0.17)
+
+| WP | Feature | Status |
+|----|---------|--------|
+| 13.1 | Docling Chunking Strategy | **done** |
+| 13.2 | Notion Export Parsing | **done** |
+| 13.3 | Confluence Export Parsing | **done** |
+| 13.4 | Generic ZIP Parsing | **done** |
+
+- **13.1** — `INGEST_CHUNKING_STRATEGY=docling`: strict heading-based chunk boundaries, atomic code/table blocks, no overlap (hierarchy provides context). Fourth chunking strategy alongside paragraph, semantic, and recursive.
+- **13.2** — Notion Markdown ZIP exports: UUID cleanup from filenames, inter-page link normalization, auto-heading insertion.
+- **13.3** — Confluence HTML ZIP exports: auto-detected via `index.html`, HTML-to-markdown conversion, asset directory filtering.
+- **13.4** — Generic ZIP fallback: extracts and concatenates supported text files (md, txt, html, rst, csv, json, xml).
+
+---
+
+## Phase 14: Retrieval Evaluation (v0.17)
+
+| WP | Feature | Status |
+|----|---------|--------|
+| 14.1 | Eval Framework | **done** |
+| 14.2 | Synthetic Query Generation | **done** |
+| 14.3 | Strategy Comparison | **done** |
+
+- **14.1** — `ingest eval <doc_id>` measures Hit Rate@K, MRR, Precision@K, Recall@K. Supports manual Q&A pairs from JSONL files. API: `POST /documents/{doc_id}/eval`.
+- **14.2** — Auto-generates eval queries from enrichment hypothetical questions. Each question should retrieve the chunk it came from (self-consistency check).
+- **14.3** — `ingest eval <doc_id> --compare` runs hybrid vs vector-only vs BM25-only side by side.
+
+---
+
+## Phase 15: Cloud Storage Connectors (v0.17)
+
+| WP | Feature | Status |
+|----|---------|--------|
+| 15.1 | S3 Connector | **done** |
+| 15.2 | GCS Connector | **done** |
+| 15.3 | Azure Blob Connector | **done** |
+
+- **15.1** — `ingest ingest s3://bucket/key` downloads from AWS S3 via boto3. Size check before download.
+- **15.2** — `ingest ingest gs://bucket/key` downloads from Google Cloud Storage via google-cloud-storage.
+- **15.3** — `ingest ingest az://container/blob` downloads from Azure Blob Storage via azure-storage-blob. Requires `AZURE_STORAGE_CONNECTION_STRING`.
+- All require `pip install ingestible[cloud]`.
+
+---
+
 ## Dependency Graph
 
 ```
@@ -226,4 +287,18 @@ Phase 11 (after 8.1 + 9.1):
   WP 11.2 Temp cleanup ─────── standalone
   WP 11.3 Searcher cache ───── standalone
   WP 11.4 Batch concurrency ── standalone
+           │
+Phase 12 (after 11):
+  WP 12.1-12.3 Formats ────── standalone
+  WP 12.4 MCP server ─────── standalone
+           │
+Phase 13 (after 12):
+  WP 13.1 Docling chunker ── standalone
+  WP 13.2-13.4 Archives ──── standalone
+           │
+Phase 14 (after core pipeline):
+  WP 14.1-14.3 Eval ────────── needs enrichment (Stage 4)
+           │
+Phase 15 (standalone):
+  WP 15.1-15.3 Cloud ───────── standalone
 ```

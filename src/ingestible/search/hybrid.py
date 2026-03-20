@@ -14,6 +14,7 @@ from ingestible.models.search import SearchResponse, SearchResult
 from ingestible.pipeline.stage5_embedding import Embedder
 from ingestible.search.bm25_store import BM25Store
 from ingestible.search.concept_index import ConceptIndex
+from ingestible.pipeline.stage5_embedding import _resolve_device
 from ingestible.search.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,7 @@ class HybridSearcher:
             try:
                 from sentence_transformers import CrossEncoder
 
-                self._reranker = CrossEncoder(settings.reranker_model, device="mps")
+                self._reranker = CrossEncoder(settings.reranker_model, device=_resolve_device(settings.embedding_device))
                 logger.info("Loaded reranker: %s", settings.reranker_model)
             except Exception as e:
                 logger.warning("Failed to load reranker: %s", e)

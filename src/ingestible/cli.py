@@ -133,6 +133,17 @@ def main(argv: list[str] | None = None) -> None:
         "--cv-vault-id", default=None, help="Target vault ID (or set CV_VAULT_ID env var)"
     )
 
+    # --- mcp ---
+    sub.add_parser("mcp", help="Start MCP server for AI agent integration")
+
+    # --- eval ---
+    eval_parser = sub.add_parser("eval", help="Evaluate retrieval quality")
+    eval_parser.add_argument("doc_id", help="Document ID to evaluate")
+    eval_parser.add_argument("--queries", help="Path to JSONL file with Q&A pairs (optional)")
+    eval_parser.add_argument("-k", type=int, default=5, help="Number of results per query (default: 5)")
+    eval_parser.add_argument("--compare", action="store_true", help="Compare hybrid vs vector-only vs BM25-only")
+    eval_parser.add_argument("--output", "-o", help="Save detailed results to JSON file")
+
     # --- cleanup ---
     cleanup_parser = sub.add_parser("cleanup", help="Clean stale checkpoints and temp files")
     cleanup_parser.add_argument("--max-age", type=int, default=24, help="Max age in hours (default: 24)")
@@ -192,12 +203,58 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_config()
     elif args.command == "watch":
         _cmd_watch(args)
+    elif args.command == "eval":
+        from ingestible.eval import evaluate_document, load_eval_queries, compare_strategies
+
+        from pathlib import Path
+        from ingestible.config import get_settings
+
+        settings = get_settings()
+
+        queries = None
+        if args.queries:
+            queries = load_eval_queries(Path(args.queries))
+            print(f"Loaded {len(queries)} eval queries from {args.queries}")
+
+        if args.compare:
+            reports = compare_strategies(args.doc_id, settings, queries, k=args.k)
+            for name, report in reports.items():
+                print(f"\n--- {name} ---")
+                print(report.summary())
+        else:
+            report = evaluate_document(args.doc_id, settings, queries, k=args.k)
+            print(report.summary())
+
+            if args.output:
+                import json
+                output = report.to_dict()
+                output["results"] = [
+                    {
+                        "query": r.query,
+                        "hit": r.hit,
+                        "reciprocal_rank": round(r.reciprocal_rank, 4),
+                        "precision": round(r.precision_at_k, 4),
+                        "recall": round(r.recall_at_k, 4),
+                        "retrieved": r.retrieved_chunk_ids,
+                        "expected": r.expected_chunk_ids,
+                    }
+                    for r in report.results
+                ]
+                Path(args.output).write_text(json.dumps(output, indent=2))
+                print(f"\nDetailed results saved to {args.output}")
     elif args.command == "cleanup":
         from ingestible.config import get_settings
         from ingestible.pipeline.cleanup import cleanup_stale
         settings = get_settings()
         counts = cleanup_stale(settings, max_age_hours=args.max_age)
         print(f"Cleaned: {counts['checkpoints']} checkpoints, {counts['temp_files']} temp files")
+    elif args.command == "mcp":
+        try:
+            from ingestible.mcp_server import mcp
+            mcp.run()
+        except ImportError:
+            print("MCP server requires the mcp extra. Install with: pip install ingestible[mcp]")
+            sys.exit(1)
     elif args.command == "export-cv":
         _cmd_export_cv(args)
 

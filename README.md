@@ -2,7 +2,7 @@
   <h1>Ingestible</h1>
   <p>
     Parse, chunk, enrich, and embed documents for AI retrieval.<br>
-    PDF, DOCX, HTML, EPUB, PowerPoint, Excel, CSV, Markdown, RST, AsciiDoc, plain text, audio, and video.
+    PDF, DOCX, HTML, EPUB, PowerPoint, Excel, CSV, Markdown, RST, AsciiDoc, plain text, audio, video, images, email, XML, JSON, and ZIP archives.
   </p>
 </div>
 
@@ -61,7 +61,7 @@ Passages found by multiple indexes rank higher. No score normalization needed.
 
 ## Features
 
-- **13+ input formats** — PDF, DOCX, HTML, EPUB, PPTX, XLSX, CSV, Markdown, RST, AsciiDoc, plain text, audio (MP3/WAV/FLAC/OGG/...), video (MP4/MKV/AVI/MOV/...)
+- **25+ input formats** — PDF, DOCX, HTML, EPUB, PPTX, XLSX, CSV, Markdown, RST, AsciiDoc, plain text, audio, video, images (PNG/JPG/TIFF/BMP/WebP), email (EML/MSG), XML, JSON/JSONL, ZIP (Notion, Confluence, generic)
 - **4-level chunk hierarchy** — L0 overview → L1 chapters → L2 sections → L3 passages, no mid-paragraph splits
 - **LLM enrichment** — summaries, concepts, hypothetical questions, entities, cross-references (one-time cost, skippable)
 - **Hybrid search** — vector + BM25 + concept index, fused with RRF. Optional cross-encoder reranking.
@@ -74,6 +74,9 @@ Passages found by multiple indexes rank higher. No score normalization needed.
 - **CLI + REST API + Web UI** — ingest and search from anywhere
 - **Docker-ready** — one-command deployment with persistent storage
 - **Production-grade** — rate limiting, structured logging, Prometheus metrics, background ingestion, file locking, graceful shutdown
+- **MCP server** — AI agents (Claude, GPT) can ingest and search directly via Model Context Protocol
+- **Retrieval evaluation** — measure Hit Rate, MRR, Precision@K with synthetic or manual queries
+- **Cloud storage** — ingest from S3, GCS, Azure Blob (`s3://`, `gs://`, `az://`)
 - **Zero cloud dependencies** — embeddings run locally (CPU/Apple Silicon MPS). LLM enrichment is optional.
 
 ## Quickstart
@@ -149,6 +152,11 @@ ingest ingest /path/to/document.pdf -v
 | Plain text | `.txt` | |
 | Audio | `.mp3`, `.wav`, `.m4a`, `.flac`, `.ogg`, `.aac`, `.opus` | ASR via faster-whisper, timestamped |
 | Video | `.mp4`, `.mkv`, `.avi`, `.mov`, `.webm`, `.wmv`, `.flv` | Audio extraction + ASR + keyframes |
+| Images | `.png`, `.jpg`, `.jpeg`, `.tiff`, `.bmp`, `.webp` | OCR + layout via Docling VLM |
+| Email | `.eml`, `.msg` | Headers, body, attachments |
+| XML | `.xml` | Structured to markdown |
+| JSON | `.json`, `.jsonl` | Object/array rendering |
+| ZIP | `.zip` | Auto-detects Notion, Confluence, or generic |
 
 ## Extraction Profiles
 
@@ -178,6 +186,8 @@ ingest serve                   # Start web UI + API server
 ingest watch <dir>             # Watch directory for changes, auto-ingest
 ingest cleanup                 # Remove stale checkpoints and temp files
 ingest export-cv [doc_id]      # Export to CognitiveVault
+ingest eval <doc_id>           # Evaluate retrieval quality
+ingest mcp                     # Start MCP server for AI agents
 ```
 
 <details>
@@ -238,6 +248,11 @@ INGEST_MAX_UPLOAD_BYTES=500000000     # 500 MB upload cap
 INGEST_LLM_TIMEOUT=120               # per-call timeout (seconds)
 INGEST_EMBEDDING_DEVICE=auto          # auto | cuda | mps | cpu
 INGEST_LOG_JSON=true                  # structured JSON logging
+```
+
+```bash
+# Cloud storage (optional: pip install ingestible[cloud])
+# Supports s3://, gs://, az:// URLs in ingest commands
 ```
 
 See the [Usage Guide](docs/usage.md) for full configuration options.

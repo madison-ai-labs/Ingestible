@@ -30,7 +30,7 @@ class TestFileFilter:
 
     def test_unsupported_extensions_rejected(self, tmp_path):
         watcher = _make_watcher(tmp_path)
-        for ext in [".jpg", ".png", ".zip", ".py", ".js", ".json"]:
+        for ext in [".py", ".js", ".parquet", ".tar", ".gz", ".exe"]:
             p = tmp_path / f"test{ext}"
             assert not watcher._is_supported(p), f"{ext} should NOT be supported"
 
