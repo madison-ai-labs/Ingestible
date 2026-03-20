@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ingestible"
-version = "0.10.0"
+version = "0.16.0"
 description = "Document ingestion pipeline — transforms documents into a queryable knowledge store"
 license = "Apache-2.0"
 readme = "README.md"
@@ -44,6 +44,11 @@ dependencies = [
     "openpyxl>=3.1",
     "python-pptx>=0.6",
     "docutils>=0.20",
+    "slowapi>=0.1",
+    "portalocker>=2.0",
+    "structlog>=24.0",
+    "prometheus-fastapi-instrumentator>=7.0",
+    "gunicorn>=22.0",
 ]
 
 [project.optional-dependencies]
@@ -54,6 +59,9 @@ dev = [
 ]
 export = [
     "pyarrow>=14.0",
+]
+audio = [
+    "faster-whisper>=1.0",
 ]
 watch = [
     "watchdog>=4.0",

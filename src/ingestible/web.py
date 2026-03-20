@@ -46,6 +46,16 @@ def _get_embedder():
     return _embedder
 
 
+def _check_upload_size(content: bytes, settings) -> None:
+    """Raise 413 if *content* exceeds the configured upload limit."""
+    if len(content) > settings.max_upload_bytes:
+        max_mb = settings.max_upload_bytes / 1_000_000
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum size: {max_mb:.0f}MB",
+        )
+
+
 def _l0_overview_text(l0) -> str:
     """Compose readable overview text from L0's structured fields."""
     parts = [l0.title]
@@ -239,8 +249,9 @@ async def upload_submit(
     settings = _get_settings()
 
     suffix = Path(file.filename or "upload.pdf").suffix
+    content = await file.read()
+    _check_upload_size(content, settings)
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        content = await file.read()
         tmp.write(content)
         tmp_path = tmp.name
 

@@ -7,8 +7,8 @@ Discovers all document directories, loads per-document HybridSearcher instances
 from __future__ import annotations
 
 import logging
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from functools import lru_cache
 from pathlib import Path
 
 from ingestible.config import Settings
@@ -23,13 +23,38 @@ logger = logging.getLogger(__name__)
 RRF_K = 60
 
 
+class _LRUCache:
+    """Simple LRU cache with a maximum size."""
+
+    def __init__(self, maxsize: int = 50):
+        self._maxsize = maxsize
+        self._cache: OrderedDict = OrderedDict()
+
+    def get(self, key: str):
+        if key in self._cache:
+            self._cache.move_to_end(key)
+            return self._cache[key]
+        return None
+
+    def put(self, key: str, value):
+        if key in self._cache:
+            self._cache.move_to_end(key)
+        else:
+            if len(self._cache) >= self._maxsize:
+                self._cache.popitem(last=False)
+        self._cache[key] = value
+
+    def __len__(self):
+        return len(self._cache)
+
+
 class CorpusSearcher:
     """Search across all ingested documents."""
 
     def __init__(self, settings: Settings, embedder: Embedder | None = None):
         self._settings = settings
         self._embedder = embedder
-        self._searcher_cache: dict[str, HybridSearcher] = {}
+        self._searcher_cache = _LRUCache(maxsize=settings.searcher_cache_size)
 
     @property
     def embedder(self) -> Embedder:
@@ -54,12 +79,13 @@ class CorpusSearcher:
     def _get_searcher(self, doc_dir: Path) -> HybridSearcher:
         """Get or create a cached HybridSearcher for a document."""
         doc_id = doc_dir.name
-        if doc_id not in self._searcher_cache:
-            chunks = load_chunks(doc_dir)
-            self._searcher_cache[doc_id] = load_searcher(
-                doc_dir, chunks, self.embedder, self._settings
-            )
-        return self._searcher_cache[doc_id]
+        cached = self._searcher_cache.get(doc_id)
+        if cached is not None:
+            return cached
+        chunks = load_chunks(doc_dir)
+        searcher = load_searcher(doc_dir, chunks, self.embedder, self._settings)
+        self._searcher_cache.put(doc_id, searcher)
+        return searcher
 
     def search(
         self,

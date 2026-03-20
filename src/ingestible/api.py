@@ -5,6 +5,7 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import re
 import shutil
 import tempfile
 import uuid
@@ -13,15 +14,23 @@ from typing import Annotated
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
+
+import structlog
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from ingestible.config import get_settings
+from ingestible.logging import setup_logging
 from ingestible.models.chunks import ChunkSet, L0Chunk
 from ingestible.models.document import DocumentStructure
 from ingestible.models.search import SearchResponse, SearchResult
+from ingestible.pipeline.locking import document_lock
 from ingestible.pipeline.orchestrator import ingest
 from ingestible.pipeline.stage5_embedding import Embedder
 from ingestible.pipeline.stage6_storage import (
@@ -30,20 +39,41 @@ from ingestible.pipeline.stage6_storage import (
     load_document_meta,
     load_structure,
 )
+from ingestible.pipeline.task_queue import JobStatus, get_task_queue
 from ingestible.search.hybrid import load_searcher
+
+# ---------------------------------------------------------------------------
+# Rate limiting
+# ---------------------------------------------------------------------------
+
+limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(
     title="Ingestible API",
     description="PDF ingestion pipeline with hierarchical retrieval",
-    version="0.1.0",
+    version="0.16.0",
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+# ---------------------------------------------------------------------------
+# Boot-time settings (read once for middleware configuration)
+# ---------------------------------------------------------------------------
+
+_boot_settings = get_settings()
+
+_RATE_INGEST = _boot_settings.rate_limit_ingest
+_RATE_SEARCH = _boot_settings.rate_limit_search
+_RATE_DEFAULT = _boot_settings.rate_limit_default
 
 
 # ---------------------------------------------------------------------------
 # Authentication Middleware
 # ---------------------------------------------------------------------------
 
-SKIP_AUTH_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
+SKIP_AUTH_PATHS = {"/health", "/health/ready", "/docs", "/openapi.json", "/redoc", "/metrics"}
 
 
 def get_api_keys() -> list[str]:
@@ -93,11 +123,52 @@ class AuthMiddleware(BaseHTTPMiddleware):
 app.add_middleware(AuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_boot_settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        request_id = request.headers.get("X-Request-ID", uuid.uuid4().hex[:12])
+        structlog.contextvars.clear_contextvars()
+        structlog.contextvars.bind_contextvars(request_id=request_id)
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+
+
+app.add_middleware(RequestIDMiddleware)
+
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+
+
+@app.on_event("startup")
+async def _startup():
+    settings = get_cached_settings()
+    setup_logging(json_output=settings.log_json, level=settings.log_level)
+
+    # Clean up stale checkpoints and temp files from previous runs
+    from ingestible.pipeline.cleanup import cleanup_stale
+    counts = cleanup_stale(settings)
+    if any(counts.values()):
+        import logging
+        logging.getLogger(__name__).info("Startup cleanup: %s", counts)
+
+
+@app.on_event("shutdown")
+async def _shutdown():
+    """Drain background ingestion jobs on shutdown."""
+    import logging
+    logger = logging.getLogger(__name__)
+    queue = get_task_queue()
+    active = queue.active_count()
+    if active > 0:
+        logger.info("Shutting down — waiting for %d active ingestion(s)...", active)
+    queue.shutdown(wait=True)
+    logger.info("Shutdown complete.")
 
 # Lazy-loaded singletons
 _settings = None
@@ -116,6 +187,29 @@ def get_cached_embedder():
     if _embedder is None:
         _embedder = Embedder(get_cached_settings())
     return _embedder
+
+
+_DOC_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_\-]*$")
+
+
+def _validate_doc_id(doc_id: str) -> str:
+    """Sanitise and validate a document ID to prevent path traversal."""
+    doc_id = doc_id.strip()
+    if any(c in doc_id for c in ("/", "\\", "\x00")) or ".." in doc_id:
+        raise HTTPException(status_code=400, detail=f"Invalid document ID: {doc_id}")
+    if not _DOC_ID_RE.match(doc_id):
+        raise HTTPException(status_code=400, detail=f"Invalid document ID: {doc_id}")
+    return doc_id
+
+
+def _check_upload_size(content: bytes, settings) -> None:
+    """Raise 413 if *content* exceeds the configured upload limit."""
+    if len(content) > settings.max_upload_bytes:
+        max_mb = settings.max_upload_bytes / 1_000_000
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum size: {max_mb:.0f}MB",
+        )
 
 
 def _l0_overview_text(l0: L0Chunk) -> str:
@@ -205,15 +299,88 @@ class HealthResponse(BaseModel):
 
 
 @app.get("/health", response_model=HealthResponse)
-async def health():
+@limiter.limit(_RATE_DEFAULT)
+async def health(request: Request):
     """Health check with document count."""
     settings = get_cached_settings()
     docs = list_documents(settings)
     return HealthResponse(status="ok", documents_count=len(docs))
 
 
+class ReadinessCheck(BaseModel):
+    status: str
+    checks: dict[str, dict]
+
+
+@app.get("/health/ready", response_model=ReadinessCheck)
+@limiter.limit(_RATE_DEFAULT)
+async def health_ready(request: Request):
+    """Deep readiness check — verifies all dependencies are available."""
+    settings = get_cached_settings()
+    checks: dict[str, dict] = {}
+    all_ok = True
+
+    # 1. Data directory writable
+    try:
+        test_file = settings.data_dir / ".health_check"
+        settings.data_dir.mkdir(parents=True, exist_ok=True)
+        test_file.write_text("ok")
+        test_file.unlink()
+        checks["data_dir"] = {"status": "ok", "path": str(settings.data_dir)}
+    except Exception as e:
+        checks["data_dir"] = {"status": "error", "error": str(e)}
+        all_ok = False
+
+    # 2. Disk space
+    try:
+        usage = shutil.disk_usage(settings.data_dir)
+        free_mb = usage.free / (1024 * 1024)
+        if free_mb < settings.min_disk_space_mb:
+            checks["disk_space"] = {
+                "status": "warning",
+                "free_mb": round(free_mb),
+                "min_mb": settings.min_disk_space_mb,
+            }
+            all_ok = False
+        else:
+            checks["disk_space"] = {"status": "ok", "free_mb": round(free_mb)}
+    except Exception as e:
+        checks["disk_space"] = {"status": "error", "error": str(e)}
+        all_ok = False
+
+    # 3. Embedding model
+    try:
+        embedder = get_cached_embedder()
+        # Quick sanity check — embed a single short text
+        embedder.model.encode(["health check"], show_progress_bar=False)
+        checks["embedding_model"] = {"status": "ok", "model": settings.embedding_model}
+    except Exception as e:
+        checks["embedding_model"] = {"status": "error", "error": str(e)}
+        all_ok = False
+
+    # 4. LLM API configured
+    try:
+        from ingestible.pipeline.stage4_enrichment import _make_client
+        _make_client(settings)  # validates keys exist and client instantiates
+        checks["llm_api"] = {"status": "ok", "provider": settings.llm_provider}
+    except Exception as e:
+        checks["llm_api"] = {"status": "error", "error": str(e)}
+        all_ok = False
+
+    # 5. Document count
+    docs = list_documents(settings)
+    checks["documents"] = {"status": "ok", "count": len(docs)}
+
+    return ReadinessCheck(
+        status="ready" if all_ok else "degraded",
+        checks=checks,
+    )
+
+
 @app.post("/ingest", response_model=IngestResponse)
+@limiter.limit(_RATE_INGEST)
 async def ingest_document(
+    request: Request,
     file: UploadFile = File(...),
     skip_enrichment: bool = Form(False),
     profile: str = Form("auto"),
@@ -221,20 +388,22 @@ async def ingest_document(
     """
     Ingest a PDF into the knowledge store.
 
-    Runs the 6-stage pipeline: parse → structure → chunk → enrich → embed → store.
+    Runs the 6-stage pipeline: parse -> structure -> chunk -> enrich -> embed -> store.
     """
     settings = get_cached_settings()
 
     # Save uploaded file to temp location
     suffix = Path(file.filename or "upload.pdf").suffix
+    content = await file.read()
+    _check_upload_size(content, settings)
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        content = await file.read()
         tmp.write(content)
         tmp_path = tmp.name
 
     try:
         if profile != "auto":
             from ingestible.config import get_settings as _gs
+
             settings = _gs(extraction_profile=profile)
 
         doc_dir = ingest(
@@ -248,6 +417,7 @@ async def ingest_document(
         chunks = load_chunks(doc_dir)
 
         from ingestible.utils.tokens import count_tokens
+
         l0_tokens = count_tokens(_l0_overview_text(chunks.l0))
 
         return IngestResponse(
@@ -269,7 +439,8 @@ class URLIngestRequest(BaseModel):
 
 
 @app.post("/ingest/url", response_model=IngestResponse)
-async def ingest_url(request: URLIngestRequest):
+@limiter.limit(_RATE_INGEST)
+async def ingest_url(body: URLIngestRequest, request: Request):
     """
     Ingest a document from a URL.
 
@@ -277,14 +448,15 @@ async def ingest_url(request: URLIngestRequest):
     """
     settings = get_cached_settings()
 
-    if request.profile != "auto":
+    if body.profile != "auto":
         from ingestible.config import get_settings as _gs
-        settings = _gs(extraction_profile=request.profile)
+
+        settings = _gs(extraction_profile=body.profile)
 
     doc_dir = ingest(
-        request.url,
+        body.url,
         settings,
-        skip_enrichment=request.skip_enrichment,
+        skip_enrichment=body.skip_enrichment,
         verbose=False,
     )
 
@@ -292,6 +464,7 @@ async def ingest_url(request: URLIngestRequest):
     chunks = load_chunks(doc_dir)
 
     from ingestible.utils.tokens import count_tokens
+
     l0_tokens = count_tokens(_l0_overview_text(chunks.l0))
 
     return IngestResponse(
@@ -300,7 +473,7 @@ async def ingest_url(request: URLIngestRequest):
         total_pages=meta.get("total_pages", 0),
         total_chunks=len(chunks.l3_chunks),
         l0_tokens=l0_tokens,
-        enriched=not request.skip_enrichment,
+        enriched=not body.skip_enrichment,
     )
 
 
@@ -320,7 +493,9 @@ class BatchIngestResponse(BaseModel):
 
 
 @app.post("/ingest/batch", response_model=BatchIngestResponse)
+@limiter.limit(_RATE_INGEST)
 async def ingest_batch_endpoint(
+    request: Request,
     files: list[UploadFile] = File(...),
     skip_enrichment: bool = Form(False),
 ):
@@ -328,7 +503,7 @@ async def ingest_batch_endpoint(
     Ingest multiple files in a single request.
 
     Accepts multipart file uploads. Each file is ingested independently with
-    error isolation — one failure doesn't abort the batch.
+    error isolation -- one failure doesn't abort the batch.
     """
     from ingestible.pipeline.batch import BatchReport, FileResult, _ingest_one
     from ingestible.pipeline.orchestrator import generate_doc_id
@@ -339,8 +514,9 @@ async def ingest_batch_endpoint(
 
     for upload in files:
         suffix = Path(upload.filename or "upload.pdf").suffix
+        content = await upload.read()
+        _check_upload_size(content, settings)
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            content = await upload.read()
             tmp.write(content)
             tmp_path = Path(tmp.name)
 
@@ -348,18 +524,22 @@ async def ingest_batch_endpoint(
             result = _ingest_one(tmp_path, settings, skip_enrichment, force=False)
             if result.error:
                 report.failed += 1
-                results.append(BatchIngestResult(
-                    filename=upload.filename or "unknown",
-                    error=result.error,
-                    elapsed_seconds=result.elapsed_seconds,
-                ))
+                results.append(
+                    BatchIngestResult(
+                        filename=upload.filename or "unknown",
+                        error=result.error,
+                        elapsed_seconds=result.elapsed_seconds,
+                    )
+                )
             else:
                 report.succeeded += 1
-                results.append(BatchIngestResult(
-                    filename=upload.filename or "unknown",
-                    doc_id=result.doc_id,
-                    elapsed_seconds=result.elapsed_seconds,
-                ))
+                results.append(
+                    BatchIngestResult(
+                        filename=upload.filename or "unknown",
+                        doc_id=result.doc_id,
+                        elapsed_seconds=result.elapsed_seconds,
+                    )
+                )
         finally:
             tmp_path.unlink(missing_ok=True)
 
@@ -373,7 +553,8 @@ async def ingest_batch_endpoint(
 
 
 @app.get("/documents", response_model=list[DocumentSummary])
-async def list_docs():
+@limiter.limit(_RATE_DEFAULT)
+async def list_docs(request: Request):
     """List all ingested documents."""
     settings = get_cached_settings()
     docs = list_documents(settings)
@@ -389,8 +570,10 @@ async def list_docs():
 
 
 @app.get("/documents/{doc_id}", response_model=DocumentOverview)
-async def get_document(doc_id: str):
+@limiter.limit(_RATE_DEFAULT)
+async def get_document(doc_id: str, request: Request):
     """Get document overview including L0 content and structure."""
+    doc_id = _validate_doc_id(doc_id)
     settings = get_cached_settings()
     doc_dir = settings.documents_dir / doc_id
 
@@ -403,6 +586,7 @@ async def get_document(doc_id: str):
     l0_content = _l0_overview_text(chunks.l0)
 
     from ingestible.utils.tokens import count_tokens
+
     l0_tokens = count_tokens(l0_content)
 
     chapters = [c.title for c in chunks.l1_chunks]
@@ -424,8 +608,10 @@ class DeleteResponse(BaseModel):
 
 
 @app.delete("/documents/{doc_id}", response_model=DeleteResponse)
-async def delete_document(doc_id: str):
+@limiter.limit(_RATE_DEFAULT)
+async def delete_document(doc_id: str, request: Request):
     """Delete an ingested document and all its indexes."""
+    doc_id = _validate_doc_id(doc_id)
     settings = get_cached_settings()
     doc_dir = settings.documents_dir / doc_id
 
@@ -438,12 +624,14 @@ async def delete_document(doc_id: str):
 
 
 @app.get("/documents/{doc_id}/economics", response_model=TokenEconomics)
-async def get_token_economics(doc_id: str):
+@limiter.limit(_RATE_DEFAULT)
+async def get_token_economics(doc_id: str, request: Request):
     """
     Get token economics for a document.
 
     Shows how many tokens the full document would cost vs. hierarchical retrieval.
     """
+    doc_id = _validate_doc_id(doc_id)
     settings = get_cached_settings()
     doc_dir = settings.documents_dir / doc_id
 
@@ -477,12 +665,14 @@ async def get_token_economics(doc_id: str):
 
 
 @app.post("/documents/{doc_id}/search", response_model=SearchResponse)
-async def search_document(doc_id: str, request: SearchRequest):
+@limiter.limit(_RATE_SEARCH)
+async def search_document(doc_id: str, body: SearchRequest, request: Request):
     """
     Hybrid search within a document.
 
     Uses vector search (70%), BM25 (30%), and concept index with RRF fusion.
     """
+    doc_id = _validate_doc_id(doc_id)
     settings = get_cached_settings()
     doc_dir = settings.documents_dir / doc_id
 
@@ -493,13 +683,15 @@ async def search_document(doc_id: str, request: SearchRequest):
     embedder = get_cached_embedder()
     searcher = load_searcher(doc_dir, chunks, embedder, settings)
 
-    response = searcher.search(request.query, n_results=request.n_results)
+    response = searcher.search(body.query, n_results=body.n_results)
     return response
 
 
 @app.get("/documents/{doc_id}/chunks", response_model=ChunkSet)
-async def get_chunks(doc_id: str):
+@limiter.limit(_RATE_DEFAULT)
+async def get_chunks(doc_id: str, request: Request):
     """Get the full ChunkSet for a document."""
+    doc_id = _validate_doc_id(doc_id)
     settings = get_cached_settings()
     doc_dir = settings.documents_dir / doc_id
 
@@ -510,8 +702,10 @@ async def get_chunks(doc_id: str):
 
 
 @app.get("/documents/{doc_id}/citations")
-async def get_citations(doc_id: str):
+@limiter.limit(_RATE_DEFAULT)
+async def get_citations(doc_id: str, request: Request):
     """Get extracted citations for a document."""
+    doc_id = _validate_doc_id(doc_id)
     settings = get_cached_settings()
     doc_dir = settings.documents_dir / doc_id
 
@@ -522,8 +716,39 @@ async def get_citations(doc_id: str):
     return {"doc_id": doc_id, "citations": [c.model_dump() for c in chunks.citations]}
 
 
+@app.get("/documents/{doc_id}/knowledge-graph")
+@limiter.limit(_RATE_DEFAULT)
+async def get_knowledge_graph(doc_id: str, request: Request):
+    """Get extracted knowledge graph triples for a document."""
+    settings = get_cached_settings()
+    doc_dir = settings.documents_dir / doc_id
+
+    if not doc_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
+
+    chunks = load_chunks(doc_dir)
+
+    # Build entity index from triples
+    entities: dict[str, dict] = {}
+    for t in chunks.knowledge_graph:
+        for name, etype in [(t.subject, t.subject_type), (t.object, t.object_type)]:
+            key = name.lower()
+            if key not in entities:
+                entities[key] = {"name": name, "type": etype, "count": 0}
+            entities[key]["count"] += 1
+
+    return {
+        "doc_id": doc_id,
+        "total_triples": len(chunks.knowledge_graph),
+        "total_entities": len(entities),
+        "triples": [t.model_dump() for t in chunks.knowledge_graph],
+        "entities": sorted(entities.values(), key=lambda e: e["count"], reverse=True),
+    }
+
+
 @app.get("/documents/{doc_id}/structure", response_model=DocumentStructure)
-async def get_structure(doc_id: str):
+@limiter.limit(_RATE_DEFAULT)
+async def get_structure(doc_id: str, request: Request):
     """Get the document structure tree."""
     settings = get_cached_settings()
     doc_dir = settings.documents_dir / doc_id
@@ -546,14 +771,15 @@ class CorpusSearchRequest(BaseModel):
 
 
 @app.post("/search")
-async def corpus_search(request: CorpusSearchRequest):
+@limiter.limit(_RATE_SEARCH)
+async def corpus_search(body: CorpusSearchRequest, request: Request):
     """Search across all ingested documents with cross-document RRF fusion."""
     from ingestible.search.corpus import CorpusSearcher
 
     settings = get_cached_settings()
     searcher = CorpusSearcher(settings, embedder=get_cached_embedder())
     return searcher.search(
-        request.query, n_results=request.n_results, doc_ids=request.doc_ids
+        body.query, n_results=body.n_results, doc_ids=body.doc_ids
     )
 
 
@@ -563,7 +789,8 @@ async def corpus_search(request: CorpusSearchRequest):
 
 
 @app.post("/documents/{doc_id}/enrich", response_model=IngestResponse)
-async def enrich_document(doc_id: str):
+@limiter.limit(_RATE_INGEST)
+async def enrich_document(doc_id: str, request: Request):
     """Re-enrich a document without re-parsing. Re-runs enrichment + embedding."""
     from ingestible.pipeline.re_enrich import re_enrich
 
@@ -578,6 +805,7 @@ async def enrich_document(doc_id: str):
     meta = load_document_meta(doc_dir)
     chunks = load_chunks(doc_dir)
     from ingestible.utils.tokens import count_tokens
+
     l0_tokens = count_tokens(_l0_overview_text(chunks.l0))
 
     return IngestResponse(
@@ -596,9 +824,13 @@ async def enrich_document(doc_id: str):
 
 
 @app.get("/documents/{doc_id}/export")
+@limiter.limit(_RATE_DEFAULT)
 async def export_document_endpoint(
     doc_id: str,
-    format: str = Query(..., description="Export format: jsonl, parquet, llamaindex, langchain"),
+    request: Request,
+    format: str = Query(
+        ..., description="Export format: jsonl, parquet, llamaindex, langchain"
+    ),
 ):
     """Export a document to a portable format. Returns the file as a download."""
     from starlette.responses import FileResponse
@@ -620,7 +852,12 @@ async def export_document_endpoint(
     chunks = load_chunks(doc_dir)
     meta = load_document_meta(doc_dir)
 
-    ext_map = {"jsonl": ".jsonl", "parquet": ".parquet", "llamaindex": ".json", "langchain": ".json"}
+    ext_map = {
+        "jsonl": ".jsonl",
+        "parquet": ".parquet",
+        "llamaindex": ".json",
+        "langchain": ".json",
+    }
     ext = ext_map.get(format, ".json")
     output_path = doc_dir / f"export{ext}"
 
@@ -646,7 +883,8 @@ async def export_document_endpoint(
 
 
 @app.get("/documents/{doc_id}/versions")
-async def get_versions(doc_id: str):
+@limiter.limit(_RATE_DEFAULT)
+async def get_versions(doc_id: str, request: Request):
     """List all archived versions of a document."""
     from ingestible.pipeline.stage6_storage import list_versions
 
@@ -666,7 +904,9 @@ async def get_versions(doc_id: str):
 
 
 @app.post("/ingest/stream")
+@limiter.limit(_RATE_INGEST)
 async def ingest_stream(
+    request: Request,
     file: UploadFile = File(...),
     skip_enrichment: bool = Form(False),
 ):
@@ -678,8 +918,9 @@ async def ingest_stream(
     settings = get_cached_settings()
 
     suffix = Path(file.filename or "upload.pdf").suffix
+    content = await file.read()
+    _check_upload_size(content, settings)
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        content = await file.read()
         tmp.write(content)
         tmp_path = tmp.name
 
@@ -710,7 +951,78 @@ async def ingest_stream(
 
 
 # ---------------------------------------------------------------------------
-# Webhook: CognitiveVault → Ingestible (P2)
+# Background Jobs (WP 8.1)
+# ---------------------------------------------------------------------------
+
+
+class JobResponse(BaseModel):
+    job_id: str
+    status: str
+
+
+class JobDetailResponse(BaseModel):
+    job_id: str
+    status: str
+    doc_id: str | None = None
+    error: str | None = None
+    created_at: float
+    started_at: float | None = None
+    finished_at: float | None = None
+    progress_stage: str = ""
+    progress_step: int = 0
+    progress_total: int = 0
+
+
+@app.post("/ingest/async", response_model=JobResponse, status_code=202)
+@limiter.limit(_RATE_INGEST)
+async def ingest_async(
+    request: Request,
+    file: UploadFile = File(...),
+    skip_enrichment: bool = Form(False),
+):
+    """Submit a document for background ingestion. Returns a job ID immediately."""
+    settings = get_cached_settings()
+
+    suffix = Path(file.filename or "upload.pdf").suffix
+    content = await file.read()
+    _check_upload_size(content, settings)
+
+    # Write to a persistent temp file (not auto-deleted)
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp.write(content)
+    tmp.close()
+
+    queue = get_task_queue(max_workers=settings.max_concurrent_ingestions)
+    job = queue.submit_ingestion(
+        tmp.name,
+        settings,
+        skip_enrichment=skip_enrichment,
+    )
+    return JobResponse(job_id=job.job_id, status=job.status.value)
+
+
+@app.get("/jobs/{job_id}", response_model=JobDetailResponse)
+@limiter.limit(_RATE_DEFAULT)
+async def get_job_status(job_id: str, request: Request):
+    """Get the status of a background ingestion job."""
+    queue = get_task_queue()
+    job = queue.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+    d = job.to_dict()
+    return JobDetailResponse(**d)
+
+
+@app.get("/jobs", response_model=list[JobDetailResponse])
+@limiter.limit(_RATE_DEFAULT)
+async def list_jobs(request: Request):
+    """List all ingestion jobs."""
+    queue = get_task_queue()
+    return [JobDetailResponse(**j.to_dict()) for j in queue.list_jobs()]
+
+
+# ---------------------------------------------------------------------------
+# Webhook: CognitiveVault -> Ingestible (P2)
 # ---------------------------------------------------------------------------
 
 
@@ -730,6 +1042,7 @@ def _find_chunk_file(doc_dir: Path, chunk_id: str) -> Path | None:
 
 class CVWebhookPayload(BaseModel):
     """Payload from CognitiveVault entry.updated webhook."""
+
     entry_id: str = Field(alias="entryId")
     source_path: str = Field(alias="sourcePath")
     content: str
@@ -741,11 +1054,13 @@ class CVWebhookPayload(BaseModel):
 def _verify_webhook_signature(body: bytes, signature: str, secret: str) -> bool:
     """Verify HMAC-SHA256 webhook signature."""
     import hashlib
+
     expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature)
 
 
 @app.post("/webhooks/cv")
+@limiter.limit(_RATE_DEFAULT)
 async def cv_webhook(request: Request):
     """Receive entry.updated webhooks from CognitiveVault.
 
@@ -754,7 +1069,9 @@ async def cv_webhook(request: Request):
     """
     secret = os.environ.get("INGEST_WEBHOOK_SECRET", "")
     if not secret:
-        raise HTTPException(status_code=500, detail="INGEST_WEBHOOK_SECRET not configured")
+        raise HTTPException(
+            status_code=500, detail="INGEST_WEBHOOK_SECRET not configured"
+        )
 
     # Verify HMAC signature
     signature = request.headers.get("X-Webhook-Signature", "")
@@ -781,7 +1098,10 @@ async def cv_webhook(request: Request):
     path_part = payload.source_path[len("ingest:"):]
     parts = path_part.split("/", 1)
     if len(parts) != 2:
-        raise HTTPException(status_code=400, detail=f"Invalid sourcePath format: {payload.source_path}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid sourcePath format: {payload.source_path}",
+        )
 
     doc_id, chunk_id = parts
 
@@ -791,28 +1111,36 @@ async def cv_webhook(request: Request):
     if not doc_dir.exists():
         raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
 
-    # Find and update the chunk file on disk
+    # Find and update the chunk file on disk under lock
     import hashlib as _hashlib
 
-    chunk_file = _find_chunk_file(doc_dir, chunk_id)
-    if chunk_file is None:
-        raise HTTPException(status_code=404, detail=f"Chunk not found: {chunk_id}")
+    with document_lock(doc_dir):
+        chunk_file = _find_chunk_file(doc_dir, chunk_id)
+        if chunk_file is None:
+            raise HTTPException(status_code=404, detail=f"Chunk not found: {chunk_id}")
 
-    chunk_data = json.loads(chunk_file.read_text(encoding="utf-8"))
-    chunk_data["content"] = payload.content
-    chunk_data["content_hash"] = _hashlib.sha256(payload.content.encode()).hexdigest()
-    chunk_file.write_text(json.dumps(chunk_data, indent=2, ensure_ascii=False), encoding="utf-8")
+        chunk_data = json.loads(chunk_file.read_text(encoding="utf-8"))
+        chunk_data["content"] = payload.content
+        chunk_data["content_hash"] = _hashlib.sha256(
+            payload.content.encode()
+        ).hexdigest()
+        chunk_file.write_text(
+            json.dumps(chunk_data, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
 
-    # Store CV checksum so watcher/sync knows this chunk was edited in CV
-    meta = load_document_meta(doc_dir)
-    cv_checksums = meta.get("cv_checksums", {})
-    cv_checksums[chunk_id] = payload.checksum
-    meta["cv_checksums"] = cv_checksums
-    meta_path = doc_dir / "meta.json"
-    meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+        # Store CV checksum so watcher/sync knows this chunk was edited in CV
+        meta = load_document_meta(doc_dir)
+        cv_checksums = meta.get("cv_checksums", {})
+        cv_checksums[chunk_id] = payload.checksum
+        meta["cv_checksums"] = cv_checksums
+        meta_path = doc_dir / "meta.json"
+        meta_path.write_text(
+            json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
 
-    # Selective re-enrichment for just this chunk
+    # Selective re-enrichment for just this chunk (acquires its own lock)
     from ingestible.pipeline.re_enrich import re_enrich
+
     re_enrich(doc_id, settings, changed_chunk_ids={chunk_id})
 
     return {

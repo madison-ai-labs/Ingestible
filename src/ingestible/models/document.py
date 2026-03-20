@@ -29,6 +29,10 @@ class PageContent(BaseModel):
     figures: list[FigureRef] = Field(default_factory=list)
     has_code_blocks: bool = False
 
+    # Timestamps (audio/video sources only, in seconds)
+    timestamp_start: float | None = None
+    timestamp_end: float | None = None
+
 
 class ParsedDocument(BaseModel):
     """Output of Stage 1 — raw parsed document."""

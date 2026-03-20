@@ -36,6 +36,7 @@ class ExtractionProfile(BaseModel):
     # Feature flags
     extract_citations: bool = False
     extract_methodology: bool = True
+    extract_knowledge_graph: bool = False
 
 
 PROFILES: dict[str, ExtractionProfile] = {
@@ -45,6 +46,7 @@ PROFILES: dict[str, ExtractionProfile] = {
         chunking_strategy="semantic",
         extract_citations=True,
         extract_methodology=True,
+        extract_knowledge_graph=True,
         l3_prompt_suffix=(
             "This is from a scientific paper. Pay attention to claims, "
             "evidence, statistical results, and citation markers (e.g. [1], "
@@ -75,6 +77,7 @@ PROFILES: dict[str, ExtractionProfile] = {
         min_chunk_tokens=150,
         extract_citations=False,
         extract_methodology=False,
+        extract_knowledge_graph=True,
         l3_prompt_suffix=(
             "This is technical documentation. Focus on API names, "
             "configuration options, procedures, and prerequisites."

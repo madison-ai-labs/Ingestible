@@ -22,12 +22,15 @@ from ingestible.models.chunks import ChunkSet, L0Chunk, L1Chunk, L2Chunk, L3Chun
 from ingestible.models.enrichment import (
     Citation,
     CitationList,
+    KGTriple,
+    KGTripleList,
     L0Enrichment,
     L1Enrichment,
     L2Enrichment,
     L3Enrichment,
 )
 from ingestible.profiles import ExtractionProfile
+from ingestible.utils.retry import retry_llm_call
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +44,10 @@ class LLMClient(Protocol):
 class OpenAIClient:
     """Default LLM client. Uses openai.AsyncOpenAI with structured output."""
 
-    def __init__(self, api_key: str, model: str):
+    def __init__(self, api_key: str, model: str, timeout: int = 120):
         import openai
 
-        self._client = openai.AsyncOpenAI(api_key=api_key)
+        self._client = openai.AsyncOpenAI(api_key=api_key, timeout=timeout)
         self._model = model
 
     async def generate_json(self, prompt: str, output_type: type[T]) -> T:
@@ -69,10 +72,10 @@ class OpenAIClient:
 class AnthropicClient:
     """Default LLM client using Anthropic API with tool_use for structured output."""
 
-    def __init__(self, api_key: str, model: str):
+    def __init__(self, api_key: str, model: str, timeout: int = 120):
         import anthropic
 
-        self._client = anthropic.AsyncAnthropic(api_key=api_key)
+        self._client = anthropic.AsyncAnthropic(api_key=api_key, timeout=timeout)
         self._model = model
 
     async def generate_json(self, prompt: str, output_type: type[T]) -> T:
@@ -93,22 +96,23 @@ class AnthropicClient:
 
 
 def _make_client(settings: Settings) -> LLMClient:
+    timeout = settings.llm_timeout
     if settings.llm_provider == "anthropic":
         if settings.anthropic_api_key:
-            return AnthropicClient(settings.anthropic_api_key, settings.anthropic_model)
+            return AnthropicClient(settings.anthropic_api_key, settings.anthropic_model, timeout=timeout)
         # Graceful fallback: if no Anthropic key but OpenAI key exists, use OpenAI
         if settings.openai_api_key:
             logger.info("No INGEST_ANTHROPIC_API_KEY set, falling back to OpenAI")
-            return OpenAIClient(settings.openai_api_key, settings.openai_model)
+            return OpenAIClient(settings.openai_api_key, settings.openai_model, timeout=timeout)
         raise ValueError(
             "INGEST_ANTHROPIC_API_KEY is required (or set INGEST_OPENAI_API_KEY as fallback)"
         )
     else:
         if settings.openai_api_key:
-            return OpenAIClient(settings.openai_api_key, settings.openai_model)
+            return OpenAIClient(settings.openai_api_key, settings.openai_model, timeout=timeout)
         if settings.anthropic_api_key:
             logger.info("No INGEST_OPENAI_API_KEY set, falling back to Anthropic")
-            return AnthropicClient(settings.anthropic_api_key, settings.anthropic_model)
+            return AnthropicClient(settings.anthropic_api_key, settings.anthropic_model, timeout=timeout)
         raise ValueError(
             "INGEST_OPENAI_API_KEY is required (or set INGEST_ANTHROPIC_API_KEY as fallback)"
         )
@@ -128,8 +132,14 @@ async def enrich_chunks(
     """
     client = _make_client(settings)
     sem = asyncio.Semaphore(settings.llm_concurrency)
+    max_retries = settings.llm_max_retries
+    base_delay = settings.llm_retry_base_delay
     prompt_suffix = profile.l3_prompt_suffix if profile else ""
     extract_citations = profile.extract_citations if profile else False
+    extract_kg = (
+        settings.extract_knowledge_graph
+        or (profile.extract_knowledge_graph if profile else False)
+    )
 
     # Build lookup of previous L3 enrichment by content_hash
     prev_by_hash: dict[str, L3Chunk] = {}
@@ -157,6 +167,7 @@ async def enrich_chunks(
             chunk.depends_on = prev.depends_on
             chunk.cross_references = prev.cross_references
             chunk.cited_references = prev.cited_references
+            chunk.kg_triples = prev.kg_triples
             skipped += 1
         else:
             l3_to_enrich.append((i, chunk))
@@ -169,7 +180,9 @@ async def enrich_chunks(
 
     if l3_to_enrich:
         l3_tasks = [
-            _enrich_l3(c, client, sem, prompt_suffix=prompt_suffix, extract_citations=extract_citations)
+            _enrich_l3(c, client, sem, prompt_suffix=prompt_suffix,
+                       extract_citations=extract_citations,
+                       max_retries=max_retries, base_delay=base_delay)
             for _, c in l3_to_enrich
         ]
         enriched_l3 = await asyncio.gather(*l3_tasks, return_exceptions=True)
@@ -196,7 +209,7 @@ async def enrich_chunks(
     else:
         # --- L2 enrichment ---
         logger.info("Enriching %d L2 chunks...", len(chunks.l2_chunks))
-        l2_tasks = [_enrich_l2(c, chunks, client, sem) for c in chunks.l2_chunks]
+        l2_tasks = [_enrich_l2(c, chunks, client, sem, max_retries=max_retries, base_delay=base_delay) for c in chunks.l2_chunks]
         enriched_l2 = await asyncio.gather(*l2_tasks, return_exceptions=True)
 
         for i, result in enumerate(enriched_l2):
@@ -210,7 +223,7 @@ async def enrich_chunks(
 
         # --- L1 enrichment ---
         logger.info("Enriching %d L1 chunks...", len(chunks.l1_chunks))
-        l1_tasks = [_enrich_l1(c, chunks, client, sem) for c in chunks.l1_chunks]
+        l1_tasks = [_enrich_l1(c, chunks, client, sem, max_retries=max_retries, base_delay=base_delay) for c in chunks.l1_chunks]
         enriched_l1 = await asyncio.gather(*l1_tasks, return_exceptions=True)
 
         for i, result in enumerate(enriched_l1):
@@ -228,7 +241,7 @@ async def enrich_chunks(
         logger.info("Enriching L0 (document digest)...")
         try:
             l0_suffix = profile.l0_prompt_suffix if profile else ""
-            l0_result = await _enrich_l0(chunks.l0, chunks, client, sem, prompt_suffix=l0_suffix)
+            l0_result = await _enrich_l0(chunks.l0, chunks, client, sem, prompt_suffix=l0_suffix, max_retries=max_retries, base_delay=base_delay)
             chunks.l0.domain = l0_result.domain
             chunks.l0.key_concepts = l0_result.key_concepts
             chunks.l0.executive_summary = l0_result.executive_summary
@@ -240,6 +253,22 @@ async def enrich_chunks(
         except Exception as e:
             logger.warning("L0 enrichment failed: %s", e)
 
+    # --- Knowledge graph extraction (if enabled) ---
+    if extract_kg:
+        if all_l3_skipped and previous_chunks and previous_chunks.knowledge_graph:
+            logger.info(
+                "Reusing %d KG triples from previous version",
+                len(previous_chunks.knowledge_graph),
+            )
+            chunks.knowledge_graph = previous_chunks.knowledge_graph
+        else:
+            logger.info("Extracting knowledge graph triples...")
+            try:
+                kg_triples = await _extract_kg_triples(chunks, client, sem, max_retries=max_retries, base_delay=base_delay)
+                chunks.knowledge_graph = kg_triples
+            except Exception as e:
+                logger.warning("Knowledge graph extraction failed: %s", e)
+
     # --- Citation extraction (if profile enables it) ---
     if extract_citations:
         if all_l3_skipped and previous_chunks and previous_chunks.citations:
@@ -248,7 +277,7 @@ async def enrich_chunks(
         else:
             logger.info("Extracting citations...")
             try:
-                citations = await _extract_citations(chunks, client, sem)
+                citations = await _extract_citations(chunks, client, sem, max_retries=max_retries, base_delay=base_delay)
                 chunks.citations = citations
             except Exception as e:
                 logger.warning("Citation extraction failed: %s", e)
@@ -293,6 +322,8 @@ async def _enrich_l3(
     sem: asyncio.Semaphore,
     prompt_suffix: str = "",
     extract_citations: bool = False,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
 ) -> L3Enrichment:
     citation_instruction = ""
     if extract_citations:
@@ -319,11 +350,15 @@ Generate JSON with these fields:
 - cross_references: other topics this connects to{citation_instruction}{suffix}"""
 
     async with sem:
-        return await client.generate_json(prompt, L3Enrichment)
+        return await retry_llm_call(
+            client.generate_json, prompt, L3Enrichment,
+            max_retries=max_retries, base_delay=base_delay,
+        )
 
 
 async def _enrich_l2(
-    chunk: L2Chunk, all_chunks: ChunkSet, client: LLMClient, sem: asyncio.Semaphore
+    chunk: L2Chunk, all_chunks: ChunkSet, client: LLMClient, sem: asyncio.Semaphore,
+    max_retries: int = 3, base_delay: float = 1.0,
 ) -> L2Enrichment:
     child_summaries = []
     for c in all_chunks.l3_chunks:
@@ -344,11 +379,15 @@ Generate JSON with:
 - concepts_introduced: new concepts defined in this section"""
 
     async with sem:
-        return await client.generate_json(prompt, L2Enrichment)
+        return await retry_llm_call(
+            client.generate_json, prompt, L2Enrichment,
+            max_retries=max_retries, base_delay=base_delay,
+        )
 
 
 async def _enrich_l1(
-    chunk: L1Chunk, all_chunks: ChunkSet, client: LLMClient, sem: asyncio.Semaphore
+    chunk: L1Chunk, all_chunks: ChunkSet, client: LLMClient, sem: asyncio.Semaphore,
+    max_retries: int = 3, base_delay: float = 1.0,
 ) -> L1Enrichment:
     section_summaries = []
     for s in all_chunks.l2_chunks:
@@ -371,7 +410,10 @@ Generate JSON with:
 - key_takeaways: the most important points"""
 
     async with sem:
-        return await client.generate_json(prompt, L1Enrichment)
+        return await retry_llm_call(
+            client.generate_json, prompt, L1Enrichment,
+            max_retries=max_retries, base_delay=base_delay,
+        )
 
 
 async def _enrich_l0(
@@ -380,6 +422,8 @@ async def _enrich_l0(
     client: LLMClient,
     sem: asyncio.Semaphore,
     prompt_suffix: str = "",
+    max_retries: int = 3,
+    base_delay: float = 1.0,
 ) -> L0Enrichment:
     chapter_summaries = []
     for c in all_chunks.l1_chunks:
@@ -406,11 +450,15 @@ Generate JSON with:
 - target_audience: who this document is intended for (1 sentence){suffix}"""
 
     async with sem:
-        return await client.generate_json(prompt, L0Enrichment)
+        return await retry_llm_call(
+            client.generate_json, prompt, L0Enrichment,
+            max_retries=max_retries, base_delay=base_delay,
+        )
 
 
 async def _extract_citations(
-    chunks: ChunkSet, client: LLMClient, sem: asyncio.Semaphore
+    chunks: ChunkSet, client: LLMClient, sem: asyncio.Semaphore,
+    max_retries: int = 3, base_delay: float = 1.0,
 ) -> list[Citation]:
     """Extract structured citations from the document.
 
@@ -457,7 +505,10 @@ For each citation, extract:
 Return a JSON object with a "citations" list. Only include items that are actual bibliographic references."""
 
     async with sem:
-        result = await client.generate_json(prompt, CitationList)
+        result = await retry_llm_call(
+            client.generate_json, prompt, CitationList,
+            max_retries=max_retries, base_delay=base_delay,
+        )
 
     # Wire up inline_references from L3 cited_references
     citation_map = {c.citation_id: c for c in result.citations if c.citation_id}
@@ -467,3 +518,88 @@ Return a JSON object with a "citations" list. Only include items that are actual
                 citation_map[ref_id].inline_references.append(l3.chunk_id)
 
     return result.citations
+
+
+async def _extract_kg_triples_for_chunk(
+    chunk: L3Chunk,
+    client: LLMClient,
+    sem: asyncio.Semaphore,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+) -> list[KGTriple]:
+    """Extract knowledge graph triples from a single L3 chunk."""
+    prompt = f"""Extract entity-relationship triples from this text passage for knowledge graph construction.
+
+PASSAGE:
+{chunk.content}
+
+For each relationship you identify, extract a triple:
+- subject: the source entity (a specific named entity, concept, or method)
+- subject_type: entity type (e.g. "Person", "Concept", "Method", "Organization", "Technology", "Dataset", "Metric")
+- predicate: the relationship (use concise verb phrases like "uses", "is_a", "part_of", "improves", "depends_on", "authored_by", "evaluated_on", "outperforms", "implements", "extends", "causes", "enables", "requires")
+- object: the target entity
+- object_type: entity type (same categories as subject_type)
+- confidence: 0.0-1.0, how explicitly stated the relationship is (1.0 = directly stated, 0.5 = implied)
+
+Rules:
+- Extract only meaningful, specific relationships — skip vague or trivial ones
+- Normalize entity names: use the most complete form mentioned (e.g. "Transformer architecture" not just "Transformer")
+- Prefer canonical relationship predicates from the list above when they fit
+- Return an empty triples list if no meaningful relationships exist"""
+
+    async with sem:
+        result = await retry_llm_call(
+            client.generate_json, prompt, KGTripleList,
+            max_retries=max_retries, base_delay=base_delay,
+        )
+
+    # Tag each triple with the source chunk
+    for triple in result.triples:
+        triple.source_chunk_id = chunk.chunk_id
+    return result.triples
+
+
+async def _extract_kg_triples(
+    chunks: ChunkSet,
+    client: LLMClient,
+    sem: asyncio.Semaphore,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+) -> list[KGTriple]:
+    """Extract knowledge graph triples from all L3 chunks, deduplicate, and return."""
+    tasks = [
+        _extract_kg_triples_for_chunk(chunk, client, sem,
+                                      max_retries=max_retries, base_delay=base_delay)
+        for chunk in chunks.l3_chunks
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    all_triples: list[KGTriple] = []
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            logger.warning(
+                "KG extraction failed for %s: %s",
+                chunks.l3_chunks[i].chunk_id,
+                result,
+            )
+            continue
+        # Store per-chunk triples on the chunk itself
+        chunks.l3_chunks[i].kg_triples = result
+        all_triples.extend(result)
+
+    # Deduplicate: same (subject, predicate, object) keeps highest confidence
+    seen: dict[tuple[str, str, str], KGTriple] = {}
+    for triple in all_triples:
+        key = (triple.subject.lower(), triple.predicate.lower(), triple.object.lower())
+        existing = seen.get(key)
+        if existing is None or triple.confidence > existing.confidence:
+            seen[key] = triple
+
+    deduped = list(seen.values())
+    logger.info(
+        "Extracted %d KG triples (%d unique) from %d chunks",
+        len(all_triples),
+        len(deduped),
+        len(chunks.l3_chunks),
+    )
+    return deduped

@@ -14,6 +14,7 @@ import logging
 from ingestible.config import Settings
 from ingestible.models.chunks import ChunkSet
 from ingestible.models.document import DocumentStructure
+from ingestible.utils.retry import retry_llm_call
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,8 @@ async def add_context_prefixes(
 
     client = _make_client(settings)
     sem = asyncio.Semaphore(settings.llm_concurrency)
+    max_retries = settings.llm_max_retries
+    base_delay = settings.llm_retry_base_delay
 
     # Build title lookup from structure tree
     title_map: dict[str, str] = {}
@@ -42,7 +45,8 @@ async def add_context_prefixes(
         section_title = title_map.get(chunk.position.section, "")
         tasks.append(
             _generate_context_blurb(
-                chunk.content, doc_title, chapter_title, section_title, client, sem
+                chunk.content, doc_title, chapter_title, section_title, client, sem,
+                max_retries=max_retries, base_delay=base_delay,
             )
         )
 
@@ -72,6 +76,8 @@ async def _generate_context_blurb(
     section_title: str,
     client,
     sem: asyncio.Semaphore,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
 ) -> str:
     """Generate a single-sentence context blurb for a chunk."""
     context_parts = [f"Document: {doc_title}"]
@@ -99,5 +105,8 @@ async def _generate_context_blurb(
         class _Blurb(BaseModel):
             sentence: str
 
-        result = await client.generate_json(prompt, _Blurb)
+        result = await retry_llm_call(
+            client.generate_json, prompt, _Blurb,
+            max_retries=max_retries, base_delay=base_delay,
+        )
         return result.sentence

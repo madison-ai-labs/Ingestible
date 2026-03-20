@@ -4,6 +4,7 @@ import tomllib
 from pathlib import Path
 from typing import Any, Literal
 
+from pydantic import Field
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
@@ -70,13 +71,34 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-haiku-4-5-20251001"
     llm_concurrency: int = 10
 
+    # LLM resilience
+    llm_timeout: int = 120  # seconds per LLM call
+    llm_max_retries: int = 3
+    llm_retry_base_delay: float = 1.0
+
     # Embedding
     embedding_model: str = "intfloat/e5-large-v2"
     embedding_dimensions: int | None = None  # Matryoshka truncation (None = full)
     embedding_quantization: Literal["none", "binary"] = "none"
+    embedding_device: str = "auto"  # "auto", "cuda", "mps", "cpu"
+
+    # CORS
+    cors_origins: list[str] = Field(default=["*"])
 
     # Storage
     data_dir: Path = Path("data")
+    min_disk_space_mb: int = 500  # minimum free disk space in MB for readiness
+
+    # Rate limiting (requests per minute)
+    rate_limit_ingest: str = "10/minute"
+    rate_limit_search: str = "60/minute"
+    rate_limit_default: str = "120/minute"
+
+    # Limits
+    max_upload_bytes: int = 500_000_000  # 500 MB
+    max_concurrent_ingestions: int = 2
+    max_total_llm_concurrency: int = 20  # hard ceiling across all parallel workers
+    parse_timeout: int = 300  # seconds (5 min max for parsing)
 
     # Cleaning
     cleaning_enabled: bool = True
@@ -93,13 +115,24 @@ class Settings(BaseSettings):
     extraction_profile: str = "auto"  # "auto", "paper", "article", "documentation", "general"
     profile_llm_fallback: bool = False  # Use LLM to classify ambiguous documents
 
+    # Audio/video transcription
+    whisper_model: str = "base"  # faster-whisper model: tiny, base, small, medium, large-v3
+
+    # Knowledge graph
+    extract_knowledge_graph: bool = False
+
     # Dedup
     dedup_enabled: bool = True
 
     # Checkpoint
     checkpoint_enabled: bool = True
 
+    # Logging
+    log_json: bool = True  # JSON structured logging (False for console dev output)
+    log_level: str = "INFO"
+
     # Search
+    searcher_cache_size: int = 50  # max cached document searchers in memory
     vector_weight: float = 0.7
     bm25_weight: float = 0.3
     default_search_results: int = 5

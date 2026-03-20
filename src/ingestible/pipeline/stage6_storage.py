@@ -23,7 +23,7 @@ from pathlib import Path
 from ingestible.config import Settings
 from ingestible.models.chunks import ChunkSet, L0Chunk, L1Chunk, L2Chunk, L3Chunk
 from ingestible.models.document import DocumentStructure
-from ingestible.models.enrichment import Citation
+from ingestible.models.enrichment import Citation, KGTriple
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +63,13 @@ def save_document(
         _write_json(
             doc_dir / "citations.json",
             {"citations": [c.model_dump() for c in chunks.citations]},
+        )
+
+    # knowledge_graph.json — entity-relationship triples from enrichment
+    if chunks.knowledge_graph:
+        _write_json(
+            doc_dir / "knowledge_graph.json",
+            {"triples": [t.model_dump() for t in chunks.knowledge_graph]},
         )
 
     # structure.json
@@ -170,6 +177,16 @@ def load_chunks(doc_dir: Path) -> ChunkSet:
         except (json.JSONDecodeError, OSError):
             pass
 
+    # Knowledge graph
+    kg_triples: list[KGTriple] = []
+    kg_path = doc_dir / "knowledge_graph.json"
+    if kg_path.exists():
+        try:
+            kg_data = _read_json(kg_path)
+            kg_triples = [KGTriple(**t) for t in kg_data.get("triples", [])]
+        except (json.JSONDecodeError, OSError):
+            pass
+
     return ChunkSet(
         doc_id=doc_id,
         l0=l0,
@@ -177,6 +194,7 @@ def load_chunks(doc_dir: Path) -> ChunkSet:
         l2_chunks=l2_chunks,
         l3_chunks=l3_chunks,
         citations=citations,
+        knowledge_graph=kg_triples,
     )
 
 

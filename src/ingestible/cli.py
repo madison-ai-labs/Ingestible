@@ -133,6 +133,10 @@ def main(argv: list[str] | None = None) -> None:
         "--cv-vault-id", default=None, help="Target vault ID (or set CV_VAULT_ID env var)"
     )
 
+    # --- cleanup ---
+    cleanup_parser = sub.add_parser("cleanup", help="Clean stale checkpoints and temp files")
+    cleanup_parser.add_argument("--max-age", type=int, default=24, help="Max age in hours (default: 24)")
+
     # --- export-cv ---
     p_export = sub.add_parser("export-cv", help="Export documents to CognitiveVault")
     p_export.add_argument(
@@ -163,6 +167,9 @@ def main(argv: list[str] | None = None) -> None:
 
     args = parser.parse_args(argv)
 
+    from ingestible.logging import setup_logging
+    setup_logging(json_output=False, level="INFO")  # Console output for CLI
+
     if args.command is None:
         parser.print_help()
         sys.exit(1)
@@ -185,6 +192,12 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_config()
     elif args.command == "watch":
         _cmd_watch(args)
+    elif args.command == "cleanup":
+        from ingestible.config import get_settings
+        from ingestible.pipeline.cleanup import cleanup_stale
+        settings = get_settings()
+        counts = cleanup_stale(settings, max_age_hours=args.max_age)
+        print(f"Cleaned: {counts['checkpoints']} checkpoints, {counts['temp_files']} temp files")
     elif args.command == "export-cv":
         _cmd_export_cv(args)
 

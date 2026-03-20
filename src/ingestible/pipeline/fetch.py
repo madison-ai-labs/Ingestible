@@ -26,11 +26,26 @@ def is_url(path: str) -> bool:
     return path.startswith("http://") or path.startswith("https://")
 
 
-def fetch_url(url: str, use_readability: bool = True) -> Path:
+class FileTooLargeError(Exception):
+    """Raised when a downloaded file exceeds the size limit."""
+
+
+def fetch_url(
+    url: str,
+    use_readability: bool = True,
+    max_bytes: int | None = None,
+) -> Path:
     """Download a URL to a temporary file. Returns the path.
 
     For HTML content, optionally uses readability-lxml to extract the
     article body before saving.
+
+    Args:
+        url: The URL to fetch.
+        use_readability: Extract article body from HTML using readability-lxml.
+        max_bytes: Maximum allowed download size in bytes.  If the
+            ``Content-Length`` header or the streamed body exceeds this
+            limit, :class:`FileTooLargeError` is raised.
 
     The caller is responsible for cleaning up the temp file.
     """
@@ -39,23 +54,46 @@ def fetch_url(url: str, use_readability: bool = True) -> Path:
     logger.info("Fetching URL: %s", url)
 
     with httpx.Client(follow_redirects=True, timeout=60) as client:
-        resp = client.get(url)
-        resp.raise_for_status()
+        with client.stream("GET", url) as resp:
+            resp.raise_for_status()
 
+            # Early rejection based on Content-Length header
+            if max_bytes is not None:
+                content_length = resp.headers.get("content-length")
+                if content_length is not None and int(content_length) > max_bytes:
+                    max_mb = max_bytes / 1_000_000
+                    raise FileTooLargeError(
+                        f"File too large. Content-Length {int(content_length)} "
+                        f"exceeds limit of {max_mb:.0f}MB"
+                    )
+
+            # Stream body while tracking size
+            chunks: list[bytes] = []
+            received = 0
+            for chunk in resp.iter_bytes():
+                received += len(chunk)
+                if max_bytes is not None and received > max_bytes:
+                    max_mb = max_bytes / 1_000_000
+                    raise FileTooLargeError(
+                        f"File too large. Maximum size: {max_mb:.0f}MB"
+                    )
+                chunks.append(chunk)
+
+    body = b"".join(chunks)
     content_type = resp.headers.get("content-type", "")
     ext = _detect_extension(url, content_type)
 
     if ext in (".html", ".htm") and use_readability:
-        content = _extract_readable(resp.text, url)
-        suffix = ".html"
+        text = body.decode(errors="replace")
+        content = _extract_readable(text, url)
         with tempfile.NamedTemporaryFile(
-            delete=False, suffix=suffix, mode="w", encoding="utf-8"
+            delete=False, suffix=".html", mode="w", encoding="utf-8"
         ) as tmp:
             tmp.write(content)
             return Path(tmp.name)
     else:
         with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-            tmp.write(resp.content)
+            tmp.write(body)
             return Path(tmp.name)
 
 

@@ -94,6 +94,38 @@ Export stored documents to JSONL, Parquet, LlamaIndex nodes, LangChain documents
 
 ---
 
+## Phase 6: Integrations & Knowledge Graph (v0.15)
+
+| WP | Feature | Status |
+|----|---------|--------|
+| 6.1 | Selective Re-enrichment | **done** |
+| 6.2 | File Watcher (`ingest watch`) | **done** |
+| 6.3 | CV Webhook (`POST /webhooks/cv`) | **done** |
+| 6.4 | Knowledge Graph Extraction | **done** |
+| 6.5 | Audio & Video Ingestion | **done** |
+
+### WP 6.1: Selective Re-enrichment
+
+Extends hash-based skip from Stage 5 (embedding) to Stage 4 (enrichment). When re-ingesting with `--force`, unchanged L3 chunks copy enrichment fields from the previous version. When all L3 chunks are unchanged, L2/L1/L0 enrichment is also skipped. `re_enrich()` accepts `changed_chunk_ids` for targeted re-enrichment.
+
+### WP 6.2: File Watcher
+
+`ingest watch <dir>` monitors a directory for file changes using OS-native events (watchdog). 2-second directory-level debounce batches rapid writes. Optional `--cv-push` auto-exports to CognitiveVault after each batch. Requires `pip install -e ".[watch]"`.
+
+### WP 6.3: CV Webhook
+
+`POST /webhooks/cv` endpoint with HMAC-SHA256 verification. Receives `entry.updated` events from CognitiveVault when entries are edited in the CV web UI. Updates local chunk content, stores `cv_checksum` for conflict detection, and triggers selective re-enrichment for the affected chunk.
+
+### WP 6.4: Knowledge Graph Extraction
+
+Extracts `(subject, predicate, object)` triples from L3 chunks during Stage 4 enrichment. Auto-enabled for `paper` and `documentation` profiles, or via `INGEST_EXTRACT_KNOWLEDGE_GRAPH=true`. Triples are stored per-chunk and aggregated on ChunkSet. Deduplication keeps highest-confidence triple for identical (subject, predicate, object). Accessible via `GET /documents/{doc_id}/knowledge-graph` API endpoint.
+
+### WP 6.5: Audio & Video Ingestion
+
+Adds audio and video as input formats. Audio files (MP3, WAV, FLAC, OGG, M4A, AAC, OPUS) are transcribed locally via faster-whisper (CTranslate2-accelerated Whisper). Video files (MP4, MKV, AVI, MOV, WebM, WMV, FLV) have their audio track extracted via ffmpeg, then transcribed. Transcription segments are grouped into ~2-minute pages with `[MM:SS]` timestamp markers. Timestamps propagate to L3 chunks (`timestamp_start`/`timestamp_end`). Video sources also get keyframe extraction at 60-second intervals. Requires `pip install ingestible[audio]` and `ffmpeg` on PATH for video. Configurable model via `INGEST_WHISPER_MODEL` (default: `base`).
+
+---
+
 ## Dependency Graph
 
 ```
@@ -120,4 +152,11 @@ Phase 5 (after Phases 1-2):
   WP 5.1 Versioning ────── needs WP 1.1 (checkpoint awareness)
   WP 5.2 Progress ────────── needs WP 1.2 (batch progress)
   WP 5.3 Chunk cache ─────── needs WP 5.1 (old version to diff)
+           │
+Phase 6 (after Phase 5):
+  WP 6.1 Selective re-enrich ── needs WP 5.3 (chunk cache for hash comparison)
+  WP 6.2 File watcher ────────── needs WP 1.2 (batch ingestion)
+  WP 6.3 CV webhook ──────────── needs WP 6.1 (selective re-enrichment)
+  WP 6.4 Knowledge graph ─────── standalone (Stage 4 extension)
+  WP 6.5 Audio/video ────────── standalone (Stage 1 extension)
 ```

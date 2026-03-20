@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from pathlib import Path
 
 from ingestible.models.document import FigureRef, PageContent, ParsedDocument, TOCEntry
@@ -21,10 +22,29 @@ SUPPORTED_FORMATS = {
     ".pdf", ".md", ".txt", ".docx", ".html", ".htm",
     ".epub", ".csv", ".xlsx", ".xls", ".pptx",
     ".rst", ".adoc", ".asciidoc",
+    # Audio
+    ".mp3", ".wav", ".m4a", ".flac", ".ogg", ".wma", ".aac", ".opus",
+    # Video
+    ".mp4", ".mkv", ".avi", ".mov", ".webm", ".wmv", ".flv",
 }
 
+AUDIO_FORMATS = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".wma", ".aac", ".opus"}
+VIDEO_FORMATS = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".wmv", ".flv"}
 
-def parse_document(file_path: str | Path, force_ocr: bool = False) -> ParsedDocument:
+
+def _with_timeout(func, *args, timeout: int = 300, **kwargs):
+    """Run a function with a timeout. Raises TimeoutError if it exceeds the limit."""
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(func, *args, **kwargs)
+        try:
+            return future.result(timeout=timeout)
+        except FuturesTimeoutError:
+            raise TimeoutError(
+                f"Parsing timed out after {timeout}s — the file may be corrupted or too complex"
+            )
+
+
+def parse_document(file_path: str | Path, force_ocr: bool = False, timeout: int = 300) -> ParsedDocument:
     """Parse a document into structured markdown. Auto-detects format from extension."""
     file_path = Path(file_path)
     if not file_path.exists():
@@ -37,7 +57,7 @@ def parse_document(file_path: str | Path, force_ocr: bool = False) -> ParsedDocu
         )
 
     if ext == ".pdf":
-        return parse_pdf(file_path, force_ocr=force_ocr)
+        return _with_timeout(parse_pdf, file_path, force_ocr=force_ocr, timeout=timeout)
     elif ext == ".md":
         return _parse_markdown(file_path)
     elif ext == ".txt":
@@ -58,6 +78,10 @@ def parse_document(file_path: str | Path, force_ocr: bool = False) -> ParsedDocu
         return _parse_rst(file_path)
     elif ext in (".adoc", ".asciidoc"):
         return _parse_asciidoc(file_path)
+    elif ext in AUDIO_FORMATS:
+        return _with_timeout(_parse_audio, file_path, timeout=timeout)
+    elif ext in VIDEO_FORMATS:
+        return _with_timeout(_parse_video, file_path, timeout=timeout)
 
     raise ValueError(f"Unsupported format: {ext}")  # unreachable, but defensive
 
@@ -785,3 +809,303 @@ def _asciidoc_to_markdown(text: str) -> str:
     md = re.sub(r"link:(\S+)\[([^\]]*)\]", r"[\2](\1)", md)
 
     return md.strip()
+
+
+# ---------------------------------------------------------------------------
+# Audio & Video parsers
+# ---------------------------------------------------------------------------
+
+
+def _format_timestamp(seconds: float) -> str:
+    """Format seconds as [HH:MM:SS] or [MM:SS]."""
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    if h > 0:
+        return f"[{h:02d}:{m:02d}:{s:02d}]"
+    return f"[{m:02d}:{s:02d}]"
+
+
+def _get_whisper_model() -> str:
+    """Get the configured Whisper model name."""
+    import os
+    return os.environ.get("INGEST_WHISPER_MODEL", "base")
+
+
+def _transcribe_audio(audio_path: Path) -> list[dict]:
+    """Transcribe audio using faster-whisper. Returns list of segment dicts.
+
+    Each segment: {"start": float, "end": float, "text": str}
+    Requires: pip install ingestible[audio]
+    """
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        raise ImportError(
+            "Audio transcription requires faster-whisper. "
+            "Install with: pip install ingestible[audio]"
+        )
+
+    model_name = _get_whisper_model()
+    logger.info("Loading Whisper model '%s'...", model_name)
+    model = WhisperModel(model_name, compute_type="auto")
+
+    logger.info("Transcribing %s...", audio_path.name)
+    segments_iter, info = model.transcribe(str(audio_path), beam_size=5)
+
+    logger.info(
+        "Detected language: %s (probability %.2f), duration: %.0fs",
+        info.language, info.language_probability, info.duration,
+    )
+
+    segments = []
+    for seg in segments_iter:
+        text = seg.text.strip()
+        if text:
+            segments.append({"start": seg.start, "end": seg.end, "text": text})
+
+    return segments
+
+
+def _segments_to_pages(
+    segments: list[dict], page_duration: float = 120.0
+) -> list[PageContent]:
+    """Group transcription segments into pages by time windows.
+
+    Each page covers ~page_duration seconds. Segments are grouped by time,
+    with timestamps rendered as markdown markers.
+    """
+    if not segments:
+        return []
+
+    pages: list[PageContent] = []
+    current_parts: list[str] = []
+    page_start = segments[0]["start"]
+    page_end = segments[0]["end"]
+    page_num = 1
+
+    for seg in segments:
+        # Start a new page if we've exceeded the duration
+        if seg["start"] - page_start >= page_duration and current_parts:
+            md = "\n\n".join(current_parts)
+            pages.append(PageContent(
+                page_num=page_num,
+                markdown=md,
+                timestamp_start=page_start,
+                timestamp_end=page_end,
+            ))
+            page_num += 1
+            current_parts = []
+            page_start = seg["start"]
+
+        ts = _format_timestamp(seg["start"])
+        current_parts.append(f"{ts} {seg['text']}")
+        page_end = seg["end"]
+
+    # Flush remaining segments
+    if current_parts:
+        md = "\n\n".join(current_parts)
+        pages.append(PageContent(
+            page_num=page_num,
+            markdown=md,
+            timestamp_start=page_start,
+            timestamp_end=page_end,
+        ))
+
+    return pages
+
+
+def _parse_audio(file_path: Path) -> ParsedDocument:
+    """Parse an audio file via ASR transcription (faster-whisper).
+
+    Transcribes audio → timestamped text → groups into pages by time windows.
+    """
+    segments = _transcribe_audio(file_path)
+
+    if not segments:
+        return ParsedDocument(
+            title=file_path.stem, source_path=str(file_path),
+            source_format="audio", pages=[],
+        )
+
+    pages = _segments_to_pages(segments)
+    full_md = "\n\n".join(p.markdown for p in pages)
+    toc = _extract_toc_from_markdown(full_md)
+    title = file_path.stem.replace("_", " ").replace("-", " ").title()
+
+    # Detect language from transcription
+    detected_lang = "en"
+    try:
+        from faster_whisper import WhisperModel
+        # Language was already detected during transcription, but we don't
+        # have it here. Use the text-based detection in the orchestrator.
+    except ImportError:
+        pass
+
+    duration = segments[-1]["end"] if segments else 0
+    total_minutes = int(duration / 60)
+
+    logger.info(
+        "Transcribed %s: %d segments, %d pages, %d min",
+        file_path.name, len(segments), len(pages), total_minutes,
+    )
+
+    return ParsedDocument(
+        title=title,
+        source_path=str(file_path),
+        source_format="audio",
+        total_pages=len(pages),
+        toc=toc,
+        pages=pages,
+    )
+
+
+def _extract_audio_from_video(video_path: Path) -> Path:
+    """Extract audio track from video using ffmpeg. Returns temp .wav path."""
+    import subprocess
+    import tempfile
+
+    audio_path = Path(tempfile.mktemp(suffix=".wav"))
+
+    result = subprocess.run(
+        [
+            "ffmpeg", "-i", str(video_path),
+            "-vn",  # no video
+            "-acodec", "pcm_s16le",  # WAV PCM
+            "-ar", "16000",  # 16kHz (Whisper optimal)
+            "-ac", "1",  # mono
+            "-y",  # overwrite
+            str(audio_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=600,  # 10 min max
+    )
+
+    if result.returncode != 0:
+        audio_path.unlink(missing_ok=True)
+        raise RuntimeError(f"ffmpeg audio extraction failed: {result.stderr[:500]}")
+
+    return audio_path
+
+
+def _extract_keyframes(video_path: Path, doc_dir: Path | None = None, interval: int = 60) -> list[FigureRef]:
+    """Extract keyframes from video at regular intervals using ffmpeg.
+
+    Returns FigureRef list. Images saved to doc_dir/figures/ if provided.
+    """
+    import subprocess
+    import tempfile
+
+    if doc_dir is None:
+        return []
+
+    figures_dir = doc_dir / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+
+    # Get video duration
+    try:
+        probe = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(video_path),
+            ],
+            capture_output=True, text=True, timeout=30,
+        )
+        duration = float(probe.stdout.strip())
+    except (subprocess.TimeoutExpired, ValueError):
+        logger.warning("Could not determine video duration, skipping keyframe extraction")
+        return []
+
+    figures: list[FigureRef] = []
+    timestamps = list(range(0, int(duration), interval))
+    if not timestamps:
+        timestamps = [0]
+
+    for i, ts in enumerate(timestamps):
+        fig_id = f"keyframe-{i + 1}"
+        filename = f"{fig_id}.jpg"
+        output_path = figures_dir / filename
+
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-ss", str(ts),
+                    "-i", str(video_path),
+                    "-vframes", "1",
+                    "-q:v", "2",
+                    "-y",
+                    str(output_path),
+                ],
+                capture_output=True, text=True, timeout=30,
+            )
+            if output_path.exists() and output_path.stat().st_size > 0:
+                figures.append(FigureRef(
+                    figure_id=fig_id,
+                    filename=filename,
+                    caption=f"Keyframe at {_format_timestamp(ts)}",
+                    page_num=None,
+                ))
+        except subprocess.TimeoutExpired:
+            logger.warning("Keyframe extraction timed out at %ds", ts)
+            continue
+
+    logger.info("Extracted %d keyframes from %s", len(figures), video_path.name)
+    return figures
+
+
+def _parse_video(file_path: Path) -> ParsedDocument:
+    """Parse a video file: extract audio → transcribe → timestamped text.
+
+    Also extracts keyframes at 60-second intervals as figures.
+    Requires: pip install ingestible[audio] + ffmpeg on PATH
+    """
+    import shutil
+
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError(
+            "Video parsing requires ffmpeg on PATH. "
+            "Install via: brew install ffmpeg (macOS) or apt install ffmpeg (Linux)"
+        )
+
+    # Extract audio track
+    logger.info("Extracting audio from %s...", file_path.name)
+    audio_path = _extract_audio_from_video(file_path)
+
+    try:
+        segments = _transcribe_audio(audio_path)
+    finally:
+        audio_path.unlink(missing_ok=True)
+
+    if not segments:
+        return ParsedDocument(
+            title=file_path.stem, source_path=str(file_path),
+            source_format="video", pages=[],
+        )
+
+    pages = _segments_to_pages(segments)
+    full_md = "\n\n".join(p.markdown for p in pages)
+    toc = _extract_toc_from_markdown(full_md)
+    title = file_path.stem.replace("_", " ").replace("-", " ").title()
+
+    # Keyframe extraction happens later in the orchestrator (needs doc_dir)
+    # We store the video path so the orchestrator can call _extract_keyframes
+
+    duration = segments[-1]["end"] if segments else 0
+    total_minutes = int(duration / 60)
+
+    logger.info(
+        "Transcribed video %s: %d segments, %d pages, %d min",
+        file_path.name, len(segments), len(pages), total_minutes,
+    )
+
+    return ParsedDocument(
+        title=title,
+        source_path=str(file_path),
+        source_format="video",
+        total_pages=len(pages),
+        toc=toc,
+        pages=pages,
+    )

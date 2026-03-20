@@ -1,22 +1,49 @@
+# syntax=docker/dockerfile:1
+
+# ── Build stage ──────────────────────────────────────────────
 FROM python:3.12-slim AS builder
 
-WORKDIR /app
-COPY pyproject.toml .
+WORKDIR /build
+
+COPY pyproject.toml README.md ./
 COPY src/ src/
 
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir build && \
+    python -m build --wheel --outdir /build/dist
 
+# ── Runtime stage ────────────────────────────────────────────
 FROM python:3.12-slim
+
+# Install ffmpeg for audio/video support
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
+
+# Non-root user
+RUN groupadd -r ingestible && useradd -r -g ingestible -m ingestible
 
 WORKDIR /app
 
-COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
-COPY src/ingestible/templates/ /app/templates/
-COPY src/ingestible/static/ /app/static/
+# Install the wheel + gunicorn
+COPY --from=builder /build/dist/*.whl /tmp/
+RUN pip install --no-cache-dir /tmp/*.whl gunicorn>=22.0 && \
+    rm /tmp/*.whl
 
-ENV INGEST_DATA_DIR=/data
+# Copy gunicorn config
+COPY gunicorn.conf.py .
+
+# Create data directory
+RUN mkdir -p /app/data && chown -R ingestible:ingestible /app
+
+USER ingestible
+
+# Default environment
+ENV INGEST_DATA_DIR=/app/data
+ENV INGEST_LOG_JSON=true
 
 EXPOSE 8081
 
-CMD ["uvicorn", "ingestible.api:app", "--host", "0.0.0.0", "--port", "8081"]
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD python -c "import httpx; r=httpx.get('http://localhost:8081/health'); r.raise_for_status()"
+
+CMD ["gunicorn", "ingestible.api:app", "-c", "gunicorn.conf.py"]

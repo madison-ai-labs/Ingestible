@@ -12,6 +12,7 @@ from pathlib import Path
 
 from ingestible.config import Settings
 from ingestible.models.chunks import ChunkSet
+from ingestible.pipeline.locking import document_lock
 from ingestible.pipeline.stage5_embedding import Embedder, build_indexes
 from ingestible.pipeline.stage6_storage import (
     load_chunks,
@@ -77,6 +78,7 @@ def re_enrich(
                 c.depends_on = []
                 c.cross_references = []
                 c.cited_references = []
+                c.kg_triples = []
     else:
         # Full re-enrichment: clear all enrichment fields
         for c in chunks.l3_chunks:
@@ -88,6 +90,7 @@ def re_enrich(
             c.depends_on = []
             c.cross_references = []
             c.cited_references = []
+            c.kg_triples = []
             c.context_prefix = ""
 
         for c in chunks.l2_chunks:
@@ -112,6 +115,7 @@ def re_enrich(
         chunks.l0.domain = ""
         chunks.l0.key_concepts = []
         chunks.citations = []
+        chunks.knowledge_graph = []
 
     step = 0
     total = 3  # contextual + enrich + embed/save
@@ -145,14 +149,16 @@ def re_enrich(
     except Exception as e:
         logger.warning("Enrichment failed, continuing without it: %s", e)
 
-    # Stage 5: Embedding & indexing
-    _log("Building indexes...")
-    embedder = Embedder(settings)
-    build_indexes(chunks, doc_dir, embedder)
+    # Stage 5 + 6 under document lock to prevent concurrent writes
+    with document_lock(doc_dir):
+        # Stage 5: Embedding & indexing
+        _log("Building indexes...")
+        embedder = Embedder(settings)
+        build_indexes(chunks, doc_dir, embedder)
 
-    # Stage 6: Storage
-    _log("Saving to disk...")
-    doc_dir = save_document(structure, chunks, settings, content_hash=content_hash)
+        # Stage 6: Storage
+        _log("Saving to disk...")
+        doc_dir = save_document(structure, chunks, settings, content_hash=content_hash)
 
     logger.info("=== Re-enrichment complete for %s ===", doc_id)
     return doc_dir

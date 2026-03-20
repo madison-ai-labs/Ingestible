@@ -24,6 +24,19 @@ from ingestible.search.vector_store import VectorStore
 logger = logging.getLogger(__name__)
 
 
+def _resolve_device(device: str) -> str:
+    """Resolve 'auto' to the best available device."""
+    if device != "auto":
+        return device
+
+    import torch
+    if torch.cuda.is_available():
+        return "cuda"
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
 class Embedder:
     """Manages the embedding model and index creation."""
 
@@ -35,9 +48,11 @@ class Embedder:
     def model(self) -> SentenceTransformer:
         if self._model is None:
             logger.info("Loading embedding model: %s", self._settings.embedding_model)
+            device = _resolve_device(self._settings.embedding_device)
+            logger.info("Embedding device: %s", device)
             self._model = SentenceTransformer(
                 self._settings.embedding_model,
-                device="mps",
+                device=device,
             )
         return self._model
 

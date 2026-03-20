@@ -1,6 +1,18 @@
-# Ingestible
+<div align="center">
+  <h1>Ingestible</h1>
+  <p>
+    Parse, chunk, enrich, and embed documents for AI retrieval.<br>
+    PDF, DOCX, HTML, EPUB, PowerPoint, Excel, CSV, Markdown, RST, AsciiDoc, plain text, audio, and video.
+  </p>
+</div>
 
-A document ingestion pipeline that transforms PDFs, Markdown, DOCX, HTML, EPUB, PowerPoint, Excel, CSV, RST, AsciiDoc, and plain text into a hierarchical, searchable knowledge store optimized for AI retrieval.
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Small%20Business-blue" alt="License"></a>
+  <img src="https://img.shields.io/badge/python-3.11--3.12-3776AB?logo=python&logoColor=white" alt="Python 3.11-3.12">
+  <img src="https://img.shields.io/badge/stage-beta-orange" alt="Beta">
+</p>
+
+---
 
 Instead of dumping 90,000 tokens into an LLM context window, Ingestible gives your AI a **structured map** of the document and **hybrid search** across three indexes — so each query costs ~1,000-2,000 tokens instead.
 
@@ -11,14 +23,24 @@ Instead of dumping 90,000 tokens into an LLM context window, Ingestible gives yo
 
 ## How It Works
 
+```mermaid
+graph LR
+    A["Document"] --> B["Parse"]
+    B --> C["Structure"]
+    C --> D["Chunk"]
+    D --> E["Enrich"]
+    E --> F["Embed + Index"]
+    F --> G["Store"]
 ```
-Document  →  Parse  →  Structure  →  Chunk  →  Enrich  →  Embed  →  Store
-              ↓           ↓            ↓          ↓          ↓
-           Docling     Heading      4-level    LLM adds   ChromaDB
-           + OCR       detection    hierarchy  summaries  + BM25
-           fallback    + TOC        (L0-L3)    concepts   + concepts
-                       extraction              questions
-```
+
+| Stage | What happens |
+|-------|-------------|
+| **Parse** | Format-specific extraction → clean markdown. PDF uses IBM Docling for deep layout analysis, PyMuPDF fallback, automatic OCR if text is sparse. |
+| **Structure** | Builds hierarchy tree from TOC tables, heading patterns, or page range heuristics. |
+| **Chunk** | Splits into 4 levels (L0-L3). Tables and code blocks stay atomic. ~10% overlap. Small trailing chunks get merged. |
+| **Enrich** | Bottom-up LLM pass (L3→L0) generates summaries, concepts, hypothetical questions, entities. Skippable. |
+| **Embed** | E5-large-v2 vectors (ChromaDB, MPS-accelerated) + BM25 sparse index + concept→chunk mapping. |
+| **Store** | JSON file hierarchy under `data/documents/{doc_id}/`. |
 
 **The 4-level chunk hierarchy:**
 
@@ -36,6 +58,22 @@ Document  →  Parse  →  Structure  →  Chunk  →  Enrich  →  Embed  →  
 - **Concept index** — direct concept-to-chunk lookup
 
 Passages found by multiple indexes rank higher. No score normalization needed.
+
+## Features
+
+- **13+ input formats** — PDF, DOCX, HTML, EPUB, PPTX, XLSX, CSV, Markdown, RST, AsciiDoc, plain text, audio (MP3/WAV/FLAC/OGG/...), video (MP4/MKV/AVI/MOV/...)
+- **4-level chunk hierarchy** — L0 overview → L1 chapters → L2 sections → L3 passages, no mid-paragraph splits
+- **LLM enrichment** — summaries, concepts, hypothetical questions, entities, cross-references (one-time cost, skippable)
+- **Hybrid search** — vector + BM25 + concept index, fused with RRF. Optional cross-encoder reranking.
+- **Cross-document corpus search** — query across all ingested documents at once
+- **Extraction profiles** — auto-detected (paper, article, documentation, general) with tailored enrichment
+- **Knowledge graph extraction** — entity-relationship triples from enrichment (auto-enabled for papers and docs)
+- **Smart re-ingestion** — content-hash dedup, selective re-enrichment (unchanged chunks skip LLM), version archival, checkpoint/resume
+- **File watcher** — `ingest watch` monitors a directory and auto-ingests on changes, with optional CV push
+- **Export** — jsonl, parquet, llamaindex, langchain formats
+- **CLI + REST API + Web UI** — ingest and search from anywhere
+- **Docker-ready** — one-command deployment with persistent storage
+- **Zero cloud dependencies** — embeddings run locally (CPU/Apple Silicon MPS). LLM enrichment is optional.
 
 ## Quickstart
 
@@ -106,6 +144,8 @@ ingest ingest /path/to/document.pdf -v
 | reStructuredText | `.rst` | |
 | AsciiDoc | `.adoc` | |
 | Plain text | `.txt` | |
+| Audio | `.mp3`, `.wav`, `.m4a`, `.flac`, `.ogg`, `.aac`, `.opus` | ASR via faster-whisper, timestamped |
+| Video | `.mp4`, `.mkv`, `.avi`, `.mov`, `.webm`, `.wmv`, `.flv` | Audio extraction + ASR + keyframes |
 
 ## Extraction Profiles
 
@@ -132,9 +172,12 @@ ingest export <doc_id>         # Export (jsonl, parquet, llamaindex, langchain)
 ingest versions <doc_id>       # Show document version history
 ingest config                  # Show effective configuration
 ingest serve                   # Start web UI + API server
+ingest watch <dir>             # Watch directory for changes, auto-ingest
+ingest export-cv [doc_id]      # Export to CognitiveVault
 ```
 
-### Ingest Options
+<details>
+<summary>Ingest options</summary>
 
 ```bash
 ingest ingest /path/to/docs/ \
@@ -147,6 +190,8 @@ ingest ingest /path/to/docs/ \
   -v                            # verbose logging
 ```
 
+</details>
+
 ## Web UI
 
 ```bash
@@ -157,9 +202,7 @@ Browse documents, view chunk hierarchies, search within and across documents —
 
 ## Configuration
 
-All settings via environment variables (`INGEST_*` prefix) or `.env` file. See [.env.example](.env.example) for the full list.
-
-Key settings:
+All settings via environment variables (`INGEST_*` prefix) or `.env` file.
 
 ```bash
 # LLM provider
@@ -193,6 +236,7 @@ See the [Usage Guide](docs/usage.md) for full configuration options.
 - [Architecture Overview](docs/architecture.md) — pipeline stages, data flow, project structure
 - [How Search Works](docs/search.md) — vector search, BM25, concept index, RRF fusion
 - [Usage Guide](docs/usage.md) — installation, CLI commands, configuration
+- [REST API Reference](docs/api.md) — all HTTP endpoints
 - [Token Economics](docs/token-economics.md) — why hierarchical retrieval matters, real-world numbers
 - [CognitiveVault Integration](docs/cv-integration.md) — export to CognitiveVault
 - [Roadmap](docs/roadmap.md)
@@ -212,4 +256,6 @@ Ingestible is purpose-built for one thing: turning documents into the most token
 
 ## License
 
-[Apache 2.0](LICENSE)
+[PolyForm Small Business 1.0.0](LICENSE) — free for individuals, small businesses, nonprofits, and open-source projects.
+
+Need a commercial license? See [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md).

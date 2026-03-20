@@ -52,19 +52,29 @@ def test_extract_readable_fallback():
     assert "Hello" in result
 
 
+def _make_streaming_client(body: bytes, headers: dict):
+    """Build a mock httpx.Client that supports the streaming API."""
+    mock_response = MagicMock()
+    mock_response.headers = headers
+    mock_response.raise_for_status = MagicMock()
+    mock_response.iter_bytes = MagicMock(return_value=iter([body]))
+    # Context-manager support for the response (client.stream)
+    mock_response.__enter__ = MagicMock(return_value=mock_response)
+    mock_response.__exit__ = MagicMock(return_value=False)
+
+    mock_client = MagicMock()
+    mock_client.stream = MagicMock(return_value=mock_response)
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    return mock_client
+
+
 def test_fetch_url_mock(tmp_path):
     """fetch_url downloads content to a temp file."""
-    mock_response = MagicMock()
-    mock_response.headers = {"content-type": "application/pdf"}
-    mock_response.content = b"%PDF-1.4 fake pdf content"
-    mock_response.raise_for_status = MagicMock()
+    body = b"%PDF-1.4 fake pdf content"
+    mock_client = _make_streaming_client(body, {"content-type": "application/pdf"})
 
-    mock_client_instance = MagicMock()
-    mock_client_instance.get.return_value = mock_response
-    mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-    mock_client_instance.__exit__ = MagicMock(return_value=False)
-
-    with patch("httpx.Client", return_value=mock_client_instance):
+    with patch("httpx.Client", return_value=mock_client):
         from ingestible.pipeline.fetch import fetch_url
 
         result = fetch_url("https://example.com/doc.pdf", use_readability=False)
@@ -78,18 +88,10 @@ def test_fetch_url_mock(tmp_path):
 
 def test_fetch_url_html_with_readability_mock():
     """fetch_url processes HTML through readability when available."""
-    mock_response = MagicMock()
-    mock_response.headers = {"content-type": "text/html"}
-    mock_response.text = "<html><body><article><p>Article content</p></article></body></html>"
-    mock_response.content = mock_response.text.encode()
-    mock_response.raise_for_status = MagicMock()
+    html = "<html><body><article><p>Article content</p></article></body></html>"
+    mock_client = _make_streaming_client(html.encode(), {"content-type": "text/html"})
 
-    mock_client_instance = MagicMock()
-    mock_client_instance.get.return_value = mock_response
-    mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-    mock_client_instance.__exit__ = MagicMock(return_value=False)
-
-    with patch("httpx.Client", return_value=mock_client_instance):
+    with patch("httpx.Client", return_value=mock_client):
         from ingestible.pipeline.fetch import fetch_url
 
         result = fetch_url("https://example.com/article", use_readability=True)
@@ -99,3 +101,28 @@ def test_fetch_url_html_with_readability_mock():
     content = result.read_text()
     assert "Article content" in content or "article" in content.lower()
     result.unlink()
+
+
+def test_fetch_url_rejects_large_content_length():
+    """fetch_url raises FileTooLargeError when Content-Length exceeds max_bytes."""
+    mock_client = _make_streaming_client(b"x", {"content-type": "application/pdf", "content-length": "1000000"})
+
+    with patch("httpx.Client", return_value=mock_client):
+        from ingestible.pipeline.fetch import FileTooLargeError, fetch_url
+
+        import pytest
+        with pytest.raises(FileTooLargeError):
+            fetch_url("https://example.com/big.pdf", max_bytes=100)
+
+
+def test_fetch_url_rejects_large_stream():
+    """fetch_url raises FileTooLargeError when streamed body exceeds max_bytes."""
+    body = b"x" * 2000
+    mock_client = _make_streaming_client(body, {"content-type": "application/pdf"})
+
+    with patch("httpx.Client", return_value=mock_client):
+        from ingestible.pipeline.fetch import FileTooLargeError, fetch_url
+
+        import pytest
+        with pytest.raises(FileTooLargeError):
+            fetch_url("https://example.com/big.pdf", max_bytes=100)

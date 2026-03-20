@@ -171,10 +171,14 @@ def ingest_batch(
             else:
                 report.succeeded += 1
     else:
+        # Cap per-worker LLM concurrency so total stays under the ceiling
+        per_worker = max(1, settings.max_total_llm_concurrency // parallel)
+        worker_settings = settings.model_copy(update={"llm_concurrency": per_worker})
+
         # Parallel via ProcessPoolExecutor
         with ProcessPoolExecutor(max_workers=parallel) as pool:
             futures = {
-                pool.submit(_ingest_one, f, settings, skip_enrichment, force): f
+                pool.submit(_ingest_one, f, worker_settings, skip_enrichment, force): f
                 for f in files
             }
             done_count = 0

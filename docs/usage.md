@@ -68,6 +68,20 @@ INGEST_RERANKER_TOP_K=50
 INGEST_RERANKER_WEIGHT=0.5
 ```
 
+**Audio/video transcription:**
+```
+INGEST_WHISPER_MODEL=base                       # faster-whisper model: tiny, base, small, medium, large-v3
+```
+
+Requires `pip install ingestible[audio]`. Video also requires `ffmpeg` on PATH.
+
+**Knowledge graph:**
+```
+INGEST_EXTRACT_KNOWLEDGE_GRAPH=false            # extract entity-relationship triples
+```
+
+Enabled by default for `paper` and `documentation` profiles regardless of this setting.
+
 **Other:**
 ```
 INGEST_DATA_DIR=data                            # where documents are stored
@@ -152,6 +166,10 @@ ingest corpus-search "your query here"
 
 Searches all ingested documents simultaneously with cross-document RRF fusion. Results include the source document title.
 
+**Flags:**
+- `-n N` — number of results (default: 10)
+- `--doc-ids ID1 ID2 ...` — limit search to specific document IDs
+
 ### Re-enrich a document
 
 ```bash
@@ -159,6 +177,8 @@ ingest enrich <doc_id>
 ```
 
 Re-runs enrichment (Stage 4) without re-parsing or re-chunking. Useful when you want to update summaries and concepts after changing LLM settings or prompt templates.
+
+**Selective re-enrichment:** When re-ingesting with `--force`, unchanged chunks (same content hash) automatically skip LLM enrichment — their summaries, concepts, and questions are copied from the previous version. When all L3 chunks are unchanged, L2/L1/L0 enrichment is also skipped. This happens automatically; no flags needed.
 
 ### Export
 
@@ -257,6 +277,8 @@ Override with `--profile <name>`. For ambiguous documents, enable LLM-based clas
 | reStructuredText | `.rst` | docutils |
 | AsciiDoc | `.adoc`, `.asciidoc` | Native |
 | Plain text | `.txt` | Native |
+| Audio | `.mp3`, `.wav`, `.m4a`, `.flac`, `.ogg`, `.aac`, `.opus` | faster-whisper ASR (requires `pip install ingestible[audio]`) |
+| Video | `.mp4`, `.mkv`, `.avi`, `.mov`, `.webm`, `.wmv`, `.flv` | ffmpeg + faster-whisper (requires `ffmpeg` on PATH) |
 
 PDF figure extraction: figures are extracted with captions, labels, page numbers, and classifications when using the Docling parser.
 
@@ -289,6 +311,7 @@ data/documents/{doc_id}/
   chroma/             # ChromaDB vector index (persistent)
   bm25_index.pkl      # BM25 sparse index
   concept_index.json  # concept → chunk_ids mapping
+  knowledge_graph.json # entity-relationship triples (when KG extraction is enabled)
   .checkpoint/        # pipeline checkpoint files (cleared on success)
   archive/            # previous versions (when re-ingested)
 ```

@@ -25,9 +25,52 @@ from ingestible.pipeline.metadata import extract_metadata
 from ingestible.pipeline.stage5_embedding import Embedder, build_indexes
 from ingestible.profiles import PROFILES, ExtractionProfile, detect_profile, detect_profile_with_llm
 from ingestible.utils.language import detect_language
+from ingestible.pipeline.locking import document_lock
 from ingestible.pipeline.stage6_storage import save_document
+from ingestible.metrics import INGEST_TOTAL, ACTIVE_INGESTIONS
 
 logger = logging.getLogger(__name__)
+
+
+def _propagate_timestamps(chunks: ChunkSet, parsed: ParsedDocument) -> None:
+    """Propagate timestamps from parsed pages to L3 chunks for audio/video sources.
+
+    Matches L3 chunk content against page content to find the source page,
+    then copies timestamps. Falls back to parsing [MM:SS] markers in the text.
+    """
+    import re
+
+    # Build page lookup by content substring
+    for chunk in chunks.l3_chunks:
+        # Try to find the first timestamp marker in the chunk content
+        m = re.search(r"\[(\d{1,2}):(\d{2}):(\d{2})\]", chunk.content)
+        if m:
+            chunk.timestamp_start = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
+        else:
+            m = re.search(r"\[(\d{1,2}):(\d{2})\]", chunk.content)
+            if m:
+                chunk.timestamp_start = int(m.group(1)) * 60 + int(m.group(2))
+
+        # Find the last timestamp marker for end time
+        matches = list(re.finditer(r"\[(\d{1,2}):(\d{2}):(\d{2})\]|\[(\d{1,2}):(\d{2})\]", chunk.content))
+        if matches:
+            last = matches[-1]
+            if last.group(1) and last.group(3):  # HH:MM:SS
+                chunk.timestamp_end = int(last.group(1)) * 3600 + int(last.group(2)) * 60 + int(last.group(3))
+            elif last.group(4):  # MM:SS
+                chunk.timestamp_end = int(last.group(4)) * 60 + int(last.group(5))
+
+
+def _parse_keyframe_timestamp(caption: str) -> float | None:
+    """Parse seconds from a keyframe caption like 'Keyframe at [01:30]'."""
+    import re
+    m = re.search(r"\[(\d{1,2}):(\d{2}):(\d{2})\]", caption)
+    if m:
+        return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
+    m = re.search(r"\[(\d{1,2}):(\d{2})\]", caption)
+    if m:
+        return int(m.group(1)) * 60 + int(m.group(2))
+    return None
 
 
 def generate_doc_id(file_path: Path) -> str:
@@ -135,15 +178,13 @@ def ingest(
     if is_url(str(file_path)):
         from ingestible.pipeline.fetch import fetch_url
 
-        _fetched_tmp = fetch_url(str(file_path))
+        _fetched_tmp = fetch_url(str(file_path), max_bytes=settings.max_upload_bytes)
         file_path = _fetched_tmp
 
     file_path = Path(file_path).resolve()
 
     if verbose:
-        logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-    else:
-        logging.basicConfig(level=logging.WARNING)
+        logging.getLogger("ingestible").setLevel(logging.INFO)
 
     doc_id = generate_doc_id(file_path)
     total = _count_steps(settings, skip_enrichment)
@@ -164,6 +205,7 @@ def ingest(
         existing = _check_existing(doc_id, content_hash, settings)
         if existing:
             logger.info("Document unchanged, skipping. Use --force to re-ingest.")
+            INGEST_TOTAL.labels(status="skipped").inc()
             return existing
 
     # --- Dedup check ---
@@ -175,174 +217,211 @@ def ingest(
                 file_path.name,
                 dup.name,
             )
+            INGEST_TOTAL.labels(status="skipped").inc()
             return dup
 
-    # --- Version archival + cache on re-ingest ---
+    # --- Version archival + pipeline under document lock ---
     doc_dir = settings.documents_dir / doc_id
     previous_chunks: ChunkSet | None = None
-    if force and (doc_dir / "meta.json").exists():
-        from ingestible.pipeline.stage6_storage import archive_version, load_chunks
+    ACTIVE_INGESTIONS.inc()
+    try:
+        with document_lock(doc_dir):
+            if force and (doc_dir / "meta.json").exists():
+                from ingestible.pipeline.stage6_storage import archive_version, load_chunks
 
-        try:
-            previous_chunks = load_chunks(doc_dir)
-        except Exception:
-            pass
-        archive_version(doc_dir)
+                try:
+                    previous_chunks = load_chunks(doc_dir)
+                except Exception:
+                    pass
+                archive_version(doc_dir)
 
-    # --- Checkpoint setup ---
-    use_checkpoint = settings.checkpoint_enabled and resume
-    doc_dir.mkdir(parents=True, exist_ok=True)
+            # --- Checkpoint setup ---
+            use_checkpoint = settings.checkpoint_enabled and resume
+            doc_dir.mkdir(parents=True, exist_ok=True)
 
-    # Stage 1: Parse
-    if use_checkpoint and (cp := load_checkpoint(doc_dir, "parsed")):
-        parsed = ParsedDocument(**cp)
-        logger.info("  Resumed from checkpoint: parsed")
-    else:
-        _log("Parsing document...")
-        parsed = parse_document(file_path)
-        # Extract file-level metadata and attach to parsed document
-        meta_info = extract_metadata(file_path)
-        parsed.metadata = meta_info
-        if meta_info.language:
-            parsed.detected_language = meta_info.language
-        # Detect language from content if not already set
-        if not parsed.detected_language or parsed.detected_language == "en":
-            detected = detect_language(parsed.full_markdown)
-            if detected:
-                parsed.detected_language = detected
-        if use_checkpoint:
-            save_checkpoint(doc_dir, "parsed", parsed)
+            # Stage 1: Parse
+            if use_checkpoint and (cp := load_checkpoint(doc_dir, "parsed")):
+                parsed = ParsedDocument(**cp)
+                logger.info("  Resumed from checkpoint: parsed")
+            else:
+                _log("Parsing document...")
+                parsed = parse_document(file_path, timeout=settings.parse_timeout)
+                # Extract file-level metadata and attach to parsed document
+                meta_info = extract_metadata(file_path)
+                parsed.metadata = meta_info
+                if meta_info.language:
+                    parsed.detected_language = meta_info.language
+                # Detect language from content if not already set
+                if not parsed.detected_language or parsed.detected_language == "en":
+                    detected = detect_language(parsed.full_markdown)
+                    if detected:
+                        parsed.detected_language = detected
+                if use_checkpoint:
+                    save_checkpoint(doc_dir, "parsed", parsed)
 
-    # Save extracted figure images to disk (before checkpoint serialization)
-    _save_figure_images(parsed, doc_dir)
+            # Save extracted figure images to disk (before checkpoint serialization)
+            _save_figure_images(parsed, doc_dir)
 
-    # Stage 1b: Clean (if enabled)
-    if settings.cleaning_enabled:
-        if use_checkpoint and (cp := load_checkpoint(doc_dir, "cleaned")):
-            parsed = ParsedDocument(**cp)
-            logger.info("  Resumed from checkpoint: cleaned")
-        else:
-            _log("Cleaning document...")
-            parsed = clean_document(parsed)
+            # Stage 1b: Clean (if enabled)
+            if settings.cleaning_enabled:
+                if use_checkpoint and (cp := load_checkpoint(doc_dir, "cleaned")):
+                    parsed = ParsedDocument(**cp)
+                    logger.info("  Resumed from checkpoint: cleaned")
+                else:
+                    _log("Cleaning document...")
+                    parsed = clean_document(parsed)
+                    if use_checkpoint:
+                        save_checkpoint(doc_dir, "cleaned", parsed)
+
+            # --- Profile resolution ---
+            if settings.extraction_profile == "auto":
+                if settings.profile_llm_fallback and not skip_enrichment:
+                    profile_name = asyncio.run(detect_profile_with_llm(parsed, settings))
+                else:
+                    profile_name = detect_profile(parsed)
+            else:
+                profile_name = settings.extraction_profile
+            profile = PROFILES.get(profile_name, PROFILES["general"])
+            logger.info("Extraction profile: %s", profile.name)
+
+            # Apply profile overrides to settings for chunking
+            profile_overrides: dict = {}
+            if profile.max_chunk_tokens is not None:
+                profile_overrides["max_chunk_tokens"] = profile.max_chunk_tokens
+            if profile.min_chunk_tokens is not None:
+                profile_overrides["min_chunk_tokens"] = profile.min_chunk_tokens
+            if profile.chunking_strategy is not None:
+                profile_overrides["chunking_strategy"] = profile.chunking_strategy
+            if profile_overrides:
+                settings = settings.model_copy(update=profile_overrides)
+
+            # Stage 2: Structure detection
+            if use_checkpoint and (cp := load_checkpoint(doc_dir, "structure")):
+                structure = DocumentStructure(**cp)
+                logger.info("  Resumed from checkpoint: structure")
+            else:
+                _log("Detecting structure...")
+                structure = detect_structure(parsed, doc_id)
+                if use_checkpoint:
+                    save_checkpoint(doc_dir, "structure", structure)
+
+            # Stage 3: Chunking + Stage 3b: Validation
+            embedder: Embedder | None = None
+            if use_checkpoint and (cp := load_checkpoint(doc_dir, "validated")):
+                chunks = ChunkSet(**cp)
+                logger.info("  Resumed from checkpoint: validated")
+            else:
+                _log("Chunking...")
+                if settings.chunking_strategy == "semantic":
+                    embedder = Embedder(settings)
+                chunks = chunk_document(structure, settings, embedder=embedder)
+
+                # Stage 3b: Validation
+                _log("Validating chunks...")
+                chunks, quality_report = validate_chunks(chunks)
+                if use_checkpoint:
+                    save_checkpoint(doc_dir, "validated", chunks)
+
+            # Propagate timestamps for audio/video sources
+            if parsed.source_format in ("audio", "video"):
+                _propagate_timestamps(chunks, parsed)
+
+            # Extract keyframes for video sources
+            if parsed.source_format == "video":
+                try:
+                    from ingestible.pipeline.stage1_parsing import _extract_keyframes
+
+                    keyframes = _extract_keyframes(file_path, doc_dir, interval=60)
+                    # Attach keyframes to the nearest pages by timestamp
+                    for fig in keyframes:
+                        # Keyframe figures are already saved to doc_dir/figures/ by _extract_keyframes
+                        pass
+                    # Store keyframe refs on pages for figure manifest
+                    if keyframes:
+                        logger.info("Extracted %d keyframes from video", len(keyframes))
+                        for page in parsed.pages:
+                            for fig in keyframes:
+                                # Parse timestamp from caption "[MM:SS]"
+                                ts = _parse_keyframe_timestamp(fig.caption)
+                                if ts is not None and page.timestamp_start is not None and page.timestamp_end is not None:
+                                    if page.timestamp_start <= ts <= page.timestamp_end:
+                                        page.figures.append(fig)
+                except Exception as e:
+                    logger.warning("Video keyframe extraction failed: %s", e)
+
+            # Populate L0 metadata from parsed document
+            if parsed.metadata:
+                if parsed.metadata.author and not chunks.l0.author:
+                    chunks.l0.author = parsed.metadata.author
+                if parsed.metadata.creation_date:
+                    chunks.l0.creation_date = parsed.metadata.creation_date
+                if parsed.detected_language:
+                    chunks.l0.source_language = parsed.detected_language
+
+            # Stage 3c: Contextual chunking (if enabled + not skip_enrichment)
+            if settings.contextual_chunking and not skip_enrichment:
+                if use_checkpoint and (cp := load_checkpoint(doc_dir, "contextual")):
+                    chunks = ChunkSet(**cp)
+                    logger.info("  Resumed from checkpoint: contextual")
+                else:
+                    _log("Adding contextual prefixes...")
+                    try:
+                        from ingestible.pipeline.stage3c_contextual import add_context_prefixes
+
+                        chunks = asyncio.run(add_context_prefixes(chunks, structure, settings))
+                        if use_checkpoint:
+                            save_checkpoint(doc_dir, "contextual", chunks)
+                    except Exception as e:
+                        logger.warning("Contextual chunking failed, continuing without it: %s", e)
+
+            # Stage 4: Enrichment (optional)
+            if not skip_enrichment:
+                if use_checkpoint and (cp := load_checkpoint(doc_dir, "enriched")):
+                    chunks = ChunkSet(**cp)
+                    logger.info("  Resumed from checkpoint: enriched")
+                else:
+                    _log("LLM enrichment...")
+                    try:
+                        from ingestible.pipeline.stage4_enrichment import enrich_chunks
+
+                        chunks = asyncio.run(enrich_chunks(
+                            chunks, settings, profile=profile,
+                            previous_chunks=previous_chunks,
+                        ))
+                        if use_checkpoint:
+                            save_checkpoint(doc_dir, "enriched", chunks)
+                    except Exception as e:
+                        logger.warning("Enrichment failed, continuing without it: %s", e)
+            else:
+                logger.info("  Skipping enrichment (--skip-enrichment)")
+
+            # Stage 5: Embedding & indexing
+            _log("Building indexes...")
+            if embedder is None:
+                embedder = Embedder(settings)
+            build_indexes(chunks, doc_dir, embedder, language=parsed.detected_language, previous_chunks=previous_chunks)
+
+            # Stage 6: Storage
+            _log("Saving to disk...")
+            doc_dir = save_document(
+                structure, chunks, settings,
+                content_hash=content_hash,
+                extraction_profile=profile.name,
+            )
+
+            # Clean up checkpoints on success
             if use_checkpoint:
-                save_checkpoint(doc_dir, "cleaned", parsed)
+                clear_checkpoints(doc_dir)
 
-    # --- Profile resolution ---
-    if settings.extraction_profile == "auto":
-        if settings.profile_llm_fallback and not skip_enrichment:
-            profile_name = asyncio.run(detect_profile_with_llm(parsed, settings))
-        else:
-            profile_name = detect_profile(parsed)
-    else:
-        profile_name = settings.extraction_profile
-    profile = PROFILES.get(profile_name, PROFILES["general"])
-    logger.info("Extraction profile: %s", profile.name)
+        # Clean up fetched temp file
+        if _fetched_tmp is not None:
+            _fetched_tmp.unlink(missing_ok=True)
 
-    # Apply profile overrides to settings for chunking
-    profile_overrides: dict = {}
-    if profile.max_chunk_tokens is not None:
-        profile_overrides["max_chunk_tokens"] = profile.max_chunk_tokens
-    if profile.min_chunk_tokens is not None:
-        profile_overrides["min_chunk_tokens"] = profile.min_chunk_tokens
-    if profile.chunking_strategy is not None:
-        profile_overrides["chunking_strategy"] = profile.chunking_strategy
-    if profile_overrides:
-        settings = settings.model_copy(update=profile_overrides)
-
-    # Stage 2: Structure detection
-    if use_checkpoint and (cp := load_checkpoint(doc_dir, "structure")):
-        structure = DocumentStructure(**cp)
-        logger.info("  Resumed from checkpoint: structure")
-    else:
-        _log("Detecting structure...")
-        structure = detect_structure(parsed, doc_id)
-        if use_checkpoint:
-            save_checkpoint(doc_dir, "structure", structure)
-
-    # Stage 3: Chunking + Stage 3b: Validation
-    embedder: Embedder | None = None
-    if use_checkpoint and (cp := load_checkpoint(doc_dir, "validated")):
-        chunks = ChunkSet(**cp)
-        logger.info("  Resumed from checkpoint: validated")
-    else:
-        _log("Chunking...")
-        if settings.chunking_strategy == "semantic":
-            embedder = Embedder(settings)
-        chunks = chunk_document(structure, settings, embedder=embedder)
-
-        # Stage 3b: Validation
-        _log("Validating chunks...")
-        chunks, quality_report = validate_chunks(chunks)
-        if use_checkpoint:
-            save_checkpoint(doc_dir, "validated", chunks)
-
-    # Populate L0 metadata from parsed document
-    if parsed.metadata:
-        if parsed.metadata.author and not chunks.l0.author:
-            chunks.l0.author = parsed.metadata.author
-        if parsed.metadata.creation_date:
-            chunks.l0.creation_date = parsed.metadata.creation_date
-        if parsed.detected_language:
-            chunks.l0.source_language = parsed.detected_language
-
-    # Stage 3c: Contextual chunking (if enabled + not skip_enrichment)
-    if settings.contextual_chunking and not skip_enrichment:
-        if use_checkpoint and (cp := load_checkpoint(doc_dir, "contextual")):
-            chunks = ChunkSet(**cp)
-            logger.info("  Resumed from checkpoint: contextual")
-        else:
-            _log("Adding contextual prefixes...")
-            try:
-                from ingestible.pipeline.stage3c_contextual import add_context_prefixes
-
-                chunks = asyncio.run(add_context_prefixes(chunks, structure, settings))
-                if use_checkpoint:
-                    save_checkpoint(doc_dir, "contextual", chunks)
-            except Exception as e:
-                logger.warning("Contextual chunking failed, continuing without it: %s", e)
-
-    # Stage 4: Enrichment (optional)
-    if not skip_enrichment:
-        if use_checkpoint and (cp := load_checkpoint(doc_dir, "enriched")):
-            chunks = ChunkSet(**cp)
-            logger.info("  Resumed from checkpoint: enriched")
-        else:
-            _log("LLM enrichment...")
-            try:
-                from ingestible.pipeline.stage4_enrichment import enrich_chunks
-
-                chunks = asyncio.run(enrich_chunks(
-                    chunks, settings, profile=profile,
-                    previous_chunks=previous_chunks,
-                ))
-                if use_checkpoint:
-                    save_checkpoint(doc_dir, "enriched", chunks)
-            except Exception as e:
-                logger.warning("Enrichment failed, continuing without it: %s", e)
-    else:
-        logger.info("  Skipping enrichment (--skip-enrichment)")
-
-    # Stage 5: Embedding & indexing
-    _log("Building indexes...")
-    if embedder is None:
-        embedder = Embedder(settings)
-    build_indexes(chunks, doc_dir, embedder, language=parsed.detected_language, previous_chunks=previous_chunks)
-
-    # Stage 6: Storage
-    _log("Saving to disk...")
-    doc_dir = save_document(
-        structure, chunks, settings,
-        content_hash=content_hash,
-        extraction_profile=profile.name,
-    )
-
-    # Clean up checkpoints on success
-    if use_checkpoint:
-        clear_checkpoints(doc_dir)
-
-    # Clean up fetched temp file
-    if _fetched_tmp is not None:
-        _fetched_tmp.unlink(missing_ok=True)
-
-    logger.info("=== Done. Document stored at %s ===", doc_dir)
-    return doc_dir
+        INGEST_TOTAL.labels(status="success").inc()
+        logger.info("=== Done. Document stored at %s ===", doc_dir)
+        return doc_dir
+    except Exception:
+        INGEST_TOTAL.labels(status="failed").inc()
+        raise
+    finally:
+        ACTIVE_INGESTIONS.dec()

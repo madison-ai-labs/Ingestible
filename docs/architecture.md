@@ -25,12 +25,16 @@ Converts a document into structured markdown text. Supports multiple formats:
 | RST | docutils | |
 | AsciiDoc | Native regex parser | |
 | Plain text | Native | |
+| Audio (MP3, WAV, FLAC, OGG, ...) | faster-whisper ASR | Timestamped transcription, 2-min page windows |
+| Video (MP4, MKV, AVI, MOV, ...) | ffmpeg + faster-whisper | Audio extraction → ASR + keyframe extraction |
 
 For PDFs, Docling provides deep layout analysis, table detection via TableFormer, heading recognition, and figure extraction. PyMuPDF4LLM is the fallback — faster, simpler markdown extraction with per-page output. If average chars/page < 100 after first pass, parsing retries with OCR enabled.
 
 **Figure extraction:** Docling's `pictures` are extracted as `FigureRef` objects with caption, label, page number, and classification, then attached to their respective pages.
 
-**Output:** `ParsedDocument` with title, page count, TOC entries, per-page markdown content (including tables and figures), and source format.
+**Audio/video transcription:** Uses faster-whisper (local Whisper model) for ASR. Audio files are transcribed directly; video files have their audio track extracted via ffmpeg first. Transcription segments are grouped into ~2-minute pages with `[MM:SS]` timestamp markers. Video sources also get keyframe extraction at 60-second intervals, stored as figures. Timestamps propagate to L3 chunks for time-based retrieval. Requires `pip install ingestible[audio]` and `ffmpeg` on PATH for video.
+
+**Output:** `ParsedDocument` with title, page count, TOC entries, per-page markdown content (including tables and figures), source format, and optional timestamps.
 
 ### Stage 1b — Cleaning
 
@@ -134,6 +138,22 @@ One-time LLM pass at ingestion that generates metadata for dramatically better r
 
 **For papers:** structured citation extraction with authors, year, title, venue, DOI, and inline reference locations.
 
+**Knowledge graph extraction** (when enabled via `INGEST_EXTRACT_KNOWLEDGE_GRAPH` or auto-enabled for `paper`/`documentation` profiles):
+- Extracts `(subject, predicate, object)` triples from each L3 chunk
+- Entity types: Person, Concept, Method, Organization, Technology, Dataset, Metric
+- Predicates: uses, is_a, part_of, improves, depends_on, authored_by, evaluated_on, etc.
+- Confidence scores (1.0 = directly stated, 0.5 = implied)
+- Deduplication: same triple across chunks keeps highest confidence
+- Stored per-chunk (`kg_triples`) and aggregated on ChunkSet (`knowledge_graph`)
+- Persisted as `knowledge_graph.json`
+- Accessible via `GET /documents/{doc_id}/knowledge-graph` API endpoint
+
+**Selective re-enrichment:**
+
+When re-ingesting with `--force`, `enrich_chunks()` accepts an optional `previous_chunks` parameter. It builds a lookup of previous L3 chunks by `content_hash`. Unchanged chunks copy all enrichment fields (summary, concepts, questions, KG triples) from the previous version instead of calling the LLM. When **all** L3 chunks are unchanged, L2/L1/L0 enrichment and KG extraction are also skipped. This is automatic during `--force` re-ingestion.
+
+`re_enrich()` also accepts an optional `changed_chunk_ids` parameter for targeted re-enrichment of specific chunks (used by the CV webhook handler).
+
 **LLM Client abstraction:**
 - `OpenAIClient` (default) — uses `gpt-4o-mini` with structured JSON output
 - `AnthropicClient` (alternative) — uses Claude Haiku
@@ -189,6 +209,7 @@ data/documents/{doc_id}/
   chroma/                # ChromaDB vector index
   bm25_index.pkl         # BM25 sparse index
   concept_index.json     # concept → chunk_ids mapping
+  knowledge_graph.json   # entity-relationship triples (when KG enabled)
   .checkpoint/           # pipeline stage checkpoints (cleared on success)
   archive/               # previous versions (document versioning)
 ```
@@ -225,6 +246,7 @@ src/ingestible/
     metadata.py          # Document metadata extraction
     progress.py          # Progress callbacks
     re_enrich.py         # Re-enrichment without re-parsing
+    watcher.py           # Directory file watcher (watchdog)
   search/
     hybrid.py            # RRF-based merge, optional cross-encoder reranking
     vector_store.py      # ChromaDB wrapper

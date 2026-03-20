@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 if TYPE_CHECKING:
     pass
 
-from ingestible.models.enrichment import Citation
+from ingestible.models.enrichment import Citation, KGTriple
 
 
 class ChunkPosition(BaseModel):
@@ -22,24 +22,31 @@ class L3Chunk(BaseModel):
     chunk_id: str
     content: str
     content_hash: str = ""
-    page_start: int | None = None
-    page_end: int | None = None
+    page_start: int | None = Field(default=None, ge=0)
+    page_end: int | None = Field(default=None, ge=0)
     position: ChunkPosition = Field(default_factory=ChunkPosition)
     parent_section_id: str = ""
     position_in_section: Literal["first", "middle", "last", "only"] = "only"
+
+    # Timestamps (audio/video sources only, in seconds)
+    timestamp_start: float | None = Field(default=None, ge=0.0)
+    timestamp_end: float | None = Field(default=None, ge=0.0)
 
     # Context prefix (populated by Stage 3c — contextual chunking)
     context_prefix: str = ""
 
     # Enrichment fields (populated by Stage 4)
     summary: str = ""
-    concepts: list[str] = Field(default_factory=list)
-    hypothetical_questions: list[str] = Field(default_factory=list)
-    keywords: list[str] = Field(default_factory=list)
+    concepts: list[str] = Field(default_factory=list, max_length=200)
+    hypothetical_questions: list[str] = Field(default_factory=list, max_length=50)
+    keywords: list[str] = Field(default_factory=list, max_length=200)
     difficulty_level: str = ""
-    depends_on: list[str] = Field(default_factory=list)
+    depends_on: list[str] = Field(default_factory=list, max_length=200)
     cross_references: list[str] = Field(default_factory=list)
     cited_references: list[str] = Field(default_factory=list)
+
+    # Knowledge graph triples (populated by Stage 4 when enabled)
+    kg_triples: list[KGTriple] = Field(default_factory=list)
 
 
 class L2Chunk(BaseModel):
@@ -87,15 +94,15 @@ class L0Chunk(BaseModel):
     creation_date: str = ""
     source_language: str = ""
     toc_summary: str = ""
-    key_concepts: list[str] = Field(default_factory=list)
-    total_pages: int = 0
-    total_chapters: int = 0
-    total_sections: int = 0
-    total_passages: int = 0
+    key_concepts: list[str] = Field(default_factory=list, max_length=200)
+    total_pages: int = Field(default=0, ge=0)
+    total_chapters: int = Field(default=0, ge=0)
+    total_sections: int = Field(default=0, ge=0)
+    total_passages: int = Field(default=0, ge=0)
 
     # Digest fields (populated by Stage 4)
     executive_summary: str = ""
-    key_findings: list[str] = Field(default_factory=list)
+    key_findings: list[str] = Field(default_factory=list, max_length=100)
     methodology: str = ""
     limitations: str = ""
     document_type: str = ""
@@ -113,3 +120,6 @@ class ChunkSet(BaseModel):
 
     # Structured citations (populated by Stage 4 when profile enables it)
     citations: list[Citation] = Field(default_factory=list)
+
+    # Knowledge graph triples (populated by Stage 4 when enabled)
+    knowledge_graph: list[KGTriple] = Field(default_factory=list)

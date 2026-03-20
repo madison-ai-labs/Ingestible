@@ -198,6 +198,8 @@ CHUNKSET_SCHEMA_SNAPSHOT = {
         },
         "parent_section_id": "string",
         "position_in_section": "enum[first,last,middle,only]",
+        "timestamp_start": "number|null",
+        "timestamp_end": "number|null",
         "context_prefix": "string",
         "summary": "string",
         "concepts": "list[string]",
@@ -208,6 +210,15 @@ CHUNKSET_SCHEMA_SNAPSHOT = {
         "cross_references": "list[string]",
         "cited_references": "list[string]",
         "content_hash": "string",
+        "kg_triples": {
+            "subject": "string",
+            "subject_type": "string",
+            "predicate": "string",
+            "object": "string",
+            "object_type": "string",
+            "confidence": "number",
+            "source_chunk_id": "string",
+        },
     },
     "citations": {
         "citation_id": "string",
@@ -218,6 +229,15 @@ CHUNKSET_SCHEMA_SNAPSHOT = {
         "doi": "string",
         "raw_text": "string",
         "inline_references": "list[string]",
+    },
+    "knowledge_graph": {
+        "subject": "string",
+        "subject_type": "string",
+        "predicate": "string",
+        "object": "string",
+        "object_type": "string",
+        "confidence": "number",
+        "source_chunk_id": "string",
     },
 }
 
