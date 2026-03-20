@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -29,6 +29,7 @@ def _mock_chromadb(monkeypatch):
 
 def _import_searcher():
     from ingestible.search.hybrid import HybridSearcher
+
     return HybridSearcher
 
 
@@ -50,12 +51,8 @@ def _make_chunks_and_stores(n: int = 5):
     concept_index = MagicMock()
     embedder = MagicMock()
 
-    vector_store.query.return_value = [
-        (f"c{i}", 1.0 - i * 0.1, {}) for i in range(n)
-    ]
-    bm25_store.query.return_value = [
-        (f"c{n - 1 - i}", 5.0 - i) for i in range(n)
-    ]
+    vector_store.query.return_value = [(f"c{i}", 1.0 - i * 0.1, {}) for i in range(n)]
+    bm25_store.query.return_value = [(f"c{n - 1 - i}", 5.0 - i) for i in range(n)]
     concept_index.lookup.return_value = []
     embedder.embed_query.return_value = [0.1] * 10
 

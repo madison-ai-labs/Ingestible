@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ingestible.config import Settings
 from ingestible.pipeline.stage1_parsing import SUPPORTED_FORMATS
+
+if TYPE_CHECKING:
+    from ingestible.adapters.cv_export import CVConfig
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +122,10 @@ class FileWatcher:
                 result = export_to_cv(chunks, self.cv_config)
                 logger.info(
                     "  CV push %s: created=%d updated=%d unchanged=%d",
-                    chunks.doc_id, result.created, result.updated, result.unchanged,
+                    chunks.doc_id,
+                    result.created,
+                    result.updated,
+                    result.unchanged,
                 )
             except Exception as e:
                 logger.error("  CV push failed for %s: %s", doc_dir.name, e)
@@ -127,8 +133,8 @@ class FileWatcher:
     def start(self) -> None:
         """Start watching. Blocks until interrupted."""
         try:
-            from watchdog.observers import Observer
             from watchdog.events import FileSystemEventHandler
+            from watchdog.observers import Observer
         except ImportError:
             raise ImportError(
                 "watchdog is required for file watching. "

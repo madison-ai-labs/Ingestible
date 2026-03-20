@@ -14,7 +14,9 @@ def main(argv: list[str] | None = None) -> None:
     sub = parser.add_subparsers(dest="command")
 
     # --- ingest ---
-    p_ingest = sub.add_parser("ingest", help="Ingest a document or directory into the knowledge store")
+    p_ingest = sub.add_parser(
+        "ingest", help="Ingest a document or directory into the knowledge store"
+    )
     p_ingest.add_argument("file_path", help="Path to document, directory, or glob pattern")
     p_ingest.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     p_ingest.add_argument(
@@ -99,9 +101,7 @@ def main(argv: list[str] | None = None) -> None:
         required=True,
         help="Export format",
     )
-    p_exp.add_argument(
-        "-o", "--output", required=True, help="Output file path"
-    )
+    p_exp.add_argument("-o", "--output", required=True, help="Output file path")
 
     # --- config ---
     sub.add_parser("config", help="Show effective configuration (all sources merged)")
@@ -140,13 +140,19 @@ def main(argv: list[str] | None = None) -> None:
     eval_parser = sub.add_parser("eval", help="Evaluate retrieval quality")
     eval_parser.add_argument("doc_id", help="Document ID to evaluate")
     eval_parser.add_argument("--queries", help="Path to JSONL file with Q&A pairs (optional)")
-    eval_parser.add_argument("-k", type=int, default=5, help="Number of results per query (default: 5)")
-    eval_parser.add_argument("--compare", action="store_true", help="Compare hybrid vs vector-only vs BM25-only")
+    eval_parser.add_argument(
+        "-k", type=int, default=5, help="Number of results per query (default: 5)"
+    )
+    eval_parser.add_argument(
+        "--compare", action="store_true", help="Compare hybrid vs vector-only vs BM25-only"
+    )
     eval_parser.add_argument("--output", "-o", help="Save detailed results to JSON file")
 
     # --- cleanup ---
     cleanup_parser = sub.add_parser("cleanup", help="Clean stale checkpoints and temp files")
-    cleanup_parser.add_argument("--max-age", type=int, default=24, help="Max age in hours (default: 24)")
+    cleanup_parser.add_argument(
+        "--max-age", type=int, default=24, help="Max age in hours (default: 24)"
+    )
 
     # --- export-cv ---
     p_export = sub.add_parser("export-cv", help="Export documents to CognitiveVault")
@@ -179,6 +185,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     from ingestible.logging import setup_logging
+
     setup_logging(json_output=False, level="INFO")  # Console output for CLI
 
     if args.command is None:
@@ -204,10 +211,10 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "watch":
         _cmd_watch(args)
     elif args.command == "eval":
-        from ingestible.eval import evaluate_document, load_eval_queries, compare_strategies
-
         from pathlib import Path
+
         from ingestible.config import get_settings
+        from ingestible.eval import compare_strategies, evaluate_document, load_eval_queries
 
         settings = get_settings()
 
@@ -227,6 +234,7 @@ def main(argv: list[str] | None = None) -> None:
 
             if args.output:
                 import json
+
                 output = report.to_dict()
                 output["results"] = [
                     {
@@ -245,12 +253,14 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "cleanup":
         from ingestible.config import get_settings
         from ingestible.pipeline.cleanup import cleanup_stale
+
         settings = get_settings()
         counts = cleanup_stale(settings, max_age_hours=args.max_age)
         print(f"Cleaned: {counts['checkpoints']} checkpoints, {counts['temp_files']} temp files")
     elif args.command == "mcp":
         try:
             from ingestible.mcp_server import mcp
+
             mcp.run()
         except ImportError:
             print("MCP server requires the mcp extra. Install with: pip install ingestible[mcp]")
@@ -309,7 +319,9 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
             parallel=args.parallel,
             recursive=not args.no_recursive,
         )
-        print(f"\nBatch complete: {report.succeeded} succeeded, {report.failed} failed ({report.elapsed_seconds}s)")
+        print(
+            f"\nBatch complete: {report.succeeded} succeeded, {report.failed} failed ({report.elapsed_seconds}s)"
+        )
         for r in report.results:
             status = "OK" if not r.error else f"FAILED: {r.error}"
             print(f"  {r.path.name:40s}  {status}")
@@ -354,8 +366,6 @@ def _cmd_list() -> None:
 
 
 def _cmd_search(args: argparse.Namespace) -> None:
-    from pathlib import Path
-
     from ingestible.config import get_settings
     from ingestible.pipeline.stage5_embedding import Embedder
     from ingestible.pipeline.stage6_storage import load_chunks
@@ -379,7 +389,7 @@ def _cmd_search(args: argparse.Namespace) -> None:
         print("No results found.")
         return
 
-    print(f"Search: \"{args.query}\" in {args.doc_id}")
+    print(f'Search: "{args.query}" in {args.doc_id}')
     print(f"Found {response.total_candidates} candidates, showing top {len(response.results)}:\n")
 
     for i, r in enumerate(response.results, 1):
@@ -410,7 +420,7 @@ def _cmd_corpus_search(args: argparse.Namespace) -> None:
         print("No results found.")
         return
 
-    print(f"Search: \"{args.query}\" across {response.documents_searched} documents")
+    print(f'Search: "{args.query}" across {response.documents_searched} documents')
     print(f"Found {response.total_candidates} candidates, showing top {len(response.results)}:\n")
 
     for i, r in enumerate(response.results, 1):
@@ -560,12 +570,12 @@ def _cmd_watch(args: argparse.Namespace) -> None:
 
 
 def _cmd_export_cv(args: argparse.Namespace) -> None:
+    import logging
     import os
+
     from ingestible.adapters.cv_export import CVConfig, export_batch_to_cv
     from ingestible.config import get_settings
     from ingestible.pipeline.stage6_storage import list_documents
-
-    import logging
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -593,9 +603,7 @@ def _cmd_export_cv(args: argparse.Namespace) -> None:
             sys.exit(1)
         print(f"Exporting all {len(doc_ids)} documents...")
 
-    results = export_batch_to_cv(
-        doc_ids, settings, config, delete_removed=args.delete_removed
-    )
+    results = export_batch_to_cv(doc_ids, settings, config, delete_removed=args.delete_removed)
 
     succeeded = sum(1 for r in results if not r.error)
     failed = sum(1 for r in results if r.error)
@@ -605,7 +613,9 @@ def _cmd_export_cv(args: argparse.Namespace) -> None:
         if r.error:
             print(f"  {r.doc_id:40s}  FAILED: {r.error}")
         else:
-            print(f"  {r.doc_id:40s}  created={r.created} updated={r.updated} unchanged={r.unchanged}")
+            print(
+                f"  {r.doc_id:40s}  created={r.created} updated={r.updated} unchanged={r.unchanged}"
+            )
 
 
 if __name__ == "__main__":

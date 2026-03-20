@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from prometheus_client import Counter, Histogram, Gauge
-
+from prometheus_client import Counter, Gauge, Histogram
 
 # Ingestion metrics
 INGEST_DURATION = Histogram(

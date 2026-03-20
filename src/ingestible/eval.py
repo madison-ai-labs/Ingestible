@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class EvalQuery:
     """A single evaluation query with expected chunk IDs."""
+
     query: str
     expected_chunk_ids: list[str]
     metadata: dict = field(default_factory=dict)
@@ -33,6 +34,7 @@ class EvalQuery:
 @dataclass
 class EvalResult:
     """Result of evaluating a single query."""
+
     query: str
     expected_chunk_ids: list[str]
     retrieved_chunk_ids: list[str]
@@ -45,6 +47,7 @@ class EvalResult:
 @dataclass
 class EvalReport:
     """Aggregate evaluation metrics across all queries."""
+
     doc_id: str
     total_queries: int
     k: int
@@ -139,15 +142,17 @@ def evaluate_document(
         # Recall@K: relevant retrieved / total relevant
         recall = len(hits_in_retrieved) / len(expected_set) if expected_set else 0.0
 
-        results.append(EvalResult(
-            query=eq.query,
-            expected_chunk_ids=eq.expected_chunk_ids,
-            retrieved_chunk_ids=retrieved_ids,
-            hit=hit,
-            reciprocal_rank=rr,
-            precision_at_k=precision,
-            recall_at_k=recall,
-        ))
+        results.append(
+            EvalResult(
+                query=eq.query,
+                expected_chunk_ids=eq.expected_chunk_ids,
+                retrieved_chunk_ids=retrieved_ids,
+                hit=hit,
+                reciprocal_rank=rr,
+                precision_at_k=precision,
+                recall_at_k=recall,
+            )
+        )
 
     # Aggregate
     n = len(results)
@@ -178,11 +183,13 @@ def _generate_synthetic_queries(chunks) -> list[EvalQuery]:
     queries: list[EvalQuery] = []
     for chunk in chunks.l3_chunks:
         for q in chunk.hypothetical_questions:
-            queries.append(EvalQuery(
-                query=q,
-                expected_chunk_ids=[chunk.chunk_id],
-                metadata={"source": "synthetic", "source_chunk": chunk.chunk_id},
-            ))
+            queries.append(
+                EvalQuery(
+                    query=q,
+                    expected_chunk_ids=[chunk.chunk_id],
+                    metadata={"source": "synthetic", "source_chunk": chunk.chunk_id},
+                )
+            )
     return queries
 
 
@@ -196,11 +203,13 @@ def load_eval_queries(path: Path) -> list[EvalQuery]:
         if not line.strip():
             continue
         data = json.loads(line)
-        queries.append(EvalQuery(
-            query=data["query"],
-            expected_chunk_ids=data.get("expected_chunk_ids", []),
-            metadata=data.get("metadata", {}),
-        ))
+        queries.append(
+            EvalQuery(
+                query=data["query"],
+                expected_chunk_ids=data.get("expected_chunk_ids", []),
+                metadata=data.get("metadata", {}),
+            )
+        )
     return queries
 
 
@@ -217,7 +226,6 @@ def compare_strategies(
     """
     doc_dir = settings.documents_dir / doc_id
     chunks = load_chunks(doc_dir)
-    embedder = Embedder(settings)
 
     if queries is None:
         queries = _generate_synthetic_queries(chunks)

@@ -110,11 +110,11 @@ def _strip_headers_footers(
                 out.append(line)
                 continue
             # Check if it's the first non-empty line and matches a header
-            is_first_nonempty = all(not l.strip() for l in lines[:i])
+            is_first_nonempty = all(not ln.strip() for ln in lines[:i])
             if is_first_nonempty and stripped in headers:
                 continue
             # Check if it's the last non-empty line and matches a footer
-            is_last_nonempty = all(not l.strip() for l in lines[i + 1 :])
+            is_last_nonempty = all(not ln.strip() for ln in lines[i + 1 :])
             if is_last_nonempty and stripped in footers:
                 continue
             out.append(line)

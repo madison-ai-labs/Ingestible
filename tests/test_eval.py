@@ -1,13 +1,10 @@
 """Tests for the retrieval evaluation framework."""
-import json
-from pathlib import Path
 
-import pytest
+import json
 
 from ingestible.eval import (
     EvalQuery,
     EvalReport,
-    EvalResult,
     _generate_synthetic_queries,
     load_eval_queries,
 )
@@ -62,8 +59,10 @@ class TestLoadEvalQueries:
     def test_load_jsonl(self, tmp_path):
         f = tmp_path / "queries.jsonl"
         f.write_text(
-            json.dumps({"query": "What is X?", "expected_chunk_ids": ["c1"]}) + "\n"
-            + json.dumps({"query": "How does Y?", "expected_chunk_ids": ["c2", "c3"]}) + "\n"
+            json.dumps({"query": "What is X?", "expected_chunk_ids": ["c1"]})
+            + "\n"
+            + json.dumps({"query": "How does Y?", "expected_chunk_ids": ["c2", "c3"]})
+            + "\n"
         )
         queries = load_eval_queries(f)
         assert len(queries) == 2
@@ -113,8 +112,8 @@ class TestDoclingChunker:
     """Test the docling chunking strategy."""
 
     def test_heading_forces_chunk_boundary(self):
-        from ingestible.pipeline.stage3_chunking import _split_into_passages
         from ingestible.config import Settings
+        from ingestible.pipeline.stage3_chunking import _split_into_passages
 
         text = (
             "# Introduction\n\n"

@@ -21,12 +21,14 @@ from ingestible.search.concept_index import ConceptIndex
 from ingestible.utils.text import split_paragraphs
 from ingestible.utils.tokens import count_tokens
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _big_structure(n_chapters: int = 5, n_sections: int = 4, paragraph_count: int = 6) -> DocumentStructure:
+
+def _big_structure(
+    n_chapters: int = 5, n_sections: int = 4, paragraph_count: int = 6
+) -> DocumentStructure:
     """Build a realistic multi-chapter document structure for benchmarking."""
     paragraph = (
         "Autonomous agents leverage tool-use capabilities to interact with external "
@@ -40,26 +42,33 @@ def _big_structure(n_chapters: int = 5, n_sections: int = 4, paragraph_count: in
     for ci in range(n_chapters):
         sections = []
         for si in range(n_sections):
-            sections.append(StructureNode(
-                id=f"ch{ci}-sec{si}",
-                title=f"Section {ci}.{si}",
-                level=2,
-                content=section_body,
-                page_start=ci * 10 + si,
-                page_end=ci * 10 + si + 1,
-            ))
-        chapters.append(StructureNode(
-            id=f"ch{ci}",
-            title=f"Chapter {ci}",
-            level=1,
-            page_start=ci * 10,
-            page_end=ci * 10 + n_sections,
-            children=sections,
-        ))
+            sections.append(
+                StructureNode(
+                    id=f"ch{ci}-sec{si}",
+                    title=f"Section {ci}.{si}",
+                    level=2,
+                    content=section_body,
+                    page_start=ci * 10 + si,
+                    page_end=ci * 10 + si + 1,
+                )
+            )
+        chapters.append(
+            StructureNode(
+                id=f"ch{ci}",
+                title=f"Chapter {ci}",
+                level=1,
+                page_start=ci * 10,
+                page_end=ci * 10 + n_sections,
+                children=sections,
+            )
+        )
 
     root = StructureNode(
-        id="root", title="Benchmark Document", level=0,
-        page_end=n_chapters * 10, children=chapters,
+        id="root",
+        title="Benchmark Document",
+        level=0,
+        page_end=n_chapters * 10,
+        children=chapters,
     )
     return DocumentStructure(doc_id="bench-doc", title="Benchmark Document", root=root)
 
@@ -67,6 +76,7 @@ def _big_structure(n_chapters: int = 5, n_sections: int = 4, paragraph_count: in
 # ---------------------------------------------------------------------------
 # Benchmark: chunking throughput
 # ---------------------------------------------------------------------------
+
 
 def test_chunking_throughput(tmp_path):
     """Measure chunking speed and report key metrics."""
@@ -77,11 +87,7 @@ def test_chunking_throughput(tmp_path):
     chunks = chunk_document(structure, settings)
     elapsed = time.perf_counter() - start
 
-    total_input_chars = sum(
-        len(node.content)
-        for node in structure.root.walk()
-        if node.content
-    )
+    total_input_chars = sum(len(node.content) for node in structure.root.walk() if node.content)
     total_output_tokens = sum(count_tokens(c.content) for c in chunks.l3_chunks)
 
     print("\n--- Chunking Benchmark ---")
@@ -104,6 +110,7 @@ def test_chunking_throughput(tmp_path):
 # ---------------------------------------------------------------------------
 # Benchmark: token counting overhead
 # ---------------------------------------------------------------------------
+
 
 def test_token_counting_speed():
     """Measure tiktoken encoding throughput."""
@@ -129,6 +136,7 @@ def test_token_counting_speed():
 # ---------------------------------------------------------------------------
 # Benchmark: chunk size distribution
 # ---------------------------------------------------------------------------
+
 
 def test_chunk_size_distribution(tmp_path):
     """Verify chunks respect size bounds and report distribution."""
@@ -160,9 +168,10 @@ def test_chunk_size_distribution(tmp_path):
 # Benchmark: save/load round-trip
 # ---------------------------------------------------------------------------
 
+
 def test_storage_roundtrip_speed(tmp_path):
     """Measure save + load cycle for a realistic document."""
-    from ingestible.pipeline.stage6_storage import load_chunks, save_document
+    from ingestible.pipeline.stage6_storage import save_document
 
     settings = Settings(data_dir=tmp_path)
     structure = _big_structure(n_chapters=5, n_sections=4, paragraph_count=6)
@@ -197,6 +206,7 @@ def test_storage_roundtrip_speed(tmp_path):
 # Benchmark: content coverage ratio
 # ---------------------------------------------------------------------------
 
+
 def test_content_coverage(tmp_path):
     """Measure ratio of L3 output chars to leaf input chars."""
     settings = Settings(data_dir=tmp_path, max_chunk_tokens=500, min_chunk_tokens=100)
@@ -204,9 +214,7 @@ def test_content_coverage(tmp_path):
     chunks = chunk_document(structure, settings)
 
     input_chars = sum(
-        len(node.content)
-        for node in structure.root.walk()
-        if node.content and node.level >= 2
+        len(node.content) for node in structure.root.walk() if node.content and node.level >= 2
     )
     output_chars = sum(len(c.content) for c in chunks.l3_chunks)
     ratio = output_chars / input_chars if input_chars else 0.0
@@ -222,6 +230,7 @@ def test_content_coverage(tmp_path):
 # ---------------------------------------------------------------------------
 # Benchmark: hierarchy linkage / orphan rate
 # ---------------------------------------------------------------------------
+
 
 def test_hierarchy_linkage(tmp_path):
     """Count orphaned chunks that reference non-existent parents."""
@@ -249,6 +258,7 @@ def test_hierarchy_linkage(tmp_path):
 # Benchmark: disk footprint
 # ---------------------------------------------------------------------------
 
+
 def test_disk_footprint(tmp_path):
     """Measure total bytes and file count after save."""
     settings = Settings(data_dir=tmp_path, max_chunk_tokens=500, min_chunk_tokens=100)
@@ -274,6 +284,7 @@ def test_disk_footprint(tmp_path):
 # ---------------------------------------------------------------------------
 # Benchmark: search index counts
 # ---------------------------------------------------------------------------
+
 
 def test_search_index_counts(tmp_path):
     """Build BM25 and ConceptIndex from L3 chunks and report counts."""
@@ -308,6 +319,7 @@ def test_search_index_counts(tmp_path):
 # Benchmark: overlap verification
 # ---------------------------------------------------------------------------
 
+
 def test_overlap_verification(tmp_path):
     """Check overlap between consecutive L3 chunks in the same section."""
     # Use more paragraphs to force multi-chunk sections with overlap
@@ -332,8 +344,7 @@ def test_overlap_verification(tmp_path):
                     overlap_pairs_with_shared_content += 1
 
     overlap_rate = (
-        overlap_pairs_with_shared_content / overlap_pairs_total
-        if overlap_pairs_total else 0.0
+        overlap_pairs_with_shared_content / overlap_pairs_total if overlap_pairs_total else 0.0
     )
 
     print("\n--- Overlap Verification ---")
@@ -349,6 +360,7 @@ def test_overlap_verification(tmp_path):
 # ---------------------------------------------------------------------------
 # Benchmark: multi-format parsing
 # ---------------------------------------------------------------------------
+
 
 def test_multiformat_parsing(tmp_path):
     """Parse sample files in each supported format and verify output quality."""
@@ -438,6 +450,7 @@ def test_multiformat_parsing(tmp_path):
 # Benchmark: semantic vs paragraph chunking
 # ---------------------------------------------------------------------------
 
+
 def test_semantic_chunking_benchmark(tmp_path):
     """Compare semantic vs paragraph chunking on multi-topic content."""
     # 3 distinct topics, 6 sentences each
@@ -475,17 +488,33 @@ def test_semantic_chunking_benchmark(tmp_path):
     # Deterministic mock embedder with 3 topic clusters
     rng = np.random.RandomState(42)
     dim = 64
-    center_a = rng.randn(dim); center_a /= np.linalg.norm(center_a)
-    center_b = rng.randn(dim); center_b /= np.linalg.norm(center_b)
-    center_c = rng.randn(dim); center_c /= np.linalg.norm(center_c)
+    center_a = rng.randn(dim)
+    center_a /= np.linalg.norm(center_a)
+    center_b = rng.randn(dim)
+    center_b /= np.linalg.norm(center_b)
+    center_c = rng.randn(dim)
+    center_c /= np.linalg.norm(center_c)
 
     def mock_embed(texts):
         vectors = []
         for text in texts:
             t = text.lower()
-            if any(w in t for w in ["learning", "neural", "training", "gradient", "regularization", "backpropagation"]):
+            if any(
+                w in t
+                for w in [
+                    "learning",
+                    "neural",
+                    "training",
+                    "gradient",
+                    "regularization",
+                    "backpropagation",
+                ]
+            ):
                 base = center_a
-            elif any(w in t for w in ["ocean", "marine", "reef", "phytoplankton", "overfishing", "hydrothermal"]):
+            elif any(
+                w in t
+                for w in ["ocean", "marine", "reef", "phytoplankton", "overfishing", "hydrothermal"]
+            ):
                 base = center_b
             else:
                 base = center_c
@@ -498,12 +527,17 @@ def test_semantic_chunking_benchmark(tmp_path):
     embedder.embed_passages.side_effect = mock_embed
 
     settings_sem = Settings(
-        data_dir=tmp_path / "sem", chunking_strategy="semantic",
-        max_chunk_tokens=120, min_chunk_tokens=30, semantic_threshold_percentile=25,
+        data_dir=tmp_path / "sem",
+        chunking_strategy="semantic",
+        max_chunk_tokens=120,
+        min_chunk_tokens=30,
+        semantic_threshold_percentile=25,
     )
     settings_para = Settings(
-        data_dir=tmp_path / "para", chunking_strategy="paragraph",
-        max_chunk_tokens=120, min_chunk_tokens=30,
+        data_dir=tmp_path / "para",
+        chunking_strategy="paragraph",
+        max_chunk_tokens=120,
+        min_chunk_tokens=30,
     )
 
     sem_chunks = chunk_document(structure, settings_sem, embedder=embedder)
@@ -514,13 +548,19 @@ def test_semantic_chunking_benchmark(tmp_path):
 
     print("\n--- Semantic vs Paragraph Chunking ---")
     print(f"  Input: {count_tokens(content)} tokens, 3 topics")
-    print(f"  Semantic:  {len(sem_sizes)} chunks, range [{sem_sizes[0]}-{sem_sizes[-1]}], mean {sum(sem_sizes)//len(sem_sizes)}")
-    print(f"  Paragraph: {len(para_sizes)} chunks, range [{para_sizes[0]}-{para_sizes[-1]}], mean {sum(para_sizes)//len(para_sizes)}")
+    print(
+        f"  Semantic:  {len(sem_sizes)} chunks, range [{sem_sizes[0]}-{sem_sizes[-1]}], mean {sum(sem_sizes) // len(sem_sizes)}"
+    )
+    print(
+        f"  Paragraph: {len(para_sizes)} chunks, range [{para_sizes[0]}-{para_sizes[-1]}], mean {sum(para_sizes) // len(para_sizes)}"
+    )
 
     # Semantic should produce chunks (the feature works)
     assert len(sem_chunks.l3_chunks) >= 2, "Semantic chunking should split multi-topic content"
     # Paragraph should also produce chunks
-    assert len(para_chunks.l3_chunks) >= 2, "Paragraph chunking should split content exceeding max_tokens"
+    assert len(para_chunks.l3_chunks) >= 2, (
+        "Paragraph chunking should split content exceeding max_tokens"
+    )
     # Both should preserve all content
     sem_total = sum(len(c.content) for c in sem_chunks.l3_chunks)
     para_total = sum(len(c.content) for c in para_chunks.l3_chunks)

@@ -16,7 +16,7 @@ from pathlib import Path
 from sentence_transformers import SentenceTransformer
 
 from ingestible.config import Settings
-from ingestible.models.chunks import ChunkSet, L3Chunk
+from ingestible.models.chunks import ChunkSet
 from ingestible.search.bm25_store import BM25Store
 from ingestible.search.concept_index import ConceptIndex
 from ingestible.search.vector_store import VectorStore
@@ -30,6 +30,7 @@ def _resolve_device(device: str) -> str:
         return device
 
     import torch
+
     if torch.cuda.is_available():
         return "cuda"
     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
@@ -59,17 +60,13 @@ class Embedder:
     def embed_passages(self, texts: list[str]) -> list[list[float]]:
         """Embed passage texts with the 'passage: ' prefix."""
         prefixed = [f"passage: {t}" for t in texts]
-        embeddings = self.model.encode(
-            prefixed, normalize_embeddings=True, show_progress_bar=True
-        )
+        embeddings = self.model.encode(prefixed, normalize_embeddings=True, show_progress_bar=True)
         result = embeddings.tolist()
         return [self._post_process(v) for v in result]
 
     def embed_query(self, query: str) -> list[float]:
         """Embed a query with the 'query: ' prefix."""
-        embedding = self.model.encode(
-            f"query: {query}", normalize_embeddings=True
-        )
+        embedding = self.model.encode(f"query: {query}", normalize_embeddings=True)
         return self._post_process(embedding.tolist())
 
     def _post_process(self, vector: list[float]) -> list[float]:
@@ -79,6 +76,7 @@ class Embedder:
             vector = vector[:dims]
             # Re-normalize after truncation
             import math
+
             norm = math.sqrt(sum(x * x for x in vector))
             if norm > 0:
                 vector = [x / norm for x in vector]
@@ -195,7 +193,8 @@ def build_indexes(
     if previous_chunks:
         new_hashes = {c.content_hash for c in l3 if c.content_hash}
         superseded = [
-            c for c in previous_chunks.l3_chunks
+            c
+            for c in previous_chunks.l3_chunks
             if c.content_hash and c.content_hash not in new_hashes
         ]
         if superseded:
@@ -241,9 +240,7 @@ def build_indexes(
                 for c in superseded
             ]
             sup_path = doc_dir / "superseded.json"
-            sup_path.write_text(
-                json.dumps(sup_data, indent=2, default=str), encoding="utf-8"
-            )
+            sup_path.write_text(json.dumps(sup_data, indent=2, default=str), encoding="utf-8")
 
     # --- BM25 ---
     bm25_store = BM25Store(language=language)

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from ingestible.config import Settings
 from ingestible.models.document import DocumentStructure, StructureNode
-from ingestible.pipeline.stage1_parsing import parse_document, SUPPORTED_FORMATS
+from ingestible.pipeline.stage1_parsing import SUPPORTED_FORMATS, parse_document
 from ingestible.pipeline.stage3_chunking import chunk_document
 from ingestible.pipeline.stage6_storage import load_chunks, save_document
 from ingestible.search.bm25_store import BM25Store
@@ -44,17 +44,32 @@ def _build_baseline_document() -> DocumentStructure:
         for ci in range(n_ch):
             sections = []
             for si in range(n_sec):
-                sections.append(StructureNode(
-                    id=f"ch{ci}-sec{si}", title=f"Section {ci}.{si}", level=2,
-                    content=section_body, page_start=ci * 10 + si, page_end=ci * 10 + si + 1,
-                ))
-            chapters.append(StructureNode(
-                id=f"ch{ci}", title=f"Chapter {ci}", level=1,
-                page_start=ci * 10, page_end=ci * 10 + n_sec, children=sections,
-            ))
+                sections.append(
+                    StructureNode(
+                        id=f"ch{ci}-sec{si}",
+                        title=f"Section {ci}.{si}",
+                        level=2,
+                        content=section_body,
+                        page_start=ci * 10 + si,
+                        page_end=ci * 10 + si + 1,
+                    )
+                )
+            chapters.append(
+                StructureNode(
+                    id=f"ch{ci}",
+                    title=f"Chapter {ci}",
+                    level=1,
+                    page_start=ci * 10,
+                    page_end=ci * 10 + n_sec,
+                    children=sections,
+                )
+            )
         root = StructureNode(
-            id="root", title="Baseline Doc", level=0,
-            page_end=n_ch * 10, children=chapters,
+            id="root",
+            title="Baseline Doc",
+            level=0,
+            page_end=n_ch * 10,
+            children=chapters,
         )
         return DocumentStructure(doc_id="baseline-doc", title="Baseline Doc", root=root)
 
@@ -65,6 +80,7 @@ def _build_baseline_document() -> DocumentStructure:
 # ---------------------------------------------------------------------------
 # Regression: chunk counts must be identical
 # ---------------------------------------------------------------------------
+
 
 def test_chunk_counts_match_baseline(tmp_path):
     """Chunk counts must exactly match the baseline — any drift means the algorithm changed."""
@@ -89,6 +105,7 @@ def test_chunk_counts_match_baseline(tmp_path):
 # Regression: total token output must be stable
 # ---------------------------------------------------------------------------
 
+
 def test_token_output_matches_baseline(tmp_path):
     """Total L3 token count must not drift — protects against silent content changes."""
     baseline = _load_baseline()
@@ -107,6 +124,7 @@ def test_token_output_matches_baseline(tmp_path):
 # ---------------------------------------------------------------------------
 # Regression: chunk size distribution must stay within bounds
 # ---------------------------------------------------------------------------
+
 
 def test_chunk_sizes_within_baseline(tmp_path):
     """Min/max/mean token counts should stay close to baseline values."""
@@ -134,6 +152,7 @@ def test_chunk_sizes_within_baseline(tmp_path):
 # Regression: storage round-trip preserves all data
 # ---------------------------------------------------------------------------
 
+
 def test_storage_roundtrip_preserves_baseline(tmp_path):
     """Save + load must produce identical chunk counts and content."""
     baseline = _load_baseline()
@@ -159,6 +178,7 @@ def test_storage_roundtrip_preserves_baseline(tmp_path):
 # Regression: performance must not degrade beyond 3x baseline
 # ---------------------------------------------------------------------------
 
+
 def test_chunking_performance_regression(tmp_path):
     """Chunking must not be more than 3x slower than baseline (generous for CI variance)."""
     baseline = _load_baseline()
@@ -173,7 +193,7 @@ def test_chunking_performance_regression(tmp_path):
     median = sorted(runs)[2]
 
     threshold = baseline["chunking"]["median_time_s"] * 3
-    print(f"\n--- Chunking Performance ---")
+    print("\n--- Chunking Performance ---")
     print(f"  Baseline: {baseline['chunking']['median_time_s']:.4f}s")
     print(f"  Current:  {median:.4f}s")
     print(f"  Threshold (3x): {threshold:.4f}s")
@@ -194,7 +214,11 @@ def test_storage_performance_regression(tmp_path):
     save_runs = []
     load_runs = []
     for _ in range(5):
-        s = Settings(data_dir=Path(tmp_path / f"run{len(save_runs)}"), max_chunk_tokens=500, min_chunk_tokens=100)
+        s = Settings(
+            data_dir=Path(tmp_path / f"run{len(save_runs)}"),
+            max_chunk_tokens=500,
+            min_chunk_tokens=100,
+        )
         t0 = time.perf_counter()
         doc_dir = save_document(structure, chunks, s)
         save_runs.append(time.perf_counter() - t0)
@@ -208,17 +232,26 @@ def test_storage_performance_regression(tmp_path):
     save_threshold = baseline["storage_roundtrip"]["save_median_s"] * 3
     load_threshold = baseline["storage_roundtrip"]["load_median_s"] * 3
 
-    print(f"\n--- Storage Performance ---")
-    print(f"  Save: {save_median:.4f}s (baseline {baseline['storage_roundtrip']['save_median_s']:.4f}s, threshold {save_threshold:.4f}s)")
-    print(f"  Load: {load_median:.4f}s (baseline {baseline['storage_roundtrip']['load_median_s']:.4f}s, threshold {load_threshold:.4f}s)")
+    print("\n--- Storage Performance ---")
+    print(
+        f"  Save: {save_median:.4f}s (baseline {baseline['storage_roundtrip']['save_median_s']:.4f}s, threshold {save_threshold:.4f}s)"
+    )
+    print(
+        f"  Load: {load_median:.4f}s (baseline {baseline['storage_roundtrip']['load_median_s']:.4f}s, threshold {load_threshold:.4f}s)"
+    )
 
-    assert save_median < save_threshold, f"Save regressed: {save_median:.4f}s vs threshold {save_threshold:.4f}s"
-    assert load_median < load_threshold, f"Load regressed: {load_median:.4f}s vs threshold {load_threshold:.4f}s"
+    assert save_median < save_threshold, (
+        f"Save regressed: {save_median:.4f}s vs threshold {save_threshold:.4f}s"
+    )
+    assert load_median < load_threshold, (
+        f"Load regressed: {load_median:.4f}s vs threshold {load_threshold:.4f}s"
+    )
 
 
 # ---------------------------------------------------------------------------
 # Regression: content coverage ratio must stay within ±5%
 # ---------------------------------------------------------------------------
+
 
 def test_content_coverage_regression(tmp_path):
     """Coverage ratio must not drift beyond ±5% of baseline."""
@@ -228,9 +261,7 @@ def test_content_coverage_regression(tmp_path):
     chunks = chunk_document(structure, settings)
 
     input_chars = sum(
-        len(node.content)
-        for node in structure.root.walk()
-        if node.content and node.level >= 2
+        len(node.content) for node in structure.root.walk() if node.content and node.level >= 2
     )
     output_chars = sum(len(c.content) for c in chunks.l3_chunks)
     ratio = output_chars / input_chars if input_chars else 0.0
@@ -238,7 +269,7 @@ def test_content_coverage_regression(tmp_path):
     expected = baseline["content_coverage"]["coverage_ratio"]
     tolerance = 0.05
 
-    print(f"\n--- Content Coverage Regression ---")
+    print("\n--- Content Coverage Regression ---")
     print(f"  Baseline ratio: {expected:.4f}")
     print(f"  Current ratio:  {ratio:.4f}")
     print(f"  Tolerance:      ±{tolerance}")
@@ -251,6 +282,7 @@ def test_content_coverage_regression(tmp_path):
 # ---------------------------------------------------------------------------
 # Regression: hierarchy orphan counts must not increase
 # ---------------------------------------------------------------------------
+
 
 def test_hierarchy_linkage_regression(tmp_path):
     """Orphan counts must not increase from baseline."""
@@ -267,7 +299,7 @@ def test_hierarchy_linkage_regression(tmp_path):
 
     b = baseline["hierarchy_linkage"]
 
-    print(f"\n--- Hierarchy Linkage Regression ---")
+    print("\n--- Hierarchy Linkage Regression ---")
     print(f"  L3 orphans: {l3_orphans} (baseline {b['l3_orphan_count']})")
     print(f"  L2 orphans: {l2_orphans} (baseline {b['l2_orphan_count']})")
 
@@ -282,6 +314,7 @@ def test_hierarchy_linkage_regression(tmp_path):
 # ---------------------------------------------------------------------------
 # Regression: disk footprint must stay within ±20%
 # ---------------------------------------------------------------------------
+
 
 def test_disk_footprint_regression(tmp_path):
     """Disk footprint must not grow or shrink beyond ±20% of baseline."""
@@ -301,7 +334,7 @@ def test_disk_footprint_regression(tmp_path):
     b = baseline["disk_footprint"]
     tolerance = 0.20
 
-    print(f"\n--- Disk Footprint Regression ---")
+    print("\n--- Disk Footprint Regression ---")
     print(f"  Bytes:  {total_bytes:,} (baseline {b['total_bytes']:,}, ±{tolerance:.0%})")
     print(f"  Files:  {file_count} (baseline {b['file_count']})")
 
@@ -316,6 +349,7 @@ def test_disk_footprint_regression(tmp_path):
 # ---------------------------------------------------------------------------
 # Regression: search index counts must match exactly
 # ---------------------------------------------------------------------------
+
 
 def test_search_index_counts_regression(tmp_path):
     """BM25 and ConceptIndex counts must exactly match baseline."""
@@ -339,7 +373,7 @@ def test_search_index_counts_regression(tmp_path):
 
     b = baseline["search_index_counts"]
 
-    print(f"\n--- Search Index Counts Regression ---")
+    print("\n--- Search Index Counts Regression ---")
     print(f"  BM25 docs:       {bm25.count} (baseline {b['bm25_doc_count']})")
     print(f"  Concept terms:   {concept_idx.count} (baseline {b['concept_index_term_count']})")
 
@@ -354,6 +388,7 @@ def test_search_index_counts_regression(tmp_path):
 # ---------------------------------------------------------------------------
 # Regression: overlap rate must stay stable
 # ---------------------------------------------------------------------------
+
 
 def test_overlap_verification_regression(tmp_path):
     """Overlap metrics must match baseline exactly."""
@@ -380,9 +415,11 @@ def test_overlap_verification_regression(tmp_path):
 
     b = baseline["overlap_verification"]
 
-    print(f"\n--- Overlap Verification Regression ---")
+    print("\n--- Overlap Verification Regression ---")
     print(f"  Pairs total:     {overlap_pairs_total} (baseline {b['overlap_pairs_total']})")
-    print(f"  Pairs w/ overlap: {overlap_pairs_with_shared_content} (baseline {b['overlap_pairs_with_shared_content']})")
+    print(
+        f"  Pairs w/ overlap: {overlap_pairs_with_shared_content} (baseline {b['overlap_pairs_with_shared_content']})"
+    )
 
     assert overlap_pairs_total == b["overlap_pairs_total"], (
         f"Overlap pairs total changed: {overlap_pairs_total} vs baseline {b['overlap_pairs_total']}"
@@ -396,6 +433,7 @@ def test_overlap_verification_regression(tmp_path):
 # ---------------------------------------------------------------------------
 # Regression: supported formats must not shrink
 # ---------------------------------------------------------------------------
+
 
 def test_supported_formats_regression():
     """Supported format set must not lose formats from baseline."""
@@ -417,6 +455,7 @@ def test_supported_formats_regression():
 # ---------------------------------------------------------------------------
 # Regression: multi-format parsing output must be stable
 # ---------------------------------------------------------------------------
+
 
 def test_multiformat_parsing_regression(tmp_path):
     """Title detection, TOC counts, and table extraction must match baseline."""
@@ -473,7 +512,7 @@ def test_multiformat_parsing_regression(tmp_path):
 
     files = {"md": sample_md, "txt": sample_txt, "html": sample_html, "docx": sample_docx}
 
-    print(f"\n--- Multi-Format Parsing Regression ---")
+    print("\n--- Multi-Format Parsing Regression ---")
     for ext, path in files.items():
         expected = b["results"].get(ext)
         if not expected:
@@ -481,7 +520,9 @@ def test_multiformat_parsing_regression(tmp_path):
 
         parsed = parse_document(path)
 
-        print(f"  {ext}: title={parsed.title!r}, toc={len(parsed.toc)}, format={parsed.source_format}")
+        print(
+            f"  {ext}: title={parsed.title!r}, toc={len(parsed.toc)}, format={parsed.source_format}"
+        )
 
         assert parsed.title == expected["title_detected"], (
             f"{ext}: title changed: {parsed.title!r} vs baseline {expected['title_detected']!r}"
@@ -506,9 +547,11 @@ def test_multiformat_parsing_regression(tmp_path):
 # Regression: semantic chunking output must be stable
 # ---------------------------------------------------------------------------
 
+
 def test_semantic_chunking_regression(tmp_path):
     """Semantic chunking chunk count and token stats must match baseline."""
     from unittest.mock import MagicMock
+
     import numpy as np
 
     baseline = _load_baseline()
@@ -542,32 +585,54 @@ def test_semantic_chunking_regression(tmp_path):
         "Public baths served as social gathering places central to daily Roman civic life.",
     ]
     content = (
-        " ".join(topic_a_sents) + "\n\n"
-        + " ".join(topic_b_sents) + "\n\n"
+        " ".join(topic_a_sents)
+        + "\n\n"
+        + " ".join(topic_b_sents)
+        + "\n\n"
         + " ".join(topic_c_sents)
     )
 
     sec = StructureNode(id="sec-topics", title="Mixed Topics", level=2, content=content)
-    ch = StructureNode(id="ch1", title="Chapter 1", level=1, page_start=1, page_end=3, children=[sec])
+    ch = StructureNode(
+        id="ch1", title="Chapter 1", level=1, page_start=1, page_end=3, children=[sec]
+    )
     root = StructureNode(id="root", title="Multi-Topic Doc", level=0, page_end=3, children=[ch])
     structure = DocumentStructure(doc_id="semantic-baseline", title="Multi-Topic Doc", root=root)
 
     # Reproduce the exact same deterministic embedder
     rng = np.random.RandomState(42)
     dim = 64
-    center_a = rng.randn(dim); center_a /= np.linalg.norm(center_a)
-    center_b = rng.randn(dim); center_b /= np.linalg.norm(center_b)
-    center_c = rng.randn(dim); center_c /= np.linalg.norm(center_c)
+    center_a = rng.randn(dim)
+    center_a /= np.linalg.norm(center_a)
+    center_b = rng.randn(dim)
+    center_b /= np.linalg.norm(center_b)
+    center_c = rng.randn(dim)
+    center_c /= np.linalg.norm(center_c)
 
     def mock_embed(texts):
         vectors = []
         for text in texts:
             t_lower = text.lower()
-            if any(w in t_lower for w in ["learning", "neural", "training", "algorithm", "backpropagation", "supervised"]):
+            if any(
+                w in t_lower
+                for w in [
+                    "learning",
+                    "neural",
+                    "training",
+                    "algorithm",
+                    "backpropagation",
+                    "supervised",
+                ]
+            ):
                 base = center_a
-            elif any(w in t_lower for w in ["ocean", "marine", "reef", "trench", "sea", "biodiversity"]):
+            elif any(
+                w in t_lower for w in ["ocean", "marine", "reef", "trench", "sea", "biodiversity"]
+            ):
                 base = center_b
-            elif any(w in t_lower for w in ["roman", "colosseum", "arch", "aqueduct", "gladiator", "concrete"]):
+            elif any(
+                w in t_lower
+                for w in ["roman", "colosseum", "arch", "aqueduct", "gladiator", "concrete"]
+            ):
                 base = center_c
             else:
                 base = rng.randn(dim)
@@ -580,8 +645,11 @@ def test_semantic_chunking_regression(tmp_path):
     embedder.embed_passages.side_effect = mock_embed
 
     settings = Settings(
-        data_dir=tmp_path, chunking_strategy="semantic",
-        max_chunk_tokens=120, min_chunk_tokens=30, semantic_threshold_percentile=25,
+        data_dir=tmp_path,
+        chunking_strategy="semantic",
+        max_chunk_tokens=120,
+        min_chunk_tokens=30,
+        semantic_threshold_percentile=25,
     )
 
     chunks = chunk_document(structure, settings, embedder=embedder)
@@ -589,10 +657,12 @@ def test_semantic_chunking_regression(tmp_path):
 
     sizes = sorted(count_tokens(c.content) for c in chunks.l3_chunks)
 
-    print(f"\n--- Semantic Chunking Regression ---")
+    print("\n--- Semantic Chunking Regression ---")
     print(f"  L3 passages: {len(chunks.l3_chunks)} (baseline {sem['l3_passages']})")
     print(f"  Total tokens: {sum(sizes)} (baseline {sem['total_tokens']})")
-    print(f"  Token range: [{sizes[0]}-{sizes[-1]}] (baseline [{sem['token_min']}-{sem['token_max']}])")
+    print(
+        f"  Token range: [{sizes[0]}-{sizes[-1]}] (baseline [{sem['token_min']}-{sem['token_max']}])"
+    )
 
     assert len(chunks.l3_chunks) == sem["l3_passages"], (
         f"Semantic L3 count changed: {len(chunks.l3_chunks)} vs baseline {sem['l3_passages']}"

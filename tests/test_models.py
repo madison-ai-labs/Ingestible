@@ -1,12 +1,10 @@
-from ingestible.models.chunks import ChunkPosition, ChunkSet, L0Chunk, L3Chunk
+from ingestible.models.chunks import ChunkSet, L0Chunk
 from ingestible.models.document import (
-    DocumentStructure,
     PageContent,
     ParsedDocument,
     StructureNode,
-    TOCEntry,
 )
-from ingestible.models.search import SearchResponse, SearchResult
+from ingestible.models.search import SearchResult
 
 
 def test_parsed_document_properties():

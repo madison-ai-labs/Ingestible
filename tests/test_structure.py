@@ -14,10 +14,7 @@ def test_structure_from_toc():
             TOCEntry(level=1, title="Chapter 2: Methods", page=10),
             TOCEntry(level=2, title="2.1 Approach", page=10),
         ],
-        pages=[
-            PageContent(page_num=i, markdown=f"Content for page {i}")
-            for i in range(1, 101)
-        ],
+        pages=[PageContent(page_num=i, markdown=f"Content for page {i}") for i in range(1, 101)],
     )
     structure = detect_structure(doc, "test-doc")
     assert structure.doc_id == "test-doc"

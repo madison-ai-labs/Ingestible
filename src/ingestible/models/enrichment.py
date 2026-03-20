@@ -74,7 +74,9 @@ class KGTriple(BaseModel):
     predicate: str = ""  # e.g. "uses", "is_a", "part_of", "authored_by"
     object: str = ""
     object_type: str = ""
-    confidence: float = Field(default=1.0, ge=0.0, le=1.0)  # 0.0–1.0, how confident the extraction is
+    confidence: float = Field(
+        default=1.0, ge=0.0, le=1.0
+    )  # 0.0–1.0, how confident the extraction is
     source_chunk_id: str = ""  # populated after extraction
 
 

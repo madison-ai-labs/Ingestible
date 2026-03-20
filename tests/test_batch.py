@@ -9,11 +9,9 @@ import pytest
 
 from ingestible.pipeline.batch import (
     BatchReport,
-    FileResult,
     discover_files,
     ingest_batch,
 )
-
 
 # ---------------------------------------------------------------------------
 # discover_files

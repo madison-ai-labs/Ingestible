@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 
@@ -49,12 +49,12 @@ def test_semantic_breakpoints(tmp_path):
     # Embeddings: first 3 sentences similar (cluster A), last 3 similar (cluster B)
     # Cluster A ~[1,0,0], Cluster B ~[0,1,0]
     vectors = [
-        _normalized([1.0, 0.1, 0.0]),   # sentence 1
-        _normalized([1.0, 0.05, 0.0]),   # sentence 2
-        _normalized([0.95, 0.1, 0.0]),   # sentence 3
-        _normalized([0.0, 1.0, 0.1]),    # sentence 4 — topic shift
-        _normalized([0.05, 1.0, 0.0]),   # sentence 5
-        _normalized([0.0, 0.95, 0.1]),   # sentence 6
+        _normalized([1.0, 0.1, 0.0]),  # sentence 1
+        _normalized([1.0, 0.05, 0.0]),  # sentence 2
+        _normalized([0.95, 0.1, 0.0]),  # sentence 3
+        _normalized([0.0, 1.0, 0.1]),  # sentence 4 — topic shift
+        _normalized([0.05, 1.0, 0.0]),  # sentence 5
+        _normalized([0.0, 0.95, 0.1]),  # sentence 6
     ]
 
     embedder = _make_embedder(vectors)
@@ -213,8 +213,7 @@ def test_semantic_overlap_present(tmp_path):
 def test_semantic_no_overlap_when_zero(tmp_path):
     """With overlap_fraction=0, no overlap is applied."""
     content = (
-        "Topic A sentence one. Topic A sentence two.\n\n"
-        "Topic B sentence one. Topic B sentence two."
+        "Topic A sentence one. Topic A sentence two.\n\nTopic B sentence one. Topic B sentence two."
     )
     vectors = [
         _normalized([1.0, 0.0, 0.0]),

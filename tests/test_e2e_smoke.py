@@ -102,7 +102,9 @@ class TestE2ESmoke:
                 recursive=False,
             )
 
-        assert report.succeeded == 3, f"Expected 3 succeeded, got {report.succeeded}. Failures: {[r.error for r in report.results if r.error]}"
+        assert report.succeeded == 3, (
+            f"Expected 3 succeeded, got {report.succeeded}. Failures: {[r.error for r in report.results if r.error]}"
+        )
         assert report.failed == 0
 
         # --- Step 2: Verify documents on disk ---
@@ -168,7 +170,9 @@ class TestE2ESmoke:
         # Verify re-enriched chunks have summaries
         re_chunks = load_chunks(re_doc_dir)
         for c in re_chunks.l3_chunks:
-            assert c.summary.startswith("Summary of "), f"Expected enriched summary, got: {c.summary}"
+            assert c.summary.startswith("Summary of "), (
+                f"Expected enriched summary, got: {c.summary}"
+            )
 
         # --- Step 6: Re-search after enrichment ---
         searcher2 = CorpusSearcher(settings, embedder=mock_emb)

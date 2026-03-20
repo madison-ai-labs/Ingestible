@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+
+from ingestible.config import Settings
 
 
 @pytest.fixture(autouse=True)
@@ -20,15 +21,13 @@ def _mock_chromadb(monkeypatch):
         monkeypatch.setitem(sys.modules, "chromadb.config", MagicMock())
 
 
-from ingestible.config import Settings
-
-
 def _import_orchestrator():
     from ingestible.pipeline.orchestrator import (
         _check_existing,
         _compute_content_hash,
         generate_doc_id,
     )
+
     return _compute_content_hash, _check_existing, generate_doc_id
 
 

@@ -7,11 +7,11 @@ from pathlib import Path
 import pytest
 
 from ingestible.config import Settings
-from ingestible.models.chunks import ChunkSet, L0Chunk, L1Chunk, L2Chunk, L3Chunk, ChunkPosition
+from ingestible.models.chunks import ChunkPosition, ChunkSet, L0Chunk, L1Chunk, L2Chunk, L3Chunk
 from ingestible.models.document import DocumentStructure, StructureNode
+from ingestible.pipeline.re_enrich import re_enrich
 from ingestible.pipeline.stage5_embedding import Embedder, build_indexes
 from ingestible.pipeline.stage6_storage import load_chunks, save_document
-from ingestible.pipeline.re_enrich import re_enrich
 
 
 def _setup_doc(tmp_path: Path, doc_id: str = "test-doc") -> Settings:
@@ -47,9 +47,7 @@ def _setup_doc(tmp_path: Path, doc_id: str = "test-doc") -> Settings:
         total_sections=1,
         total_passages=1,
     )
-    chunks = ChunkSet(
-        doc_id=doc_id, l0=l0, l1_chunks=[l1], l2_chunks=[l2], l3_chunks=[l3]
-    )
+    chunks = ChunkSet(doc_id=doc_id, l0=l0, l1_chunks=[l1], l2_chunks=[l2], l3_chunks=[l3])
     root = StructureNode(id=doc_id, title="Test Doc", level=0)
     structure = DocumentStructure(doc_id=doc_id, title="Test Doc", root=root)
 

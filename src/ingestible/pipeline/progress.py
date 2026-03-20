@@ -51,9 +51,11 @@ class SSEProgress:
         self.events: list[dict] = []
 
     def __call__(self, step: int, total: int, message: str) -> None:
-        self.events.append({
-            "step": step,
-            "total": total,
-            "message": message,
-            "progress": round(step / total, 2) if total > 0 else 0,
-        })
+        self.events.append(
+            {
+                "step": step,
+                "total": total,
+                "message": message,
+                "progress": round(step / total, 2) if total > 0 else 0,
+            }
+        )

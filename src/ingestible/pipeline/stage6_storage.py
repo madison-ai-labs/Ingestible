@@ -96,9 +96,7 @@ def save_document(
             _write_json(sec_dir / "meta.json", sec.model_dump())
 
             # Passages under this section
-            sec_passages = [
-                p for p in chunks.l3_chunks if p.parent_section_id == sec.chunk_id
-            ]
+            sec_passages = [p for p in chunks.l3_chunks if p.parent_section_id == sec.chunk_id]
             if sec_passages:
                 chunks_dir = sec_dir / "chunks"
                 chunks_dir.mkdir(parents=True, exist_ok=True)
@@ -253,13 +251,15 @@ def archive_version(doc_dir: Path) -> int | None:
     shutil.copytree(doc_dir, archive_dir, dirs_exist_ok=False)
 
     # Update versions.json in the main doc dir
-    versions.append({
-        "version": next_version,
-        "archived_at": datetime.now(timezone.utc).isoformat(),
-        "content_hash": meta.get("content_hash", ""),
-        "ingestion_date": meta.get("ingestion_date", ""),
-        "archive_path": archive_dir.name,
-    })
+    versions.append(
+        {
+            "version": next_version,
+            "archived_at": datetime.now(timezone.utc).isoformat(),
+            "content_hash": meta.get("content_hash", ""),
+            "ingestion_date": meta.get("ingestion_date", ""),
+            "archive_path": archive_dir.name,
+        }
+    )
     _write_json(doc_dir / "versions.json", {"versions": versions})
 
     logger.info("Archived version %d of %s to %s", next_version, doc_dir.name, archive_dir.name)

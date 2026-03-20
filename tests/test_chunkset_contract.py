@@ -20,13 +20,13 @@ from ingestible.models.chunks import (
     L2Chunk,
     L3Chunk,
 )
-from ingestible.pipeline.stage6_storage import load_chunks, save_document
 from ingestible.models.document import DocumentStructure, StructureNode
-
+from ingestible.pipeline.stage6_storage import load_chunks, save_document
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_enriched_chunkset() -> tuple[DocumentStructure, ChunkSet]:
     """Build a ChunkSet with every enrichment field populated."""
@@ -34,16 +34,25 @@ def _make_enriched_chunkset() -> tuple[DocumentStructure, ChunkSet]:
         doc_id="contract-doc",
         title="Contract Test Document",
         root=StructureNode(
-            id="root", title="Contract Test Document", level=0, page_end=20,
+            id="root",
+            title="Contract Test Document",
+            level=0,
+            page_end=20,
             children=[
                 StructureNode(
-                    id="ch1", title="Chapter One", level=1,
-                    page_start=1, page_end=20,
+                    id="ch1",
+                    title="Chapter One",
+                    level=1,
+                    page_start=1,
+                    page_end=20,
                     children=[
                         StructureNode(
-                            id="sec1", title="Section 1", level=2,
+                            id="sec1",
+                            title="Section 1",
+                            level=2,
                             content="Section one content.",
-                            page_start=1, page_end=10,
+                            page_start=1,
+                            page_end=10,
                         ),
                     ],
                 ),
@@ -298,6 +307,7 @@ def test_schema_snapshot():
 # 2. Enriched round-trip — all enrichment fields survive save/load
 # ---------------------------------------------------------------------------
 
+
 def test_enriched_roundtrip(tmp_path):
     """Every enrichment field on L0/L1/L2/L3 must survive save → load."""
     settings = Settings(data_dir=tmp_path)
@@ -351,6 +361,7 @@ def test_enriched_roundtrip(tmp_path):
 # ---------------------------------------------------------------------------
 # 3. API serialization — model_dump() produces the expected JSON shape
 # ---------------------------------------------------------------------------
+
 
 def test_api_serialization():
     """ChunkSet.model_dump() must produce JSON that a consumer can parse

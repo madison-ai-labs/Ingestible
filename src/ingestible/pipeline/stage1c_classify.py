@@ -23,11 +23,13 @@ logger = logging.getLogger(__name__)
 
 # Code/config patterns
 _CODE_FENCE_RE = re.compile(r"^```", re.MULTILINE)
-_LATEX_RE = re.compile(r"\\(?:begin\{|end\{|frac|sum|int|alpha|beta|gamma|delta|theta|lambda|sigma|partial)")
+_LATEX_RE = re.compile(
+    r"\\(?:begin\{|end\{|frac|sum|int|alpha|beta|gamma|delta|theta|lambda|sigma|partial)"
+)
 _LEGAL_SECTION_RE = re.compile(r"^§\s*\d+", re.MULTILINE)
 
 # Structural data patterns
-_JSON_LIKE_RE = re.compile(r'^\s*[\[{]', re.MULTILINE)
+_JSON_LIKE_RE = re.compile(r"^\s*[\[{]", re.MULTILINE)
 _KEY_VALUE_RE = re.compile(r"^\s*[\w\-]+\s*[:=]\s*.+", re.MULTILINE)
 
 # High-density content signals
@@ -60,7 +62,9 @@ def classify_block(text: str) -> str:
         return "T0"
 
     # High structural regularity: indentation depth + bracket density
-    bracket_count = stripped.count("{") + stripped.count("}") + stripped.count("[") + stripped.count("]")
+    bracket_count = (
+        stripped.count("{") + stripped.count("}") + stripped.count("[") + stripped.count("]")
+    )
     bracket_density = bracket_count / max(len(stripped), 1)
     if bracket_density > 0.05 and line_count >= 3:
         # Looks like code or config
@@ -148,8 +152,10 @@ def classify_document(parsed: ParsedDocument) -> dict[str, list[tuple[str, str]]
 
     logger.info(
         "Content classification: T0=%d T1=%d T2=%d T3=%d",
-        total_counts["T0"], total_counts["T1"],
-        total_counts["T2"], total_counts["T3"],
+        total_counts["T0"],
+        total_counts["T1"],
+        total_counts["T2"],
+        total_counts["T3"],
     )
     return result
 

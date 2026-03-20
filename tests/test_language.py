@@ -6,8 +6,7 @@ import pickle
 from pathlib import Path
 
 from ingestible.search.bm25_store import BM25Store
-from ingestible.utils.language import detect_language, get_tokenizer, _simple_tokenize
-
+from ingestible.utils.language import _simple_tokenize, detect_language, get_tokenizer
 
 # ---------------------------------------------------------------------------
 # Language detection

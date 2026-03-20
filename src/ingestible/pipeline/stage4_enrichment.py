@@ -84,11 +84,13 @@ class AnthropicClient:
             model=self._model,
             max_tokens=2048,
             messages=[{"role": "user", "content": prompt}],
-            tools=[{
-                "name": "output",
-                "description": "Structured output matching the requested schema",
-                "input_schema": schema,
-            }],
+            tools=[
+                {
+                    "name": "output",
+                    "description": "Structured output matching the requested schema",
+                    "input_schema": schema,
+                }
+            ],
             tool_choice={"type": "tool", "name": "output"},
         )
         tool_block = next((b for b in response.content if b.type == "tool_use"), None)
@@ -104,7 +106,9 @@ def _make_client(settings: Settings) -> LLMClient:
     timeout = settings.llm_timeout
     if settings.llm_provider == "anthropic":
         if settings.anthropic_api_key:
-            return AnthropicClient(settings.anthropic_api_key, settings.anthropic_model, timeout=timeout)
+            return AnthropicClient(
+                settings.anthropic_api_key, settings.anthropic_model, timeout=timeout
+            )
         # Graceful fallback: if no Anthropic key but OpenAI key exists, use OpenAI
         if settings.openai_api_key:
             logger.info("No INGEST_ANTHROPIC_API_KEY set, falling back to OpenAI")
@@ -117,7 +121,9 @@ def _make_client(settings: Settings) -> LLMClient:
             return OpenAIClient(settings.openai_api_key, settings.openai_model, timeout=timeout)
         if settings.anthropic_api_key:
             logger.info("No INGEST_OPENAI_API_KEY set, falling back to Anthropic")
-            return AnthropicClient(settings.anthropic_api_key, settings.anthropic_model, timeout=timeout)
+            return AnthropicClient(
+                settings.anthropic_api_key, settings.anthropic_model, timeout=timeout
+            )
         raise ValueError(
             "INGEST_OPENAI_API_KEY is required (or set INGEST_ANTHROPIC_API_KEY as fallback)"
         )
@@ -141,9 +147,8 @@ async def enrich_chunks(
     base_delay = settings.llm_retry_base_delay
     prompt_suffix = profile.l3_prompt_suffix if profile else ""
     extract_citations = profile.extract_citations if profile else False
-    extract_kg = (
-        settings.extract_knowledge_graph
-        or (profile.extract_knowledge_graph if profile else False)
+    extract_kg = settings.extract_knowledge_graph or (
+        profile.extract_knowledge_graph if profile else False
     )
 
     # Build lookup of previous L3 enrichment by content_hash
@@ -186,14 +191,21 @@ async def enrich_chunks(
     if skipped:
         logger.info(
             "Skipping enrichment for %d/%d unchanged L3 chunks",
-            skipped, len(chunks.l3_chunks),
+            skipped,
+            len(chunks.l3_chunks),
         )
 
     if l3_to_enrich:
         l3_tasks = [
-            _enrich_l3(c, client, sem, prompt_suffix=prompt_suffix,
-                       extract_citations=extract_citations,
-                       max_retries=max_retries, base_delay=base_delay)
+            _enrich_l3(
+                c,
+                client,
+                sem,
+                prompt_suffix=prompt_suffix,
+                extract_citations=extract_citations,
+                max_retries=max_retries,
+                base_delay=base_delay,
+            )
             for _, c in l3_to_enrich
         ]
         enriched_l3 = await asyncio.gather(*l3_tasks, return_exceptions=True)
@@ -221,12 +233,17 @@ async def enrich_chunks(
     else:
         # --- L2 enrichment ---
         logger.info("Enriching %d L2 chunks...", len(chunks.l2_chunks))
-        l2_tasks = [_enrich_l2(c, chunks, client, sem, max_retries=max_retries, base_delay=base_delay) for c in chunks.l2_chunks]
+        l2_tasks = [
+            _enrich_l2(c, chunks, client, sem, max_retries=max_retries, base_delay=base_delay)
+            for c in chunks.l2_chunks
+        ]
         enriched_l2 = await asyncio.gather(*l2_tasks, return_exceptions=True)
 
         for i, result in enumerate(enriched_l2):
             if isinstance(result, Exception):
-                logger.warning("L2 enrichment failed for %s: %s", chunks.l2_chunks[i].chunk_id, result)
+                logger.warning(
+                    "L2 enrichment failed for %s: %s", chunks.l2_chunks[i].chunk_id, result
+                )
                 chunks.l2_chunks[i].section_summary = "[enrichment failed]"
                 continue
             chunk = chunks.l2_chunks[i]
@@ -236,12 +253,17 @@ async def enrich_chunks(
 
         # --- L1 enrichment ---
         logger.info("Enriching %d L1 chunks...", len(chunks.l1_chunks))
-        l1_tasks = [_enrich_l1(c, chunks, client, sem, max_retries=max_retries, base_delay=base_delay) for c in chunks.l1_chunks]
+        l1_tasks = [
+            _enrich_l1(c, chunks, client, sem, max_retries=max_retries, base_delay=base_delay)
+            for c in chunks.l1_chunks
+        ]
         enriched_l1 = await asyncio.gather(*l1_tasks, return_exceptions=True)
 
         for i, result in enumerate(enriched_l1):
             if isinstance(result, Exception):
-                logger.warning("L1 enrichment failed for %s: %s", chunks.l1_chunks[i].chunk_id, result)
+                logger.warning(
+                    "L1 enrichment failed for %s: %s", chunks.l1_chunks[i].chunk_id, result
+                )
                 chunks.l1_chunks[i].chapter_summary = "[enrichment failed]"
                 continue
             chunk = chunks.l1_chunks[i]
@@ -255,7 +277,15 @@ async def enrich_chunks(
         logger.info("Enriching L0 (document digest)...")
         try:
             l0_suffix = profile.l0_prompt_suffix if profile else ""
-            l0_result = await _enrich_l0(chunks.l0, chunks, client, sem, prompt_suffix=l0_suffix, max_retries=max_retries, base_delay=base_delay)
+            l0_result = await _enrich_l0(
+                chunks.l0,
+                chunks,
+                client,
+                sem,
+                prompt_suffix=l0_suffix,
+                max_retries=max_retries,
+                base_delay=base_delay,
+            )
             chunks.l0.domain = l0_result.domain
             chunks.l0.key_concepts = l0_result.key_concepts
             chunks.l0.executive_summary = l0_result.executive_summary
@@ -278,7 +308,9 @@ async def enrich_chunks(
         else:
             logger.info("Extracting knowledge graph triples...")
             try:
-                kg_triples = await _extract_kg_triples(chunks, client, sem, max_retries=max_retries, base_delay=base_delay)
+                kg_triples = await _extract_kg_triples(
+                    chunks, client, sem, max_retries=max_retries, base_delay=base_delay
+                )
                 chunks.knowledge_graph = kg_triples
             except Exception as e:
                 logger.warning("Knowledge graph extraction failed: %s", e)
@@ -286,12 +318,16 @@ async def enrich_chunks(
     # --- Citation extraction (if profile enables it) ---
     if extract_citations:
         if all_l3_skipped and previous_chunks and previous_chunks.citations:
-            logger.info("Reusing %d citations from previous version", len(previous_chunks.citations))
+            logger.info(
+                "Reusing %d citations from previous version", len(previous_chunks.citations)
+            )
             chunks.citations = previous_chunks.citations
         else:
             logger.info("Extracting citations...")
             try:
-                citations = await _extract_citations(chunks, client, sem, max_retries=max_retries, base_delay=base_delay)
+                citations = await _extract_citations(
+                    chunks, client, sem, max_retries=max_retries, base_delay=base_delay
+                )
                 chunks.citations = citations
             except Exception as e:
                 logger.warning("Citation extraction failed: %s", e)
@@ -333,11 +369,12 @@ def _copy_upper_enrichment(chunks: ChunkSet, previous: ChunkSet) -> None:
 def _extract_keywords_heuristic(text: str) -> list[str]:
     """Extract keywords from code/structural content without LLM calls."""
     import re
+
     words = set()
     # CamelCase identifiers
-    words.update(re.findall(r'\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b', text))
+    words.update(re.findall(r"\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b", text))
     # snake_case identifiers
-    words.update(re.findall(r'\b[a-z]+(?:_[a-z]+)+\b', text))
+    words.update(re.findall(r"\b[a-z]+(?:_[a-z]+)+\b", text))
     # Capitalized terms (class names, proper nouns)
     words.update(w for w in text.split() if len(w) > 3 and w.isalpha() and w[0].isupper())
     # Deduplicate and limit
@@ -379,14 +416,21 @@ Generate JSON with these fields:
 
     async with sem:
         return await retry_llm_call(
-            client.generate_json, prompt, L3Enrichment,
-            max_retries=max_retries, base_delay=base_delay,
+            client.generate_json,
+            prompt,
+            L3Enrichment,
+            max_retries=max_retries,
+            base_delay=base_delay,
         )
 
 
 async def _enrich_l2(
-    chunk: L2Chunk, all_chunks: ChunkSet, client: LLMClient, sem: asyncio.Semaphore,
-    max_retries: int = 3, base_delay: float = 1.0,
+    chunk: L2Chunk,
+    all_chunks: ChunkSet,
+    client: LLMClient,
+    sem: asyncio.Semaphore,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
 ) -> L2Enrichment:
     child_summaries = []
     for c in all_chunks.l3_chunks:
@@ -408,14 +452,21 @@ Generate JSON with:
 
     async with sem:
         return await retry_llm_call(
-            client.generate_json, prompt, L2Enrichment,
-            max_retries=max_retries, base_delay=base_delay,
+            client.generate_json,
+            prompt,
+            L2Enrichment,
+            max_retries=max_retries,
+            base_delay=base_delay,
         )
 
 
 async def _enrich_l1(
-    chunk: L1Chunk, all_chunks: ChunkSet, client: LLMClient, sem: asyncio.Semaphore,
-    max_retries: int = 3, base_delay: float = 1.0,
+    chunk: L1Chunk,
+    all_chunks: ChunkSet,
+    client: LLMClient,
+    sem: asyncio.Semaphore,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
 ) -> L1Enrichment:
     section_summaries = []
     for s in all_chunks.l2_chunks:
@@ -439,8 +490,11 @@ Generate JSON with:
 
     async with sem:
         return await retry_llm_call(
-            client.generate_json, prompt, L1Enrichment,
-            max_retries=max_retries, base_delay=base_delay,
+            client.generate_json,
+            prompt,
+            L1Enrichment,
+            max_retries=max_retries,
+            base_delay=base_delay,
         )
 
 
@@ -479,14 +533,20 @@ Generate JSON with:
 
     async with sem:
         return await retry_llm_call(
-            client.generate_json, prompt, L0Enrichment,
-            max_retries=max_retries, base_delay=base_delay,
+            client.generate_json,
+            prompt,
+            L0Enrichment,
+            max_retries=max_retries,
+            base_delay=base_delay,
         )
 
 
 async def _extract_citations(
-    chunks: ChunkSet, client: LLMClient, sem: asyncio.Semaphore,
-    max_retries: int = 3, base_delay: float = 1.0,
+    chunks: ChunkSet,
+    client: LLMClient,
+    sem: asyncio.Semaphore,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
 ) -> list[Citation]:
     """Extract structured citations from the document.
 
@@ -507,7 +567,7 @@ async def _extract_citations(
 
     # Fallback: use the last few L3 chunks (often contain references)
     if not ref_content and chunks.l3_chunks:
-        tail = chunks.l3_chunks[-min(5, len(chunks.l3_chunks)):]
+        tail = chunks.l3_chunks[-min(5, len(chunks.l3_chunks)) :]
         ref_content = "\n\n".join(c.content for c in tail)
 
     if not ref_content.strip():
@@ -534,8 +594,11 @@ Return a JSON object with a "citations" list. Only include items that are actual
 
     async with sem:
         result = await retry_llm_call(
-            client.generate_json, prompt, CitationList,
-            max_retries=max_retries, base_delay=base_delay,
+            client.generate_json,
+            prompt,
+            CitationList,
+            max_retries=max_retries,
+            base_delay=base_delay,
         )
 
     # Wire up inline_references from L3 cited_references
@@ -577,8 +640,11 @@ Rules:
 
     async with sem:
         result = await retry_llm_call(
-            client.generate_json, prompt, KGTripleList,
-            max_retries=max_retries, base_delay=base_delay,
+            client.generate_json,
+            prompt,
+            KGTripleList,
+            max_retries=max_retries,
+            base_delay=base_delay,
         )
 
     # Tag each triple with the source chunk
@@ -596,8 +662,9 @@ async def _extract_kg_triples(
 ) -> list[KGTriple]:
     """Extract knowledge graph triples from all L3 chunks, deduplicate, and return."""
     tasks = [
-        _extract_kg_triples_for_chunk(chunk, client, sem,
-                                      max_retries=max_retries, base_delay=base_delay)
+        _extract_kg_triples_for_chunk(
+            chunk, client, sem, max_retries=max_retries, base_delay=base_delay
+        )
         for chunk in chunks.l3_chunks
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)

@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from ingestible.config import Settings
-from ingestible.models.chunks import ChunkPosition, ChunkSet, L0Chunk, L1Chunk, L2Chunk, L3Chunk
+from ingestible.models.chunks import ChunkSet, L0Chunk
 from ingestible.models.document import DocumentStructure, StructureNode
 from ingestible.pipeline.stage6_storage import (
     archive_version,

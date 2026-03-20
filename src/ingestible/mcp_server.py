@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
@@ -67,13 +66,15 @@ def ingest_document(
     meta = load_document_meta(doc_dir)
     chunks = load_chunks(doc_dir)
 
-    return json.dumps({
-        "doc_id": meta.get("doc_id", doc_dir.name),
-        "title": meta.get("title", "Untitled"),
-        "total_pages": meta.get("total_pages", 0),
-        "total_chunks": len(chunks.l3_chunks),
-        "enriched": not skip_enrichment,
-    })
+    return json.dumps(
+        {
+            "doc_id": meta.get("doc_id", doc_dir.name),
+            "title": meta.get("title", "Untitled"),
+            "total_pages": meta.get("total_pages", 0),
+            "total_chunks": len(chunks.l3_chunks),
+            "enriched": not skip_enrichment,
+        }
+    )
 
 
 @mcp.tool()
@@ -130,15 +131,17 @@ def list_documents() -> str:
 
     settings = _get_settings()
     docs = _list_docs(settings)
-    return json.dumps([
-        {
-            "doc_id": d.get("doc_id", "?"),
-            "title": d.get("title", "Untitled"),
-            "total_pages": d.get("total_pages", 0),
-            "ingestion_date": d.get("ingestion_date", ""),
-        }
-        for d in docs
-    ])
+    return json.dumps(
+        [
+            {
+                "doc_id": d.get("doc_id", "?"),
+                "title": d.get("title", "Untitled"),
+                "total_pages": d.get("total_pages", 0),
+                "ingestion_date": d.get("ingestion_date", ""),
+            }
+            for d in docs
+        ]
+    )
 
 
 @mcp.tool()
@@ -168,25 +171,27 @@ def get_document_overview(doc_id: str) -> str:
 
     chapters = [{"id": c.chunk_id, "title": c.title} for c in chunks.l1_chunks]
 
-    return json.dumps({
-        "doc_id": doc_id,
-        "title": l0.title,
-        "author": l0.author,
-        "domain": l0.domain,
-        "document_type": l0.document_type,
-        "target_audience": l0.target_audience,
-        "executive_summary": l0.executive_summary,
-        "key_findings": l0.key_findings,
-        "key_concepts": l0.key_concepts,
-        "methodology": l0.methodology,
-        "limitations": l0.limitations,
-        "toc_summary": l0.toc_summary,
-        "total_pages": l0.total_pages,
-        "total_chapters": l0.total_chapters,
-        "total_sections": l0.total_sections,
-        "total_passages": l0.total_passages,
-        "chapters": chapters,
-    })
+    return json.dumps(
+        {
+            "doc_id": doc_id,
+            "title": l0.title,
+            "author": l0.author,
+            "domain": l0.domain,
+            "document_type": l0.document_type,
+            "target_audience": l0.target_audience,
+            "executive_summary": l0.executive_summary,
+            "key_findings": l0.key_findings,
+            "key_concepts": l0.key_concepts,
+            "methodology": l0.methodology,
+            "limitations": l0.limitations,
+            "toc_summary": l0.toc_summary,
+            "total_pages": l0.total_pages,
+            "total_chapters": l0.total_chapters,
+            "total_sections": l0.total_sections,
+            "total_passages": l0.total_passages,
+            "chapters": chapters,
+        }
+    )
 
 
 @mcp.tool()
@@ -263,13 +268,15 @@ def get_knowledge_graph(doc_id: str) -> str:
                 entities[key] = {"name": name, "type": etype, "count": 0}
             entities[key]["count"] += 1
 
-    return json.dumps({
-        "doc_id": doc_id,
-        "total_triples": len(chunks.knowledge_graph),
-        "total_entities": len(entities),
-        "triples": [t.model_dump() for t in chunks.knowledge_graph[:100]],  # cap at 100
-        "top_entities": sorted(entities.values(), key=lambda e: e["count"], reverse=True)[:20],
-    })
+    return json.dumps(
+        {
+            "doc_id": doc_id,
+            "total_triples": len(chunks.knowledge_graph),
+            "total_entities": len(entities),
+            "triples": [t.model_dump() for t in chunks.knowledge_graph[:100]],  # cap at 100
+            "top_entities": sorted(entities.values(), key=lambda e: e["count"], reverse=True)[:20],
+        }
+    )
 
 
 @mcp.tool()

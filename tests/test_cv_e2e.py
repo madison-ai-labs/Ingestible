@@ -7,8 +7,6 @@ httpx → assert correct L0→L1→L2→L3 parent chain in request body.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -94,7 +92,12 @@ class TestCognitiveVaultE2E:
             captured_entries.extend(kwargs["json"]["entries"])
             return httpx.Response(
                 200,
-                json={"created": len(kwargs["json"]["entries"]), "updated": 0, "unchanged": 0, "deleted": 0},
+                json={
+                    "created": len(kwargs["json"]["entries"]),
+                    "updated": 0,
+                    "unchanged": 0,
+                    "deleted": 0,
+                },
                 request=httpx.Request("POST", url),
             )
 
@@ -118,9 +121,6 @@ class TestCognitiveVaultE2E:
         # L0 has no parent
         l0 = by_level[0][0]
         assert "parentSourcePath" not in l0
-
-        # Build sourcePath → entry map
-        by_path = {e["sourcePath"]: e for e in captured_entries}
 
         # L1 → parent is L0
         for l1 in by_level[1]:
@@ -159,7 +159,12 @@ class TestCognitiveVaultE2E:
             captured_entries.extend(kwargs["json"]["entries"])
             return httpx.Response(
                 200,
-                json={"created": len(kwargs["json"]["entries"]), "updated": 0, "unchanged": 0, "deleted": 0},
+                json={
+                    "created": len(kwargs["json"]["entries"]),
+                    "updated": 0,
+                    "unchanged": 0,
+                    "deleted": 0,
+                },
                 request=httpx.Request("POST", url),
             )
 
@@ -172,7 +177,9 @@ class TestCognitiveVaultE2E:
             assert entry.get("checksum"), f"Entry {entry['sourcePath']} has empty checksum"
             # L0 and L3 must have content; L1/L2 may be empty (structure-only chapters)
             if entry["chunkLevel"] in (0, 3):
-                assert entry.get("content"), f"L{entry['chunkLevel']} entry {entry['sourcePath']} has empty content"
+                assert entry.get("content"), (
+                    f"L{entry['chunkLevel']} entry {entry['sourcePath']} has empty content"
+                )
 
     def test_source_paths_are_all_unique(self, ingested_doc, monkeypatch):
         """All sourcePaths across all entries must be unique."""
@@ -191,7 +198,12 @@ class TestCognitiveVaultE2E:
             captured_entries.extend(kwargs["json"]["entries"])
             return httpx.Response(
                 200,
-                json={"created": len(kwargs["json"]["entries"]), "updated": 0, "unchanged": 0, "deleted": 0},
+                json={
+                    "created": len(kwargs["json"]["entries"]),
+                    "updated": 0,
+                    "unchanged": 0,
+                    "deleted": 0,
+                },
                 request=httpx.Request("POST", url),
             )
 
@@ -200,4 +212,6 @@ class TestCognitiveVaultE2E:
         export_to_cv(chunks, config)
 
         paths = [e["sourcePath"] for e in captured_entries]
-        assert len(paths) == len(set(paths)), f"Duplicate sourcePaths found: {[p for p in paths if paths.count(p) > 1]}"
+        assert len(paths) == len(set(paths)), (
+            f"Duplicate sourcePaths found: {[p for p in paths if paths.count(p) > 1]}"
+        )

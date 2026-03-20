@@ -12,7 +12,6 @@ import json
 import sys
 from pathlib import Path
 
-
 # ANSI colors
 GREEN = "\033[32m"
 RED = "\033[31m"
@@ -77,7 +76,9 @@ def compare_section(title: str, old: dict, new: dict, meta: dict[str, dict]) -> 
     """
     lines = []
     lines.append(f"\n{BOLD}{title}{RESET}")
-    lines.append(f"  {'Metric':<35s} {'v' + old.get('version', '?'):>12s} {'v' + new.get('version', '?'):>12s}   Delta")
+    lines.append(
+        f"  {'Metric':<35s} {'v' + old.get('version', '?'):>12s} {'v' + new.get('version', '?'):>12s}   Delta"
+    )
     lines.append(f"  {'─' * 35} {'─' * 12} {'─' * 12}   {'─' * 10}")
 
     all_keys = list(dict.fromkeys(list(old.keys()) + list(new.keys())))
@@ -92,7 +93,8 @@ def compare_section(title: str, old: dict, new: dict, meta: dict[str, dict]) -> 
             delta = f"{YELLOW}{'added' if old_val == '—' else 'removed'}{RESET}"
         else:
             delta = format_delta(
-                old_val, new_val,
+                old_val,
+                new_val,
                 lower_is_better=m.get("lower_is_better", False),
                 is_timing=m.get("timing", False),
             )
@@ -132,90 +134,166 @@ def main():
     # inject version for header
     old_c["version"] = old_ver
     new_c["version"] = new_ver
-    all_lines.extend(compare_section("Chunking", old_c, new_c, {
-        "l1_chapters":          {"label": "L1 chapters"},
-        "l2_sections":          {"label": "L2 sections"},
-        "l3_passages":          {"label": "L3 passages"},
-        "total_l3_tokens":      {"label": "Total L3 tokens"},
-        "l3_token_min":         {"label": "L3 token min"},
-        "l3_token_max":         {"label": "L3 token max"},
-        "l3_token_median":      {"label": "L3 token median"},
-        "l3_token_mean":        {"label": "L3 token mean"},
-        "median_time_s":        {"label": "Chunking time (median)", "timing": True, "lower_is_better": True, "unit": "s"},
-        "throughput_chars_per_s": {"label": "Throughput", "unit": " ch/s"},
-    }))
+    all_lines.extend(
+        compare_section(
+            "Chunking",
+            old_c,
+            new_c,
+            {
+                "l1_chapters": {"label": "L1 chapters"},
+                "l2_sections": {"label": "L2 sections"},
+                "l3_passages": {"label": "L3 passages"},
+                "total_l3_tokens": {"label": "Total L3 tokens"},
+                "l3_token_min": {"label": "L3 token min"},
+                "l3_token_max": {"label": "L3 token max"},
+                "l3_token_median": {"label": "L3 token median"},
+                "l3_token_mean": {"label": "L3 token mean"},
+                "median_time_s": {
+                    "label": "Chunking time (median)",
+                    "timing": True,
+                    "lower_is_better": True,
+                    "unit": "s",
+                },
+                "throughput_chars_per_s": {"label": "Throughput", "unit": " ch/s"},
+            },
+        )
+    )
 
     # --- Token Counting ---
     old_t = old.get("token_counting", {})
     new_t = new.get("token_counting", {})
     old_t["version"] = old_ver
     new_t["version"] = new_ver
-    all_lines.extend(compare_section("Token Counting", old_t, new_t, {
-        "text_chars":           {"label": "Text chars"},
-        "token_count":          {"label": "Token count"},
-        "median_per_call_ms":   {"label": "Per-call time (median)", "timing": True, "lower_is_better": True, "unit": "ms"},
-    }))
+    all_lines.extend(
+        compare_section(
+            "Token Counting",
+            old_t,
+            new_t,
+            {
+                "text_chars": {"label": "Text chars"},
+                "token_count": {"label": "Token count"},
+                "median_per_call_ms": {
+                    "label": "Per-call time (median)",
+                    "timing": True,
+                    "lower_is_better": True,
+                    "unit": "ms",
+                },
+            },
+        )
+    )
 
     # --- Storage ---
     old_s = old.get("storage_roundtrip", {})
     new_s = new.get("storage_roundtrip", {})
     old_s["version"] = old_ver
     new_s["version"] = new_ver
-    all_lines.extend(compare_section("Storage Round-Trip", old_s, new_s, {
-        "save_median_s":  {"label": "Save (median)", "timing": True, "lower_is_better": True, "unit": "s"},
-        "load_median_s":  {"label": "Load (median)", "timing": True, "lower_is_better": True, "unit": "s"},
-    }))
+    all_lines.extend(
+        compare_section(
+            "Storage Round-Trip",
+            old_s,
+            new_s,
+            {
+                "save_median_s": {
+                    "label": "Save (median)",
+                    "timing": True,
+                    "lower_is_better": True,
+                    "unit": "s",
+                },
+                "load_median_s": {
+                    "label": "Load (median)",
+                    "timing": True,
+                    "lower_is_better": True,
+                    "unit": "s",
+                },
+            },
+        )
+    )
 
     # --- Content Coverage ---
     old_cc = old.get("content_coverage", {})
     new_cc = new.get("content_coverage", {})
     old_cc["version"] = old_ver
     new_cc["version"] = new_ver
-    all_lines.extend(compare_section("Content Coverage", old_cc, new_cc, {
-        "input_leaf_chars":  {"label": "Input leaf chars"},
-        "l3_output_chars":   {"label": "L3 output chars"},
-        "coverage_ratio":    {"label": "Coverage ratio"},
-    }))
+    all_lines.extend(
+        compare_section(
+            "Content Coverage",
+            old_cc,
+            new_cc,
+            {
+                "input_leaf_chars": {"label": "Input leaf chars"},
+                "l3_output_chars": {"label": "L3 output chars"},
+                "coverage_ratio": {"label": "Coverage ratio"},
+            },
+        )
+    )
 
     # --- Hierarchy Linkage ---
     old_hl = old.get("hierarchy_linkage", {})
     new_hl = new.get("hierarchy_linkage", {})
     old_hl["version"] = old_ver
     new_hl["version"] = new_ver
-    all_lines.extend(compare_section("Hierarchy Linkage", old_hl, new_hl, {
-        "l3_orphan_count": {"label": "L3 orphans", "lower_is_better": True},
-        "l2_orphan_count": {"label": "L2 orphans", "lower_is_better": True},
-    }))
+    all_lines.extend(
+        compare_section(
+            "Hierarchy Linkage",
+            old_hl,
+            new_hl,
+            {
+                "l3_orphan_count": {"label": "L3 orphans", "lower_is_better": True},
+                "l2_orphan_count": {"label": "L2 orphans", "lower_is_better": True},
+            },
+        )
+    )
 
     # --- Disk Footprint ---
     old_df = old.get("disk_footprint", {})
     new_df = new.get("disk_footprint", {})
     old_df["version"] = old_ver
     new_df["version"] = new_ver
-    all_lines.extend(compare_section("Disk Footprint", old_df, new_df, {
-        "total_bytes": {"label": "Total bytes", "unit": "B"},
-        "file_count":  {"label": "File count"},
-    }))
+    all_lines.extend(
+        compare_section(
+            "Disk Footprint",
+            old_df,
+            new_df,
+            {
+                "total_bytes": {"label": "Total bytes", "unit": "B"},
+                "file_count": {"label": "File count"},
+            },
+        )
+    )
 
     # --- Search Index Counts ---
     old_si = old.get("search_index_counts", {})
     new_si = new.get("search_index_counts", {})
     old_si["version"] = old_ver
     new_si["version"] = new_ver
-    all_lines.extend(compare_section("Search Indexes", old_si, new_si, {
-        "bm25_doc_count":          {"label": "BM25 documents"},
-        "concept_index_term_count": {"label": "Concept index terms"},
-    }))
+    all_lines.extend(
+        compare_section(
+            "Search Indexes",
+            old_si,
+            new_si,
+            {
+                "bm25_doc_count": {"label": "BM25 documents"},
+                "concept_index_term_count": {"label": "Concept index terms"},
+            },
+        )
+    )
 
     # --- Overlap ---
     old_ov = old.get("overlap_verification", {})
     new_ov = new.get("overlap_verification", {})
     old_ov["version"] = old_ver
     new_ov["version"] = new_ver
-    all_lines.extend(compare_section("Overlap Verification", old_ov, new_ov, {
-        "overlap_pairs_total":               {"label": "Consecutive pairs"},
-        "overlap_pairs_with_shared_content":  {"label": "Pairs with overlap"},
-    }))
+    all_lines.extend(
+        compare_section(
+            "Overlap Verification",
+            old_ov,
+            new_ov,
+            {
+                "overlap_pairs_total": {"label": "Consecutive pairs"},
+                "overlap_pairs_with_shared_content": {"label": "Pairs with overlap"},
+            },
+        )
+    )
 
     # --- Multi-Format Parsing (v0.8.0+) ---
     old_mf = old.get("multiformat_parsing", {})
@@ -225,7 +303,9 @@ def main():
         old_fmts = set(old_mf.get("supported_formats", []))
         new_fmts = set(new_mf.get("supported_formats", []))
         if not old_fmts and new_fmts:
-            all_lines.append(f"  {GREEN}NEW in v{new_ver}: supports {', '.join(sorted(new_fmts))}{RESET}")
+            all_lines.append(
+                f"  {GREEN}NEW in v{new_ver}: supports {', '.join(sorted(new_fmts))}{RESET}"
+            )
         elif old_fmts != new_fmts:
             added = new_fmts - old_fmts
             removed = old_fmts - new_fmts
@@ -241,7 +321,9 @@ def main():
         new_res = new_mf.get("results", {})
         all_formats = sorted(set(list(old_res.keys()) + list(new_res.keys())))
         if all_formats:
-            all_lines.append(f"  {'Format':<8s} {'Title':<35s} {'TOC':>4s} {'Chars':>7s} {'Tokens':>7s} {'Table':>6s}")
+            all_lines.append(
+                f"  {'Format':<8s} {'Title':<35s} {'TOC':>4s} {'Chars':>7s} {'Tokens':>7s} {'Table':>6s}"
+            )
             all_lines.append(f"  {'─' * 8} {'─' * 35} {'─' * 4} {'─' * 7} {'─' * 7} {'─' * 6}")
             for fmt in all_formats:
                 r = new_res.get(fmt, old_res.get(fmt, {}))
@@ -262,7 +344,9 @@ def main():
         all_lines.append(f"\n{BOLD}Semantic Chunking{RESET}")
         if not old_sc and new_sc:
             all_lines.append(f"  {GREEN}NEW in v{new_ver}{RESET}")
-        all_lines.append(f"  Input: {sc.get('input_chars', 0):,} chars, {sc.get('input_tokens', 0)} tokens, {sc.get('input_topics', '?')} topics")
+        all_lines.append(
+            f"  Input: {sc.get('input_chars', 0):,} chars, {sc.get('input_tokens', 0)} tokens, {sc.get('input_topics', '?')} topics"
+        )
 
         sem = sc.get("semantic", {})
         para = sc.get("paragraph", {})
@@ -278,8 +362,16 @@ def main():
         ]:
             sv = sem.get(key, "—")
             pv = para.get(key, "—")
-            sfmt = f"{sv:.4f}s" if key == "time_s" and sv != "—" else (f"{sv:,}" if isinstance(sv, int) else str(sv))
-            pfmt = f"{pv:.4f}s" if key == "time_s" and pv != "—" else (f"{pv:,}" if isinstance(pv, int) else str(pv))
+            sfmt = (
+                f"{sv:.4f}s"
+                if key == "time_s" and sv != "—"
+                else (f"{sv:,}" if isinstance(sv, int) else str(sv))
+            )
+            pfmt = (
+                f"{pv:.4f}s"
+                if key == "time_s" and pv != "—"
+                else (f"{pv:,}" if isinstance(pv, int) else str(pv))
+            )
             all_lines.append(f"  {label:<35s} {sfmt:>12s} {pfmt:>12s}")
 
     for line in all_lines:
@@ -289,19 +381,41 @@ def main():
     print(f"\n{BOLD}Summary{RESET}")
     # Count changed vs unchanged non-timing metrics
     sections = [
-        (old.get("chunking", {}), new.get("chunking", {}),
-         ["l1_chapters", "l2_sections", "l3_passages", "total_l3_tokens",
-          "l3_token_min", "l3_token_max", "l3_token_median", "l3_token_mean"]),
-        (old.get("content_coverage", {}), new.get("content_coverage", {}),
-         ["coverage_ratio"]),
-        (old.get("hierarchy_linkage", {}), new.get("hierarchy_linkage", {}),
-         ["l3_orphan_count", "l2_orphan_count"]),
-        (old.get("disk_footprint", {}), new.get("disk_footprint", {}),
-         ["total_bytes", "file_count"]),
-        (old.get("search_index_counts", {}), new.get("search_index_counts", {}),
-         ["bm25_doc_count", "concept_index_term_count"]),
-        (old.get("overlap_verification", {}), new.get("overlap_verification", {}),
-         ["overlap_pairs_total", "overlap_pairs_with_shared_content"]),
+        (
+            old.get("chunking", {}),
+            new.get("chunking", {}),
+            [
+                "l1_chapters",
+                "l2_sections",
+                "l3_passages",
+                "total_l3_tokens",
+                "l3_token_min",
+                "l3_token_max",
+                "l3_token_median",
+                "l3_token_mean",
+            ],
+        ),
+        (old.get("content_coverage", {}), new.get("content_coverage", {}), ["coverage_ratio"]),
+        (
+            old.get("hierarchy_linkage", {}),
+            new.get("hierarchy_linkage", {}),
+            ["l3_orphan_count", "l2_orphan_count"],
+        ),
+        (
+            old.get("disk_footprint", {}),
+            new.get("disk_footprint", {}),
+            ["total_bytes", "file_count"],
+        ),
+        (
+            old.get("search_index_counts", {}),
+            new.get("search_index_counts", {}),
+            ["bm25_doc_count", "concept_index_term_count"],
+        ),
+        (
+            old.get("overlap_verification", {}),
+            new.get("overlap_verification", {}),
+            ["overlap_pairs_total", "overlap_pairs_with_shared_content"],
+        ),
     ]
 
     changed = 0

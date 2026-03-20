@@ -85,9 +85,7 @@ def _create_test_doc(settings: Settings, doc_id: str = "test-doc-abc123") -> Pat
         total_sections=1,
         total_passages=1,
     )
-    chunks = ChunkSet(
-        doc_id=doc_id, l0=l0, l1_chunks=[l1], l2_chunks=[l2], l3_chunks=[l3]
-    )
+    chunks = ChunkSet(doc_id=doc_id, l0=l0, l1_chunks=[l1], l2_chunks=[l2], l3_chunks=[l3])
     root = StructureNode(id=doc_id, title="ML Handbook", level=0)
     structure = DocumentStructure(doc_id=doc_id, title="ML Handbook", root=root)
 
@@ -264,9 +262,7 @@ class TestIngestEndpoints:
 
 class TestExportEndpoint:
     def test_export_jsonl(self, api_setup):
-        resp = api_setup["client"].get(
-            "/documents/test-doc-abc123/export?format=jsonl"
-        )
+        resp = api_setup["client"].get("/documents/test-doc-abc123/export?format=jsonl")
         assert resp.status_code == 200
         # Should be JSONL content
         lines = resp.text.strip().split("\n")
@@ -276,9 +272,7 @@ class TestExportEndpoint:
             assert "content" in parsed
 
     def test_export_invalid_format(self, api_setup):
-        resp = api_setup["client"].get(
-            "/documents/test-doc-abc123/export?format=xml"
-        )
+        resp = api_setup["client"].get("/documents/test-doc-abc123/export?format=xml")
         assert resp.status_code == 400
 
 

@@ -7,9 +7,7 @@ def _make_structure(sections: list[tuple[str, str]]) -> DocumentStructure:
     """Helper: create a structure with chapter > sections."""
     children = []
     for title, content in sections:
-        children.append(
-            StructureNode(id=f"sec-{title}", title=title, level=2, content=content)
-        )
+        children.append(StructureNode(id=f"sec-{title}", title=title, level=2, content=content))
     root = StructureNode(
         id="root",
         title="Test Doc",

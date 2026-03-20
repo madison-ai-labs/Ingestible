@@ -25,7 +25,7 @@ from ingestible.models.chunks import (
     L2Chunk,
     L3Chunk,
 )
-from ingestible.models.document import DocumentStructure, StructureNode
+from ingestible.models.document import DocumentStructure
 from ingestible.utils.text import (
     extract_heading_level,
     is_code_block,
@@ -113,9 +113,7 @@ def chunk_document(
 
     # If the root itself has content and no children were generated
     if not l1_chunks and root.content:
-        passages = _split_into_passages(
-            root.content, doc_id, root.id, root.id, settings, embedder
-        )
+        passages = _split_into_passages(root.content, doc_id, root.id, root.id, settings, embedder)
         l3_chunks.extend(passages)
 
     # Build L0
@@ -163,14 +161,10 @@ def _split_into_passages(
         return []
 
     if settings.chunking_strategy == "recursive":
-        return _split_into_passages_recursive(
-            text, doc_id, chapter_id, section_id, settings
-        )
+        return _split_into_passages_recursive(text, doc_id, chapter_id, section_id, settings)
 
     if settings.chunking_strategy == "docling":
-        return _split_into_passages_docling(
-            text, doc_id, chapter_id, section_id, settings
-        )
+        return _split_into_passages_docling(text, doc_id, chapter_id, section_id, settings)
 
     if settings.chunking_strategy == "semantic" and embedder is not None:
         return _split_into_passages_semantic(
@@ -208,14 +202,10 @@ def _split_into_passages(
         if atomic_by_tier:
             # Flush current buffer first
             if current_paras:
-                chunks.append(
-                    _make_l3(current_paras, doc_id, chapter_id, section_id, len(chunks))
-                )
+                chunks.append(_make_l3(current_paras, doc_id, chapter_id, section_id, len(chunks)))
                 current_paras = []
                 current_tokens = 0
-            chunks.append(
-                _make_l3([para], doc_id, chapter_id, section_id, len(chunks), tier=tier)
-            )
+            chunks.append(_make_l3([para], doc_id, chapter_id, section_id, len(chunks), tier=tier))
             overlap_para = None
             continue
 
@@ -228,9 +218,7 @@ def _split_into_passages(
                 )
                 current_paras = []
                 current_tokens = 0
-            chunks.append(
-                _make_l3([para], doc_id, chapter_id, section_id, len(chunks), tier=tier)
-            )
+            chunks.append(_make_l3([para], doc_id, chapter_id, section_id, len(chunks), tier=tier))
             overlap_para = None
             continue
 
@@ -259,9 +247,7 @@ def _split_into_passages(
             merged_content = prev.content + "\n\n" + "\n\n".join(current_paras)
             chunks[-1] = prev.model_copy(update={"content": merged_content})
         else:
-            chunks.append(
-                _make_l3(current_paras, doc_id, chapter_id, section_id, len(chunks))
-            )
+            chunks.append(_make_l3(current_paras, doc_id, chapter_id, section_id, len(chunks)))
 
     # Label positions
     for i, chunk in enumerate(chunks):
@@ -347,6 +333,7 @@ def _split_into_passages_recursive(
         tier = "T3"
         if settings.content_classification:
             from ingestible.pipeline.stage1c_classify import classify_block
+
             tier = classify_block(piece)
         chunks.append(_make_l3([piece], doc_id, chapter_id, section_id, len(chunks), tier=tier))
 
@@ -392,10 +379,7 @@ def _recursive_split(
     parts = text.split(sep)
     # Re-attach separator to end of each part (except last) if it's not whitespace-only
     if sep not in ("\n\n", "\n"):
-        parts = [
-            parts[i] + sep if i < len(parts) - 1 else parts[i]
-            for i in range(len(parts))
-        ]
+        parts = [parts[i] + sep if i < len(parts) - 1 else parts[i] for i in range(len(parts))]
 
     result: list[str] = []
     current = ""
@@ -423,9 +407,7 @@ def _recursive_split(
     return [r for r in result if r]
 
 
-def _apply_recursive_overlap(
-    pieces: list[str], max_tokens: int, overlap_frac: float
-) -> list[str]:
+def _apply_recursive_overlap(pieces: list[str], max_tokens: int, overlap_frac: float) -> list[str]:
     """Prepend tail text from previous piece to the start of each subsequent piece."""
     overlap_budget = int(max_tokens * overlap_frac)
     if overlap_budget <= 0:
@@ -526,10 +508,12 @@ def _split_into_passages_docling(
 
         if is_atomic:
             _flush()
-            t = classify_block(para) if classify else ("T0" if is_code_block(para) else "T1" if is_table_block(para) else "T3")
-            chunks.append(
-                _make_l3([para], doc_id, chapter_id, section_id, len(chunks), tier=t)
+            t = (
+                classify_block(para)
+                if classify
+                else ("T0" if is_code_block(para) else "T1" if is_table_block(para) else "T3")
             )
+            chunks.append(_make_l3([para], doc_id, chapter_id, section_id, len(chunks), tier=t))
             continue
 
         # Would adding this exceed budget?
@@ -580,12 +564,9 @@ def _split_into_passages_semantic(
     if not paragraphs:
         return []
 
-    max_tokens = settings.max_chunk_tokens
-    min_tokens = settings.min_chunk_tokens
-
     # Separate atomic blocks (tables, code) from prose paragraphs.
     # Track original positions so we can re-insert them later.
-    prose_parts: list[str] = []           # prose paragraph text
+    prose_parts: list[str] = []  # prose paragraph text
     atomic_blocks: list[tuple[int, str]] = []  # (original para index, text)
 
     for i, para in enumerate(paragraphs):
@@ -614,9 +595,7 @@ def _split_into_passages_semantic(
     chunks = []
     # Emit prose groups as chunks
     for group in groups:
-        chunks.append(
-            _make_l3(group, doc_id, chapter_id, section_id, len(chunks))
-        )
+        chunks.append(_make_l3(group, doc_id, chapter_id, section_id, len(chunks)))
 
     # Insert atomic blocks as standalone chunks
     # Place them proportionally based on their original position in the paragraph list

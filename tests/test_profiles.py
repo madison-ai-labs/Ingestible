@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from ingestible.config import Settings
 from ingestible.models.chunks import (
@@ -24,7 +23,6 @@ from ingestible.models.document import (
 from ingestible.models.enrichment import Citation
 from ingestible.pipeline.stage6_storage import load_chunks, save_document
 from ingestible.profiles import PROFILES, ExtractionProfile, detect_profile
-
 
 # ---------------------------------------------------------------------------
 # Profile registry
@@ -56,7 +54,9 @@ def test_non_paper_profiles_disable_citations():
 # ---------------------------------------------------------------------------
 
 
-def _make_parsed(markdown: str, toc: list[TOCEntry] | None = None, fmt: str = ".pdf") -> ParsedDocument:
+def _make_parsed(
+    markdown: str, toc: list[TOCEntry] | None = None, fmt: str = ".pdf"
+) -> ParsedDocument:
     return ParsedDocument(
         title="Test",
         source_path="/test" + fmt,

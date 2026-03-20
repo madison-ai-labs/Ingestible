@@ -8,18 +8,12 @@ Run with:  pytest tests/test_cv_export.py -v
 
 from __future__ import annotations
 
-import hashlib
-import json
-
 import httpx
-import pytest
 
 from ingestible.adapters.cv_export import (
     CVConfig,
-    ExportResult,
     chunkset_to_entries,
     export_to_cv,
-    _source_path,
 )
 from ingestible.models.chunks import (
     ChunkPosition,
@@ -30,10 +24,10 @@ from ingestible.models.chunks import (
     L3Chunk,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 def _make_chunkset() -> ChunkSet:
     """Build a ChunkSet with all levels populated."""
@@ -103,6 +97,7 @@ def _make_chunkset() -> ChunkSet:
 # ---------------------------------------------------------------------------
 # 1. Transformation: ChunkSet → CV entries
 # ---------------------------------------------------------------------------
+
 
 class TestChunksetToEntries:
     def test_produces_correct_count(self):
@@ -238,6 +233,7 @@ class TestChunksetToEntries:
 # ---------------------------------------------------------------------------
 # 2. HTTP export (mocked)
 # ---------------------------------------------------------------------------
+
 
 class TestExportToCv:
     def test_successful_export(self, monkeypatch):

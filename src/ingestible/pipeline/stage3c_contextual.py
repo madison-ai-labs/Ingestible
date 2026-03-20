@@ -45,8 +45,14 @@ async def add_context_prefixes(
         section_title = title_map.get(chunk.position.section, "")
         tasks.append(
             _generate_context_blurb(
-                chunk.content, doc_title, chapter_title, section_title, client, sem,
-                max_retries=max_retries, base_delay=base_delay,
+                chunk.content,
+                doc_title,
+                chapter_title,
+                section_title,
+                client,
+                sem,
+                max_retries=max_retries,
+                base_delay=base_delay,
             )
         )
 
@@ -106,7 +112,10 @@ async def _generate_context_blurb(
             sentence: str
 
         result = await retry_llm_call(
-            client.generate_json, prompt, _Blurb,
-            max_retries=max_retries, base_delay=base_delay,
+            client.generate_json,
+            prompt,
+            _Blurb,
+            max_retries=max_retries,
+            base_delay=base_delay,
         )
         return result.sentence

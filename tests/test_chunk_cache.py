@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ingestible.models.chunks import ChunkPosition, ChunkSet, L0Chunk, L3Chunk
+from ingestible.models.chunks import ChunkPosition, L3Chunk
 
 
 def test_l3_chunk_content_hash_field():
@@ -43,31 +43,37 @@ def test_unchanged_hashes_detection():
     """Simulate the cache logic from build_indexes."""
     old_chunks = [
         L3Chunk(
-            chunk_id="p0", content="Same content",
+            chunk_id="p0",
+            content="Same content",
             position=ChunkPosition(chapter="ch1", section="s1", index=0),
             content_hash="hash_a",
         ),
         L3Chunk(
-            chunk_id="p1", content="Old content",
+            chunk_id="p1",
+            content="Old content",
             position=ChunkPosition(chapter="ch1", section="s1", index=1),
             content_hash="hash_b",
         ),
     ]
     new_chunks = [
         L3Chunk(
-            chunk_id="p0", content="Same content",
+            chunk_id="p0",
+            content="Same content",
             position=ChunkPosition(chapter="ch1", section="s1", index=0),
             content_hash="hash_a",
         ),
         L3Chunk(
-            chunk_id="p1", content="New content",
+            chunk_id="p1",
+            content="New content",
             position=ChunkPosition(chapter="ch1", section="s1", index=1),
             content_hash="hash_c",
         ),
     ]
 
     old_hashes = {c.content_hash for c in old_chunks if c.content_hash}
-    unchanged = {c.content_hash for c in new_chunks if c.content_hash and c.content_hash in old_hashes}
+    unchanged = {
+        c.content_hash for c in new_chunks if c.content_hash and c.content_hash in old_hashes
+    }
 
     assert unchanged == {"hash_a"}
     assert "hash_c" not in unchanged

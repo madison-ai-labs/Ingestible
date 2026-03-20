@@ -112,10 +112,7 @@ def _normalize_levels(toc: list[TOCEntry]) -> list[TOCEntry]:
     if min_level <= 1:
         return toc
     offset = min_level - 1
-    return [
-        TOCEntry(level=e.level - offset, title=e.title, page=e.page)
-        for e in toc
-    ]
+    return [TOCEntry(level=e.level - offset, title=e.title, page=e.page) for e in toc]
 
 
 def _is_flat(toc: list[TOCEntry]) -> bool:
@@ -130,9 +127,7 @@ def _has_page_numbers(toc: list[TOCEntry]) -> bool:
     return with_pages > len(toc) * 0.5
 
 
-def _infer_hierarchy_from_pages(
-    toc: list[TOCEntry], total_pages: int
-) -> list[TOCEntry]:
+def _infer_hierarchy_from_pages(toc: list[TOCEntry], total_pages: int) -> list[TOCEntry]:
     """Infer a hierarchy from a flat TOC using page ranges.
 
     A section that spans many pages and is followed by sections within
@@ -151,8 +146,14 @@ def _infer_hierarchy_from_pages(
         pages.append((start, end, end - start))
 
     # Step 2: Known sub-section titles (these are never top-level)
-    sub_titles = {"risk", "mitigations", "example scenario:", "the attack", "the result",
-                  "the scenario: a corporate code repository"}
+    sub_titles = {
+        "risk",
+        "mitigations",
+        "example scenario:",
+        "the attack",
+        "the result",
+        "the scenario: a corporate code repository",
+    }
 
     # Step 3: Assign levels
     result = []
@@ -237,9 +238,7 @@ def _is_special(title: str) -> bool:
     return any(s in lower for s in SPECIAL_SECTIONS)
 
 
-def _build_tree(
-    toc: list[TOCEntry], doc: ParsedDocument, doc_id: str
-) -> StructureNode:
+def _build_tree(toc: list[TOCEntry], doc: ParsedDocument, doc_id: str) -> StructureNode:
     """Build a tree from a flat list of TOC entries."""
     root = StructureNode(
         id=f"{doc_id}-root",

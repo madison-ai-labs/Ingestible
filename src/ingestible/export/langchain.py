@@ -37,7 +37,5 @@ def export_langchain(chunks: ChunkSet, output_path: Path, doc_title: str = "") -
         }
         documents.append(doc)
 
-    output_path.write_text(
-        json.dumps(documents, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    output_path.write_text(json.dumps(documents, indent=2, ensure_ascii=False), encoding="utf-8")
     return output_path

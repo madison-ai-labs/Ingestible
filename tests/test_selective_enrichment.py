@@ -10,8 +10,6 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock
 
-import pytest
-
 from ingestible.config import Settings
 from ingestible.models.chunks import (
     ChunkPosition,
@@ -29,13 +27,15 @@ def _make_chunks(doc_id: str = "test-doc", num_l3: int = 3) -> ChunkSet:
     """Build a minimal ChunkSet with N L3 chunks."""
     l3_chunks = []
     for i in range(num_l3):
-        l3_chunks.append(L3Chunk(
-            chunk_id=f"{doc_id}-p{i}",
-            content=f"Content of passage {i}.",
-            content_hash=f"hash{i}",
-            position=ChunkPosition(chapter="Ch1", section="Sec1"),
-            parent_section_id=f"{doc_id}-s1",
-        ))
+        l3_chunks.append(
+            L3Chunk(
+                chunk_id=f"{doc_id}-p{i}",
+                content=f"Content of passage {i}.",
+                content_hash=f"hash{i}",
+                position=ChunkPosition(chapter="Ch1", section="Sec1"),
+                parent_section_id=f"{doc_id}-s1",
+            )
+        )
 
     l2 = L2Chunk(
         chunk_id=f"{doc_id}-s1",
@@ -59,7 +59,11 @@ def _make_chunks(doc_id: str = "test-doc", num_l3: int = 3) -> ChunkSet:
         total_passages=num_l3,
     )
     return ChunkSet(
-        doc_id=doc_id, l0=l0, l1_chunks=[l1], l2_chunks=[l2], l3_chunks=l3_chunks,
+        doc_id=doc_id,
+        l0=l0,
+        l1_chunks=[l1],
+        l2_chunks=[l2],
+        l3_chunks=l3_chunks,
     )
 
 
@@ -101,10 +105,9 @@ def _mock_llm_client():
                 cited_references=[],
             )
         # Return a minimal valid instance for any other type
-        return output_type.model_validate({
-            k: "" if f.annotation is str else []
-            for k, f in output_type.model_fields.items()
-        })
+        return output_type.model_validate(
+            {k: "" if f.annotation is str else [] for k, f in output_type.model_fields.items()}
+        )
 
     client.generate_json.side_effect = fake_generate
     return client
@@ -128,6 +131,7 @@ class TestSelectiveEnrichmentL3:
         client = _mock_llm_client()
 
         from unittest.mock import patch
+
         with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
             result = asyncio.run(enrich_chunks(chunks, _settings(), previous_chunks=previous))
 
@@ -150,6 +154,7 @@ class TestSelectiveEnrichmentL3:
         client = _mock_llm_client()
 
         from unittest.mock import patch
+
         with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
             result = asyncio.run(enrich_chunks(chunks, _settings(), previous_chunks=previous))
 
@@ -167,6 +172,7 @@ class TestSelectiveEnrichmentL3:
         client = _mock_llm_client()
 
         from unittest.mock import patch
+
         with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
             result = asyncio.run(enrich_chunks(chunks, _settings(), previous_chunks=None))
 
@@ -185,6 +191,7 @@ class TestSelectiveEnrichmentL3:
         client = _mock_llm_client()
 
         from unittest.mock import patch
+
         with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
             result = asyncio.run(enrich_chunks(chunks, _settings(), previous_chunks=previous))
 
@@ -203,6 +210,7 @@ class TestSelectiveEnrichmentUpperLevels:
         client = _mock_llm_client()
 
         from unittest.mock import patch
+
         with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
             result = asyncio.run(enrich_chunks(chunks, _settings(), previous_chunks=previous))
 
@@ -229,8 +237,9 @@ class TestSelectiveEnrichmentUpperLevels:
         client = _mock_llm_client()
 
         from unittest.mock import patch
+
         with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
-            result = asyncio.run(enrich_chunks(chunks, _settings(), previous_chunks=previous))
+            asyncio.run(enrich_chunks(chunks, _settings(), previous_chunks=previous))
 
         # L2/L1/L0 should have been re-enriched via LLM
         # 1 L3 + 1 L2 + 1 L1 + 1 L0 = 4 calls
@@ -243,9 +252,9 @@ class TestTargetedReEnrichment:
     def test_targeted_re_enrich_only_changes_specified_chunks(self, tmp_path):
         """re_enrich with changed_chunk_ids only re-enriches those chunks."""
         from ingestible.models.document import DocumentStructure, StructureNode
+        from ingestible.pipeline.re_enrich import re_enrich
         from ingestible.pipeline.stage5_embedding import Embedder, build_indexes
         from ingestible.pipeline.stage6_storage import load_chunks, save_document
-        from ingestible.pipeline.re_enrich import re_enrich
 
         doc_id = "test-doc"
         settings = Settings(data_dir=tmp_path)
@@ -281,9 +290,9 @@ class TestTargetedReEnrichment:
     def test_full_re_enrich_clears_all(self, tmp_path):
         """re_enrich without changed_chunk_ids clears all enrichment."""
         from ingestible.models.document import DocumentStructure, StructureNode
+        from ingestible.pipeline.re_enrich import re_enrich
         from ingestible.pipeline.stage5_embedding import Embedder, build_indexes
         from ingestible.pipeline.stage6_storage import load_chunks, save_document
-        from ingestible.pipeline.re_enrich import re_enrich
 
         doc_id = "test-doc"
         settings = Settings(data_dir=tmp_path)

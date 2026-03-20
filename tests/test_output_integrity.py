@@ -9,7 +9,6 @@ Run with:  pytest tests/test_output_integrity.py -v
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from ingestible.config import Settings
 from ingestible.models.chunks import (
@@ -29,10 +28,10 @@ from ingestible.pipeline.stage6_storage import (
     save_document,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 def _make_rich_document() -> tuple[DocumentStructure, ChunkSet]:
     """Create a document with multiple chapters, sections, passages, and orphans."""
@@ -40,28 +39,67 @@ def _make_rich_document() -> tuple[DocumentStructure, ChunkSet]:
         doc_id="integrity-doc",
         title="Integrity Test Document",
         root=StructureNode(
-            id="root", title="Integrity Test Document", level=0, page_end=30,
+            id="root",
+            title="Integrity Test Document",
+            level=0,
+            page_end=30,
             children=[
                 StructureNode(
-                    id="ch1", title="Chapter One", level=1,
-                    page_start=1, page_end=15,
+                    id="ch1",
+                    title="Chapter One",
+                    level=1,
+                    page_start=1,
+                    page_end=15,
                     children=[
-                        StructureNode(id="sec1a", title="Section 1A", level=2,
-                                      content="Content of section 1A", page_start=1, page_end=5),
-                        StructureNode(id="sec1b", title="Section 1B", level=2,
-                                      content="Content of section 1B", page_start=6, page_end=10),
-                        StructureNode(id="sec1c", title="Section 1C", level=2,
-                                      content="Content of section 1C", page_start=11, page_end=15),
+                        StructureNode(
+                            id="sec1a",
+                            title="Section 1A",
+                            level=2,
+                            content="Content of section 1A",
+                            page_start=1,
+                            page_end=5,
+                        ),
+                        StructureNode(
+                            id="sec1b",
+                            title="Section 1B",
+                            level=2,
+                            content="Content of section 1B",
+                            page_start=6,
+                            page_end=10,
+                        ),
+                        StructureNode(
+                            id="sec1c",
+                            title="Section 1C",
+                            level=2,
+                            content="Content of section 1C",
+                            page_start=11,
+                            page_end=15,
+                        ),
                     ],
                 ),
                 StructureNode(
-                    id="ch2", title="Chapter Two", level=1,
-                    page_start=16, page_end=30,
+                    id="ch2",
+                    title="Chapter Two",
+                    level=1,
+                    page_start=16,
+                    page_end=30,
                     children=[
-                        StructureNode(id="sec2a", title="Section 2A", level=2,
-                                      content="Content of section 2A", page_start=16, page_end=22),
-                        StructureNode(id="sec2b", title="Section 2B", level=2,
-                                      content="Content of section 2B", page_start=23, page_end=30),
+                        StructureNode(
+                            id="sec2a",
+                            title="Section 2A",
+                            level=2,
+                            content="Content of section 2A",
+                            page_start=16,
+                            page_end=22,
+                        ),
+                        StructureNode(
+                            id="sec2b",
+                            title="Section 2B",
+                            level=2,
+                            content="Content of section 2B",
+                            page_start=23,
+                            page_end=30,
+                        ),
                     ],
                 ),
             ],
@@ -79,46 +117,104 @@ def _make_rich_document() -> tuple[DocumentStructure, ChunkSet]:
             total_passages=7,
         ),
         l1_chunks=[
-            L1Chunk(chunk_id="ch1", title="Chapter One", content="Chapter 1 overview",
-                    page_start=1, page_end=15, children_ids=["sec1a", "sec1b", "sec1c"]),
-            L1Chunk(chunk_id="ch2", title="Chapter Two", content="Chapter 2 overview",
-                    page_start=16, page_end=30, children_ids=["sec2a", "sec2b"]),
+            L1Chunk(
+                chunk_id="ch1",
+                title="Chapter One",
+                content="Chapter 1 overview",
+                page_start=1,
+                page_end=15,
+                children_ids=["sec1a", "sec1b", "sec1c"],
+            ),
+            L1Chunk(
+                chunk_id="ch2",
+                title="Chapter Two",
+                content="Chapter 2 overview",
+                page_start=16,
+                page_end=30,
+                children_ids=["sec2a", "sec2b"],
+            ),
         ],
         l2_chunks=[
-            L2Chunk(chunk_id="sec1a", title="Section 1A", content="Content of section 1A",
-                    parent_chapter_id="ch1", children_ids=["p1", "p2"]),
-            L2Chunk(chunk_id="sec1b", title="Section 1B", content="Content of section 1B",
-                    parent_chapter_id="ch1", children_ids=["p3"]),
-            L2Chunk(chunk_id="sec1c", title="Section 1C", content="Content of section 1C",
-                    parent_chapter_id="ch1", children_ids=["p4"]),
-            L2Chunk(chunk_id="sec2a", title="Section 2A", content="Content of section 2A",
-                    parent_chapter_id="ch2", children_ids=["p5"]),
-            L2Chunk(chunk_id="sec2b", title="Section 2B", content="Content of section 2B",
-                    parent_chapter_id="ch2", children_ids=["p6"]),
+            L2Chunk(
+                chunk_id="sec1a",
+                title="Section 1A",
+                content="Content of section 1A",
+                parent_chapter_id="ch1",
+                children_ids=["p1", "p2"],
+            ),
+            L2Chunk(
+                chunk_id="sec1b",
+                title="Section 1B",
+                content="Content of section 1B",
+                parent_chapter_id="ch1",
+                children_ids=["p3"],
+            ),
+            L2Chunk(
+                chunk_id="sec1c",
+                title="Section 1C",
+                content="Content of section 1C",
+                parent_chapter_id="ch1",
+                children_ids=["p4"],
+            ),
+            L2Chunk(
+                chunk_id="sec2a",
+                title="Section 2A",
+                content="Content of section 2A",
+                parent_chapter_id="ch2",
+                children_ids=["p5"],
+            ),
+            L2Chunk(
+                chunk_id="sec2b",
+                title="Section 2B",
+                content="Content of section 2B",
+                parent_chapter_id="ch2",
+                children_ids=["p6"],
+            ),
         ],
         l3_chunks=[
-            L3Chunk(chunk_id="p1", content="Passage one about protocols.",
-                    parent_section_id="sec1a",
-                    position=ChunkPosition(chapter="ch1", section="sec1a", index=0)),
-            L3Chunk(chunk_id="p2", content="Passage two about implementations.",
-                    parent_section_id="sec1a",
-                    position=ChunkPosition(chapter="ch1", section="sec1a", index=1)),
-            L3Chunk(chunk_id="p3", content="Passage three about testing.",
-                    parent_section_id="sec1b",
-                    position=ChunkPosition(chapter="ch1", section="sec1b", index=0)),
-            L3Chunk(chunk_id="p4", content="Passage four about deployment.",
-                    parent_section_id="sec1c",
-                    position=ChunkPosition(chapter="ch1", section="sec1c", index=0)),
-            L3Chunk(chunk_id="p5", content="Passage five about monitoring.",
-                    parent_section_id="sec2a",
-                    position=ChunkPosition(chapter="ch2", section="sec2a", index=0)),
-            L3Chunk(chunk_id="p6", content="Passage six about scaling.",
-                    parent_section_id="sec2b",
-                    position=ChunkPosition(chapter="ch2", section="sec2b", index=0)),
+            L3Chunk(
+                chunk_id="p1",
+                content="Passage one about protocols.",
+                parent_section_id="sec1a",
+                position=ChunkPosition(chapter="ch1", section="sec1a", index=0),
+            ),
+            L3Chunk(
+                chunk_id="p2",
+                content="Passage two about implementations.",
+                parent_section_id="sec1a",
+                position=ChunkPosition(chapter="ch1", section="sec1a", index=1),
+            ),
+            L3Chunk(
+                chunk_id="p3",
+                content="Passage three about testing.",
+                parent_section_id="sec1b",
+                position=ChunkPosition(chapter="ch1", section="sec1b", index=0),
+            ),
+            L3Chunk(
+                chunk_id="p4",
+                content="Passage four about deployment.",
+                parent_section_id="sec1c",
+                position=ChunkPosition(chapter="ch1", section="sec1c", index=0),
+            ),
+            L3Chunk(
+                chunk_id="p5",
+                content="Passage five about monitoring.",
+                parent_section_id="sec2a",
+                position=ChunkPosition(chapter="ch2", section="sec2a", index=0),
+            ),
+            L3Chunk(
+                chunk_id="p6",
+                content="Passage six about scaling.",
+                parent_section_id="sec2b",
+                position=ChunkPosition(chapter="ch2", section="sec2b", index=0),
+            ),
             # Orphan: no matching section
-            L3Chunk(chunk_id="p-orphan", content="Orphan passage with no section.",
-                    parent_section_id="nonexistent",
-                    position=ChunkPosition(chapter="ch1", section="nonexistent", index=0)),
+            L3Chunk(
+                chunk_id="p-orphan",
+                content="Orphan passage with no section.",
+                parent_section_id="nonexistent",
+                position=ChunkPosition(chapter="ch1", section="nonexistent", index=0),
+            ),
         ],
     )
     return structure, chunks
@@ -127,6 +223,7 @@ def _make_rich_document() -> tuple[DocumentStructure, ChunkSet]:
 # ---------------------------------------------------------------------------
 # Integrity: meta.json completeness
 # ---------------------------------------------------------------------------
+
 
 def test_meta_json_completeness(tmp_path):
     """meta.json must contain all expected keys with correct values."""
@@ -149,6 +246,7 @@ def test_meta_json_completeness(tmp_path):
 # ---------------------------------------------------------------------------
 # Integrity: structure.json round-trip
 # ---------------------------------------------------------------------------
+
 
 def test_structure_json_roundtrip(tmp_path):
     """structure.json must faithfully reproduce the document tree."""
@@ -176,6 +274,7 @@ def test_structure_json_roundtrip(tmp_path):
 # ---------------------------------------------------------------------------
 # Integrity: every chapter has a directory and meta.json
 # ---------------------------------------------------------------------------
+
 
 def test_all_chapters_persisted(tmp_path):
     """Every L1 chunk must have a corresponding chapters/<id>/meta.json."""
@@ -206,6 +305,7 @@ def test_all_chapters_persisted(tmp_path):
 # Integrity: every section has a directory and meta.json
 # ---------------------------------------------------------------------------
 
+
 def test_all_sections_persisted(tmp_path):
     """Every L2 chunk must have a corresponding sections/<id>/meta.json under its chapter."""
     settings = Settings(data_dir=tmp_path)
@@ -228,6 +328,7 @@ def test_all_sections_persisted(tmp_path):
 # Integrity: every L3 passage is persisted
 # ---------------------------------------------------------------------------
 
+
 def test_all_passages_persisted(tmp_path):
     """Every L3 chunk must exist as a JSON file on disk."""
     settings = Settings(data_dir=tmp_path)
@@ -249,6 +350,7 @@ def test_all_passages_persisted(tmp_path):
 # Integrity: orphan passages end up in doc_dir/chunks/
 # ---------------------------------------------------------------------------
 
+
 def test_orphan_passages_stored(tmp_path):
     """Passages with no matching section go into doc_dir/chunks/."""
     settings = Settings(data_dir=tmp_path)
@@ -268,6 +370,7 @@ def test_orphan_passages_stored(tmp_path):
 # ---------------------------------------------------------------------------
 # Integrity: content preservation (no truncation or corruption)
 # ---------------------------------------------------------------------------
+
 
 def test_passage_content_preserved(tmp_path):
     """Every passage's content must survive the save/load cycle byte-for-byte."""
@@ -292,6 +395,7 @@ def test_passage_content_preserved(tmp_path):
 # Integrity: chapter/section counts match L0 metadata
 # ---------------------------------------------------------------------------
 
+
 def test_counts_match_metadata(tmp_path):
     """The L0 counts must match the actual number of chunks at each level."""
     settings = Settings(data_dir=tmp_path)
@@ -309,29 +413,47 @@ def test_counts_match_metadata(tmp_path):
 # Integrity: full pipeline chunking → storage → reload
 # ---------------------------------------------------------------------------
 
+
 def test_pipeline_roundtrip_no_loss(tmp_path):
     """Run chunking + storage + reload and verify nothing is lost."""
     settings = Settings(data_dir=tmp_path, max_chunk_tokens=500, min_chunk_tokens=100)
 
-    paragraphs = "\n\n".join([
-        "Autonomous agents interact with tools through structured protocols.",
-        "Each tool exposes a typed interface with parameters and return values.",
-        "The orchestrator routes requests to the appropriate tool server.",
-        "Results are validated against the schema before being returned.",
-        "Error handling follows a retry-with-backoff strategy for transient failures.",
-        "Observability is built in via structured logging at each stage.",
-    ])
+    paragraphs = "\n\n".join(
+        [
+            "Autonomous agents interact with tools through structured protocols.",
+            "Each tool exposes a typed interface with parameters and return values.",
+            "The orchestrator routes requests to the appropriate tool server.",
+            "Results are validated against the schema before being returned.",
+            "Error handling follows a retry-with-backoff strategy for transient failures.",
+            "Observability is built in via structured logging at each stage.",
+        ]
+    )
 
     sections = [
-        StructureNode(id=f"sec{i}", title=f"Section {i}", level=2,
-                      content=paragraphs, page_start=i * 5, page_end=i * 5 + 4)
+        StructureNode(
+            id=f"sec{i}",
+            title=f"Section {i}",
+            level=2,
+            content=paragraphs,
+            page_start=i * 5,
+            page_end=i * 5 + 4,
+        )
         for i in range(4)
     ]
     root = StructureNode(
-        id="root", title="Pipeline Test", level=0, page_end=20,
+        id="root",
+        title="Pipeline Test",
+        level=0,
+        page_end=20,
         children=[
-            StructureNode(id="ch1", title="Only Chapter", level=1,
-                          page_start=1, page_end=20, children=sections),
+            StructureNode(
+                id="ch1",
+                title="Only Chapter",
+                level=1,
+                page_start=1,
+                page_end=20,
+                children=sections,
+            ),
         ],
     )
     structure = DocumentStructure(doc_id="pipeline-rt", title="Pipeline Test", root=root)
@@ -372,30 +494,43 @@ def test_pipeline_roundtrip_no_loss(tmp_path):
 # Integrity: hierarchy linkage — every L3 points to a valid L2, every L2 to L1
 # ---------------------------------------------------------------------------
 
+
 def test_hierarchy_linkage_valid(tmp_path):
     """Every L3 chunk's parent_section_id must exist in L2 IDs,
     and every L2 chunk's parent_chapter_id must exist in L1 IDs."""
     settings = Settings(data_dir=tmp_path, max_chunk_tokens=500, min_chunk_tokens=100)
 
-    paragraphs = "\n\n".join([
-        "Autonomous agents interact with tools through structured protocols.",
-        "Each tool exposes a typed interface with parameters and return values.",
-        "The orchestrator routes requests to the appropriate tool server.",
-        "Results are validated against the schema before being returned.",
-        "Error handling follows a retry-with-backoff strategy for transient failures.",
-        "Observability is built in via structured logging at each stage.",
-    ])
+    paragraphs = "\n\n".join(
+        [
+            "Autonomous agents interact with tools through structured protocols.",
+            "Each tool exposes a typed interface with parameters and return values.",
+            "The orchestrator routes requests to the appropriate tool server.",
+            "Results are validated against the schema before being returned.",
+            "Error handling follows a retry-with-backoff strategy for transient failures.",
+            "Observability is built in via structured logging at each stage.",
+        ]
+    )
 
     sections = [
-        StructureNode(id=f"sec{i}", title=f"Section {i}", level=2,
-                      content=paragraphs, page_start=i * 5, page_end=i * 5 + 4)
+        StructureNode(
+            id=f"sec{i}",
+            title=f"Section {i}",
+            level=2,
+            content=paragraphs,
+            page_start=i * 5,
+            page_end=i * 5 + 4,
+        )
         for i in range(4)
     ]
     root = StructureNode(
-        id="root", title="Linkage Test", level=0, page_end=20,
+        id="root",
+        title="Linkage Test",
+        level=0,
+        page_end=20,
         children=[
-            StructureNode(id="ch1", title="Chapter One", level=1,
-                          page_start=1, page_end=20, children=sections),
+            StructureNode(
+                id="ch1", title="Chapter One", level=1, page_start=1, page_end=20, children=sections
+            ),
         ],
     )
     structure = DocumentStructure(doc_id="linkage-test", title="Linkage Test", root=root)
@@ -419,36 +554,47 @@ def test_hierarchy_linkage_valid(tmp_path):
 # Integrity: content coverage — no significant text loss during chunking
 # ---------------------------------------------------------------------------
 
+
 def test_content_coverage_no_loss(tmp_path):
     """L3 chunk output must cover at least 90% of leaf input chars."""
     settings = Settings(data_dir=tmp_path, max_chunk_tokens=500, min_chunk_tokens=100)
 
-    paragraphs = "\n\n".join([
-        "Autonomous agents interact with tools through structured protocols.",
-        "Each tool exposes a typed interface with parameters and return values.",
-        "The orchestrator routes requests to the appropriate tool server.",
-        "Results are validated against the schema before being returned.",
-    ])
+    paragraphs = "\n\n".join(
+        [
+            "Autonomous agents interact with tools through structured protocols.",
+            "Each tool exposes a typed interface with parameters and return values.",
+            "The orchestrator routes requests to the appropriate tool server.",
+            "Results are validated against the schema before being returned.",
+        ]
+    )
 
     sections = [
-        StructureNode(id=f"sec{i}", title=f"Section {i}", level=2,
-                      content=paragraphs, page_start=i * 5, page_end=i * 5 + 4)
+        StructureNode(
+            id=f"sec{i}",
+            title=f"Section {i}",
+            level=2,
+            content=paragraphs,
+            page_start=i * 5,
+            page_end=i * 5 + 4,
+        )
         for i in range(3)
     ]
     root = StructureNode(
-        id="root", title="Coverage Test", level=0, page_end=15,
+        id="root",
+        title="Coverage Test",
+        level=0,
+        page_end=15,
         children=[
-            StructureNode(id="ch1", title="Chapter One", level=1,
-                          page_start=1, page_end=15, children=sections),
+            StructureNode(
+                id="ch1", title="Chapter One", level=1, page_start=1, page_end=15, children=sections
+            ),
         ],
     )
     structure = DocumentStructure(doc_id="coverage-test", title="Coverage Test", root=root)
     chunks = chunk_document(structure, settings)
 
     input_chars = sum(
-        len(node.content)
-        for node in structure.root.walk()
-        if node.content and node.level >= 2
+        len(node.content) for node in structure.root.walk() if node.content and node.level >= 2
     )
     output_chars = sum(len(c.content) for c in chunks.l3_chunks)
     ratio = output_chars / input_chars if input_chars else 0.0

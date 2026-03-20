@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TypeVar, Callable, Any
+from typing import Any, Callable, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,10 @@ def _is_retryable(exc: Exception) -> bool:
 
     # Connection errors (both libraries)
     exc_type = type(exc).__name__
-    if any(name in exc_type for name in ("APIConnectionError", "ConnectError", "Timeout", "ConnectionError")):
+    if any(
+        name in exc_type
+        for name in ("APIConnectionError", "ConnectError", "Timeout", "ConnectionError")
+    ):
         return True
 
     return False
@@ -57,10 +60,13 @@ async def retry_llm_call(
             last_exc = e
             if attempt >= max_retries or not _is_retryable(e):
                 raise
-            delay = base_delay * (2 ** attempt)
+            delay = base_delay * (2**attempt)
             logger.warning(
                 "LLM call failed (attempt %d/%d): %s — retrying in %.1fs",
-                attempt + 1, max_retries + 1, e, delay,
+                attempt + 1,
+                max_retries + 1,
+                e,
+                delay,
             )
             await asyncio.sleep(delay)
     raise last_exc  # unreachable, but satisfies type checker

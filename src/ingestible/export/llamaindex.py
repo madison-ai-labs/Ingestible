@@ -39,7 +39,5 @@ def export_llamaindex(chunks: ChunkSet, output_path: Path, doc_title: str = "") 
         }
         nodes.append(node)
 
-    output_path.write_text(
-        json.dumps(nodes, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    output_path.write_text(json.dumps(nodes, indent=2, ensure_ascii=False), encoding="utf-8")
     return output_path

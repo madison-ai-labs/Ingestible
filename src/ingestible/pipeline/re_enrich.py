@@ -142,10 +142,14 @@ def re_enrich(
     try:
         from ingestible.pipeline.stage4_enrichment import enrich_chunks
 
-        chunks = asyncio.run(enrich_chunks(
-            chunks, settings, profile=profile,
-            previous_chunks=previous_chunks,
-        ))
+        chunks = asyncio.run(
+            enrich_chunks(
+                chunks,
+                settings,
+                profile=profile,
+                previous_chunks=previous_chunks,
+            )
+        )
     except Exception as e:
         logger.warning("Enrichment failed, continuing without it: %s", e)
 

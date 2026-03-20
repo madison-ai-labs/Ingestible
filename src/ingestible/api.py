@@ -10,18 +10,18 @@ import shutil
 import tempfile
 import uuid
 from pathlib import Path
+
+import structlog
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
-
-import structlog
-from prometheus_fastapi_instrumentator import Instrumentator
 
 from ingestible.config import get_settings
 from ingestible.logging import setup_logging
@@ -37,7 +37,7 @@ from ingestible.pipeline.stage6_storage import (
     load_document_meta,
     load_structure,
 )
-from ingestible.pipeline.task_queue import JobStatus, get_task_queue
+from ingestible.pipeline.task_queue import get_task_queue
 from ingestible.search.hybrid import load_searcher
 
 # ---------------------------------------------------------------------------
@@ -150,9 +150,11 @@ async def _startup():
 
     # Clean up stale checkpoints and temp files from previous runs
     from ingestible.pipeline.cleanup import cleanup_stale
+
     counts = cleanup_stale(settings)
     if any(counts.values()):
         import logging
+
         logging.getLogger(__name__).info("Startup cleanup: %s", counts)
 
 
@@ -160,6 +162,7 @@ async def _startup():
 async def _shutdown():
     """Drain background ingestion jobs on shutdown."""
     import logging
+
     logger = logging.getLogger(__name__)
     queue = get_task_queue()
     active = queue.active_count()
@@ -167,6 +170,7 @@ async def _shutdown():
         logger.info("Shutting down — waiting for %d active ingestion(s)...", active)
     queue.shutdown(wait=True)
     logger.info("Shutdown complete.")
+
 
 # Lazy-loaded singletons
 _settings = None
@@ -359,6 +363,7 @@ async def health_ready(request: Request):
     # 4. LLM API configured
     try:
         from ingestible.pipeline.stage4_enrichment import _make_client
+
         _make_client(settings)  # validates keys exist and client instantiates
         checks["llm_api"] = {"status": "ok", "provider": settings.llm_provider}
     except Exception as e:
@@ -503,8 +508,7 @@ async def ingest_batch_endpoint(
     Accepts multipart file uploads. Each file is ingested independently with
     error isolation -- one failure doesn't abort the batch.
     """
-    from ingestible.pipeline.batch import BatchReport, FileResult, _ingest_one
-    from ingestible.pipeline.orchestrator import generate_doc_id
+    from ingestible.pipeline.batch import BatchReport, _ingest_one
 
     settings = get_cached_settings()
     report = BatchReport(total=len(files))
@@ -552,11 +556,15 @@ async def ingest_batch_endpoint(
 
 @app.get("/documents", response_model=list[DocumentSummary])
 @limiter.limit(_RATE_DEFAULT)
-async def list_docs(request: Request, offset: int = Query(default=0, ge=0), limit: int = Query(default=100, ge=1, le=1000)):
+async def list_docs(
+    request: Request,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=1000),
+):
     """List all ingested documents."""
     settings = get_cached_settings()
     docs = list_documents(settings)
-    paginated = docs[offset:offset + limit]
+    paginated = docs[offset : offset + limit]
     return [
         DocumentSummary(
             doc_id=d.get("doc_id", "?"),
@@ -780,9 +788,7 @@ async def corpus_search(body: CorpusSearchRequest, request: Request):
 
     settings = get_cached_settings()
     searcher = CorpusSearcher(settings, embedder=get_cached_embedder())
-    return searcher.search(
-        body.query, n_results=body.n_results, doc_ids=body.doc_ids
-    )
+    return searcher.search(body.query, n_results=body.n_results, doc_ids=body.doc_ids)
 
 
 # ---------------------------------------------------------------------------
@@ -838,6 +844,7 @@ async def eval_document(doc_id: str, request: Request, k: int = Query(default=5,
         raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
 
     from ingestible.eval import evaluate_document
+
     report = evaluate_document(doc_id, settings, k=k)
     return report.to_dict()
 
@@ -852,9 +859,7 @@ async def eval_document(doc_id: str, request: Request, k: int = Query(default=5,
 async def export_document_endpoint(
     doc_id: str,
     request: Request,
-    format: str = Query(
-        ..., description="Export format: jsonl, parquet, llamaindex, langchain"
-    ),
+    format: str = Query(..., description="Export format: jsonl, parquet, llamaindex, langchain"),
 ):
     """Export a document to a portable format. Returns the file as a download."""
     doc_id = _validate_doc_id(doc_id)
@@ -1101,9 +1106,7 @@ async def cv_webhook(request: Request):
     """
     secret = os.environ.get("INGEST_WEBHOOK_SECRET", "")
     if not secret:
-        raise HTTPException(
-            status_code=500, detail="INGEST_WEBHOOK_SECRET not configured"
-        )
+        raise HTTPException(status_code=500, detail="INGEST_WEBHOOK_SECRET not configured")
 
     # Verify HMAC signature
     signature = request.headers.get("X-Webhook-Signature", "")
@@ -1127,7 +1130,7 @@ async def cv_webhook(request: Request):
     if not payload.source_path.startswith("ingest:"):
         return {"status": "ignored", "reason": "not an ingest-sourced entry"}
 
-    path_part = payload.source_path[len("ingest:"):]
+    path_part = payload.source_path[len("ingest:") :]
     parts = path_part.split("/", 1)
     if len(parts) != 2:
         raise HTTPException(
@@ -1153,9 +1156,7 @@ async def cv_webhook(request: Request):
 
         chunk_data = json.loads(chunk_file.read_text(encoding="utf-8"))
         chunk_data["content"] = payload.content
-        chunk_data["content_hash"] = _hashlib.sha256(
-            payload.content.encode()
-        ).hexdigest()
+        chunk_data["content_hash"] = _hashlib.sha256(payload.content.encode()).hexdigest()
         chunk_file.write_text(
             json.dumps(chunk_data, indent=2, ensure_ascii=False), encoding="utf-8"
         )
@@ -1166,9 +1167,7 @@ async def cv_webhook(request: Request):
         cv_checksums[chunk_id] = payload.checksum
         meta["cv_checksums"] = cv_checksums
         meta_path = doc_dir / "meta.json"
-        meta_path.write_text(
-            json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
 
     # Selective re-enrichment for just this chunk (acquires its own lock)
     from ingestible.pipeline.re_enrich import re_enrich

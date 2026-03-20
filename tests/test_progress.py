@@ -7,6 +7,7 @@ from ingestible.pipeline.progress import CLIProgress, LogProgress, SSEProgress
 
 def test_log_progress_runs(caplog):
     import logging
+
     caplog.set_level(logging.INFO)
     cb = LogProgress()
     cb(1, 5, "Parsing...")

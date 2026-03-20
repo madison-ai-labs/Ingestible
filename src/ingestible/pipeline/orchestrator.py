@@ -12,22 +12,22 @@ import logging
 from pathlib import Path
 
 from ingestible.config import Settings
+from ingestible.metrics import ACTIVE_INGESTIONS, INGEST_TOTAL
 from ingestible.models.chunks import ChunkSet
 from ingestible.models.document import DocumentStructure, ParsedDocument
+from ingestible.pipeline.checkpoint import clear_checkpoints, load_checkpoint, save_checkpoint
+from ingestible.pipeline.fetch import is_url
+from ingestible.pipeline.locking import document_lock
+from ingestible.pipeline.metadata import extract_metadata
 from ingestible.pipeline.stage1_parsing import parse_document
 from ingestible.pipeline.stage1b_clean import clean_document
 from ingestible.pipeline.stage2_structure import detect_structure
 from ingestible.pipeline.stage3_chunking import chunk_document
 from ingestible.pipeline.stage3b_validation import validate_chunks
-from ingestible.pipeline.checkpoint import clear_checkpoints, load_checkpoint, save_checkpoint
-from ingestible.pipeline.fetch import is_url
-from ingestible.pipeline.metadata import extract_metadata
 from ingestible.pipeline.stage5_embedding import Embedder, build_indexes
-from ingestible.profiles import PROFILES, ExtractionProfile, detect_profile, detect_profile_with_llm
-from ingestible.utils.language import detect_language
-from ingestible.pipeline.locking import document_lock
 from ingestible.pipeline.stage6_storage import save_document
-from ingestible.metrics import INGEST_TOTAL, ACTIVE_INGESTIONS
+from ingestible.profiles import PROFILES, detect_profile, detect_profile_with_llm
+from ingestible.utils.language import detect_language
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +52,15 @@ def _propagate_timestamps(chunks: ChunkSet, parsed: ParsedDocument) -> None:
                 chunk.timestamp_start = int(m.group(1)) * 60 + int(m.group(2))
 
         # Find the last timestamp marker for end time
-        matches = list(re.finditer(r"\[(\d{1,2}):(\d{2}):(\d{2})\]|\[(\d{1,2}):(\d{2})\]", chunk.content))
+        matches = list(
+            re.finditer(r"\[(\d{1,2}):(\d{2}):(\d{2})\]|\[(\d{1,2}):(\d{2})\]", chunk.content)
+        )
         if matches:
             last = matches[-1]
             if last.group(1) and last.group(3):  # HH:MM:SS
-                chunk.timestamp_end = int(last.group(1)) * 3600 + int(last.group(2)) * 60 + int(last.group(3))
+                chunk.timestamp_end = (
+                    int(last.group(1)) * 3600 + int(last.group(2)) * 60 + int(last.group(3))
+                )
             elif last.group(4):  # MM:SS
                 chunk.timestamp_end = int(last.group(4)) * 60 + int(last.group(5))
 
@@ -64,6 +68,7 @@ def _propagate_timestamps(chunks: ChunkSet, parsed: ParsedDocument) -> None:
 def _parse_keyframe_timestamp(caption: str) -> float | None:
     """Parse seconds from a keyframe caption like 'Keyframe at [01:30]'."""
     import re
+
     m = re.search(r"\[(\d{1,2}):(\d{2}):(\d{2})\]", caption)
     if m:
         return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
@@ -180,6 +185,7 @@ def ingest(
     str_path = str(file_path)
 
     from ingestible.pipeline.cloud import is_cloud_url
+
     if is_cloud_url(str_path):
         from ingestible.pipeline.cloud import fetch_cloud
 
@@ -287,6 +293,7 @@ def ingest(
             if settings.content_classification:
                 _log("Classifying content blocks...")
                 from ingestible.pipeline.stage1c_classify import classify_document
+
                 parsed.block_classifications = classify_document(parsed)
 
             # --- Profile resolution ---
@@ -359,7 +366,11 @@ def ingest(
                             for fig in keyframes:
                                 # Parse timestamp from caption "[MM:SS]"
                                 ts = _parse_keyframe_timestamp(fig.caption)
-                                if ts is not None and page.timestamp_start is not None and page.timestamp_end is not None:
+                                if (
+                                    ts is not None
+                                    and page.timestamp_start is not None
+                                    and page.timestamp_end is not None
+                                ):
                                     if page.timestamp_start <= ts <= page.timestamp_end:
                                         page.figures.append(fig)
                 except Exception as e:
@@ -400,10 +411,14 @@ def ingest(
                     try:
                         from ingestible.pipeline.stage4_enrichment import enrich_chunks
 
-                        chunks = asyncio.run(enrich_chunks(
-                            chunks, settings, profile=profile,
-                            previous_chunks=previous_chunks,
-                        ))
+                        chunks = asyncio.run(
+                            enrich_chunks(
+                                chunks,
+                                settings,
+                                profile=profile,
+                                previous_chunks=previous_chunks,
+                            )
+                        )
                         if use_checkpoint:
                             save_checkpoint(doc_dir, "enriched", chunks)
                     except Exception as e:
@@ -415,12 +430,20 @@ def ingest(
             _log("Building indexes...")
             if embedder is None:
                 embedder = Embedder(settings)
-            build_indexes(chunks, doc_dir, embedder, language=parsed.detected_language, previous_chunks=previous_chunks)
+            build_indexes(
+                chunks,
+                doc_dir,
+                embedder,
+                language=parsed.detected_language,
+                previous_chunks=previous_chunks,
+            )
 
             # Stage 6: Storage
             _log("Saving to disk...")
             doc_dir = save_document(
-                structure, chunks, settings,
+                structure,
+                chunks,
+                settings,
                 content_hash=content_hash,
                 extraction_profile=profile.name,
             )

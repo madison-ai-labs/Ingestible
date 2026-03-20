@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ingestible.models.metadata import DocumentMetadata
-from ingestible.pipeline.metadata import extract_metadata, _parse_pdf_date
+from ingestible.pipeline.metadata import _parse_pdf_date, extract_metadata
 
 
 def test_metadata_model_defaults():

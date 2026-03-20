@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import math
 
-import pytest
-
 from ingestible.config import Settings
 from ingestible.pipeline.stage5_embedding import Embedder
 

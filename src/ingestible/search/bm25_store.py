@@ -41,9 +41,7 @@ class BM25Store:
         tokens = self._tokenize(text)
         scores = self._bm25.get_scores(tokens)
 
-        ranked = sorted(
-            zip(self._chunk_ids, scores), key=lambda x: x[1], reverse=True
-        )
+        ranked = sorted(zip(self._chunk_ids, scores), key=lambda x: x[1], reverse=True)
         return [(cid, score) for cid, score in ranked[:n_results] if score > 0]
 
     def save(self, path: Path) -> None:

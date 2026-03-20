@@ -105,12 +105,15 @@ def test_fetch_url_html_with_readability_mock():
 
 def test_fetch_url_rejects_large_content_length():
     """fetch_url raises FileTooLargeError when Content-Length exceeds max_bytes."""
-    mock_client = _make_streaming_client(b"x", {"content-type": "application/pdf", "content-length": "1000000"})
+    mock_client = _make_streaming_client(
+        b"x", {"content-type": "application/pdf", "content-length": "1000000"}
+    )
 
     with patch("httpx.Client", return_value=mock_client):
+        import pytest
+
         from ingestible.pipeline.fetch import FileTooLargeError, fetch_url
 
-        import pytest
         with pytest.raises(FileTooLargeError):
             fetch_url("https://example.com/big.pdf", max_bytes=100)
 
@@ -121,8 +124,9 @@ def test_fetch_url_rejects_large_stream():
     mock_client = _make_streaming_client(body, {"content-type": "application/pdf"})
 
     with patch("httpx.Client", return_value=mock_client):
+        import pytest
+
         from ingestible.pipeline.fetch import FileTooLargeError, fetch_url
 
-        import pytest
         with pytest.raises(FileTooLargeError):
             fetch_url("https://example.com/big.pdf", max_bytes=100)

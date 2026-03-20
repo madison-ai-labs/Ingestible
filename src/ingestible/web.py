@@ -17,7 +17,6 @@ from ingestible.pipeline.stage6_storage import (
     list_documents,
     load_chunks,
     load_document_meta,
-    load_structure,
 )
 from ingestible.search.hybrid import load_searcher
 from ingestible.utils.tokens import count_tokens
@@ -109,9 +108,7 @@ def _build_hierarchy(chunks: ChunkSet) -> list[dict]:
 async def dashboard(request: Request):
     settings = _get_settings()
     docs = list_documents(settings)
-    return templates.TemplateResponse(
-        "index.html", {"request": request, "documents": docs}
-    )
+    return templates.TemplateResponse("index.html", {"request": request, "documents": docs})
 
 
 @router.get("/doc/{doc_id}", name="document_detail")
@@ -260,7 +257,9 @@ async def upload_submit(
         received += len(chunk)
         if received > max_bytes:
             max_mb = max_bytes / 1_000_000
-            raise HTTPException(status_code=413, detail=f"File too large. Maximum size: {max_mb:.0f}MB")
+            raise HTTPException(
+                status_code=413, detail=f"File too large. Maximum size: {max_mb:.0f}MB"
+            )
         chunks.append(chunk)
     content = b"".join(chunks)
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:

@@ -17,8 +17,7 @@ def export_parquet(chunks: ChunkSet, output_path: Path, doc_title: str = "") -> 
         import pyarrow.parquet as pq
     except ImportError:
         raise ImportError(
-            "pyarrow is required for Parquet export. "
-            "Install with: pip install 'ingestible[export]'"
+            "pyarrow is required for Parquet export. Install with: pip install 'ingestible[export]'"
         )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

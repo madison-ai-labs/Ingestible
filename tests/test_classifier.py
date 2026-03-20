@@ -1,5 +1,6 @@
 """Tests for VBC content-tier classification."""
-from ingestible.pipeline.stage1c_classify import classify_block, _split_into_blocks
+
+from ingestible.pipeline.stage1c_classify import _split_into_blocks, classify_block
 
 
 class TestClassifyBlock:
@@ -10,7 +11,12 @@ class TestClassifyBlock:
         assert classify_block("$$\\sum_{i=1}^{n} x_i$$") == "T0"
 
     def test_latex_inline(self):
-        assert classify_block("\\begin{equation}\nx = \\frac{-b \\pm \\sqrt{b^2}}{2a}\n\\end{equation}") == "T0"
+        assert (
+            classify_block(
+                "\\begin{equation}\nx = \\frac{-b \\pm \\sqrt{b^2}}{2a}\n\\end{equation}"
+            )
+            == "T0"
+        )
 
     def test_markdown_table(self):
         table = "| Name | Age |\n| --- | --- |\n| Alice | 30 |\n| Bob | 25 |"
@@ -18,7 +24,9 @@ class TestClassifyBlock:
 
     def test_dense_json_block_is_verbatim(self):
         # Dense bracket content (bracket_density > 0.05) is classified as T0 (verbatim)
-        assert classify_block('{"key": "value",\n "items": [1, 2, 3],\n "nested": {"a": "b"}}') == "T0"
+        assert (
+            classify_block('{"key": "value",\n "items": [1, 2, 3],\n "nested": {"a": "b"}}') == "T0"
+        )
 
     def test_json_like_block_is_structural(self):
         # JSON-like: starts with {, bracket_density > 0.02, but < 3 lines so not T0

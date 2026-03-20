@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
 from ingestible.config import Settings
-from ingestible.models.chunks import ChunkSet, L0Chunk, L1Chunk, L2Chunk, L3Chunk, ChunkPosition
+from ingestible.models.chunks import ChunkPosition, ChunkSet, L0Chunk, L1Chunk, L2Chunk, L3Chunk
 from ingestible.models.document import DocumentStructure, StructureNode
 from ingestible.models.search import CorpusSearchResponse
 from ingestible.pipeline.stage5_embedding import Embedder, build_indexes
@@ -71,9 +70,24 @@ def corpus_setup(tmp_path: Path):
     """Set up a corpus with 3 test documents."""
     settings = Settings(data_dir=tmp_path)
 
-    _make_doc("doc-alpha", "Alpha Document", "Machine learning is a subset of artificial intelligence.", settings)
-    _make_doc("doc-beta", "Beta Document", "Neural networks are used in deep learning applications.", settings)
-    _make_doc("doc-gamma", "Gamma Document", "Natural language processing enables text analysis.", settings)
+    _make_doc(
+        "doc-alpha",
+        "Alpha Document",
+        "Machine learning is a subset of artificial intelligence.",
+        settings,
+    )
+    _make_doc(
+        "doc-beta",
+        "Beta Document",
+        "Neural networks are used in deep learning applications.",
+        settings,
+    )
+    _make_doc(
+        "doc-gamma",
+        "Gamma Document",
+        "Natural language processing enables text analysis.",
+        settings,
+    )
 
     return settings
 

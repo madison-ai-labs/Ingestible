@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -299,9 +299,7 @@ def export_batch_to_cv(
     for doc_id in doc_ids:
         doc_dir = settings.documents_dir / doc_id
         if not doc_dir.exists():
-            results.append(
-                ExportResult(doc_id=doc_id, error=f"Document not found: {doc_id}")
-            )
+            results.append(ExportResult(doc_id=doc_id, error=f"Document not found: {doc_id}"))
             continue
 
         chunks = load_chunks(doc_dir)

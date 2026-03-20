@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from ingestible.config import Settings
 from ingestible.models.document import DocumentStructure, StructureNode
-from ingestible.pipeline.stage1_parsing import parse_document, SUPPORTED_FORMATS
+from ingestible.pipeline.stage1_parsing import SUPPORTED_FORMATS, parse_document
 from ingestible.pipeline.stage3_chunking import chunk_document
 from ingestible.pipeline.stage6_storage import load_chunks, save_document
 from ingestible.search.bm25_store import BM25Store
@@ -50,17 +50,32 @@ def _build_baseline_document(baseline: dict) -> DocumentStructure:
     for ci in range(n_ch):
         sections = []
         for si in range(n_sec):
-            sections.append(StructureNode(
-                id=f"ch{ci}-sec{si}", title=f"Section {ci}.{si}", level=2,
-                content=section_body, page_start=ci * 10 + si, page_end=ci * 10 + si + 1,
-            ))
-        chapters.append(StructureNode(
-            id=f"ch{ci}", title=f"Chapter {ci}", level=1,
-            page_start=ci * 10, page_end=ci * 10 + n_sec, children=sections,
-        ))
+            sections.append(
+                StructureNode(
+                    id=f"ch{ci}-sec{si}",
+                    title=f"Section {ci}.{si}",
+                    level=2,
+                    content=section_body,
+                    page_start=ci * 10 + si,
+                    page_end=ci * 10 + si + 1,
+                )
+            )
+        chapters.append(
+            StructureNode(
+                id=f"ch{ci}",
+                title=f"Chapter {ci}",
+                level=1,
+                page_start=ci * 10,
+                page_end=ci * 10 + n_sec,
+                children=sections,
+            )
+        )
     root = StructureNode(
-        id="root", title="Baseline Doc", level=0,
-        page_end=n_ch * 10, children=chapters,
+        id="root",
+        title="Baseline Doc",
+        level=0,
+        page_end=n_ch * 10,
+        children=chapters,
     )
     return DocumentStructure(doc_id="baseline-doc", title="Baseline Doc", root=root)
 
@@ -86,12 +101,8 @@ def compute_hierarchy_linkage(chunks) -> dict:
     l2_ids = {c.chunk_id for c in chunks.l2_chunks}
     l1_ids = {c.chunk_id for c in chunks.l1_chunks}
 
-    l3_orphan_count = sum(
-        1 for c in chunks.l3_chunks if c.parent_section_id not in l2_ids
-    )
-    l2_orphan_count = sum(
-        1 for c in chunks.l2_chunks if c.parent_chapter_id not in l1_ids
-    )
+    l3_orphan_count = sum(1 for c in chunks.l3_chunks if c.parent_section_id not in l2_ids)
+    l2_orphan_count = sum(1 for c in chunks.l2_chunks if c.parent_chapter_id not in l1_ids)
     return {
         "l3_orphan_count": l3_orphan_count,
         "l2_orphan_count": l2_orphan_count,
@@ -140,6 +151,7 @@ def compute_overlap_verification(chunks) -> dict:
     """Metric 5: overlap between consecutive L3 chunks in the same section."""
     # Group L3 chunks by parent_section_id, preserving order
     from collections import defaultdict
+
     section_chunks: dict[str, list] = defaultdict(list)
     for c in chunks.l3_chunks:
         section_chunks[c.parent_section_id].append(c)
@@ -175,9 +187,7 @@ def compute_chunking_metrics(structure, settings) -> tuple[dict, object]:
         runs.append(time.perf_counter() - t0)
     median_time = statistics.median(runs)
 
-    total_input_chars = sum(
-        len(node.content) for node in structure.root.walk() if node.content
-    )
+    total_input_chars = sum(len(node.content) for node in structure.root.walk() if node.content)
     sizes = sorted(count_tokens(c.content) for c in chunks.l3_chunks)
     total_tokens = sum(sizes)
 
@@ -350,15 +360,21 @@ def compute_semantic_chunking(structure: DocumentStructure, tmp_dir: str) -> dic
         "Public baths served as social gathering places central to daily Roman civic life.",
     ]
     mixed_content = (
-        " ".join(topic_a_sents) + "\n\n"
-        + " ".join(topic_b_sents) + "\n\n"
+        " ".join(topic_a_sents)
+        + "\n\n"
+        + " ".join(topic_b_sents)
+        + "\n\n"
         + " ".join(topic_c_sents)
     )
 
     sec_a = StructureNode(id="sec-topics", title="Mixed Topics", level=2, content=mixed_content)
-    ch = StructureNode(id="ch1", title="Chapter 1", level=1, page_start=1, page_end=3, children=[sec_a])
+    ch = StructureNode(
+        id="ch1", title="Chapter 1", level=1, page_start=1, page_end=3, children=[sec_a]
+    )
     root = StructureNode(id="root", title="Multi-Topic Doc", level=0, page_end=3, children=[ch])
-    semantic_structure = DocumentStructure(doc_id="semantic-baseline", title="Multi-Topic Doc", root=root)
+    semantic_structure = DocumentStructure(
+        doc_id="semantic-baseline", title="Multi-Topic Doc", root=root
+    )
 
     # Deterministic mock embedder: 3 clusters of vectors
     rng = np.random.RandomState(42)
@@ -377,11 +393,26 @@ def compute_semantic_chunking(structure: DocumentStructure, tmp_dir: str) -> dic
         vectors = []
         for text in texts:
             t_lower = text.lower()
-            if any(w in t_lower for w in ["learning", "neural", "training", "algorithm", "backpropagation", "supervised"]):
+            if any(
+                w in t_lower
+                for w in [
+                    "learning",
+                    "neural",
+                    "training",
+                    "algorithm",
+                    "backpropagation",
+                    "supervised",
+                ]
+            ):
                 base = center_a
-            elif any(w in t_lower for w in ["ocean", "marine", "reef", "trench", "sea", "biodiversity"]):
+            elif any(
+                w in t_lower for w in ["ocean", "marine", "reef", "trench", "sea", "biodiversity"]
+            ):
                 base = center_b
-            elif any(w in t_lower for w in ["roman", "colosseum", "arch", "aqueduct", "gladiator", "concrete"]):
+            elif any(
+                w in t_lower
+                for w in ["roman", "colosseum", "arch", "aqueduct", "gladiator", "concrete"]
+            ):
                 base = center_c
             else:
                 base = rng.randn(dim)

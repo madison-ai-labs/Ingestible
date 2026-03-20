@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
 from ingestible.export import EXPORT_FORMATS, export_document
 from ingestible.export.jsonl import export_jsonl
-from ingestible.export.llamaindex import export_llamaindex
 from ingestible.export.langchain import export_langchain
-from ingestible.models.chunks import ChunkSet, L0Chunk, L3Chunk, ChunkPosition
+from ingestible.export.llamaindex import export_llamaindex
+from ingestible.models.chunks import ChunkPosition, ChunkSet, L0Chunk, L3Chunk
 
 
 @pytest.fixture
@@ -58,6 +57,7 @@ def test_export_invalid_format(sample_chunks, tmp_path):
 
 # --- JSONL ---
 
+
 def test_jsonl_export(sample_chunks, tmp_path):
     out = tmp_path / "export.jsonl"
     result = export_jsonl(sample_chunks, out)
@@ -88,6 +88,7 @@ def test_jsonl_via_dispatch(sample_chunks, tmp_path):
 
 # --- LlamaIndex ---
 
+
 def test_llamaindex_export(sample_chunks, tmp_path):
     out = tmp_path / "nodes.json"
     result = export_llamaindex(sample_chunks, out)
@@ -105,6 +106,7 @@ def test_llamaindex_export(sample_chunks, tmp_path):
 
 # --- LangChain ---
 
+
 def test_langchain_export(sample_chunks, tmp_path):
     out = tmp_path / "docs.json"
     result = export_langchain(sample_chunks, out)
@@ -121,10 +123,11 @@ def test_langchain_export(sample_chunks, tmp_path):
 
 # --- Parquet ---
 
+
 def test_parquet_export(sample_chunks, tmp_path):
     """Parquet export works when pyarrow is available."""
     try:
-        import pyarrow
+        import pyarrow  # noqa: F401
     except ImportError:
         pytest.skip("pyarrow not installed")
 

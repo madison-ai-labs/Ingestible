@@ -6,14 +6,10 @@ Mocks Docling's picture objects to test figure extraction without a real PDF.
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from ingestible.models.document import FigureRef, PageContent, ParsedDocument
 from ingestible.pipeline.stage1_parsing import _extract_docling_figures
-
 
 # ---------------------------------------------------------------------------
 # Helpers — mock Docling picture objects
@@ -99,10 +95,7 @@ class TestExtractDoclingFigures:
         assert fig.filename == "fig-1.png"
 
     def test_multiple_figures(self):
-        pics = [
-            _make_mock_picture(caption=f"Fig {i}", page_no=i)
-            for i in range(1, 4)
-        ]
+        pics = [_make_mock_picture(caption=f"Fig {i}", page_no=i) for i in range(1, 4)]
         doc = _make_mock_doc_obj(pics)
         figs = _extract_docling_figures(doc)
 
@@ -194,9 +187,7 @@ class TestFigurePersistence:
 
         fig = FigureRef(figure_id="fig-1", filename="fig-1.png", page_num=1)
         page = PageContent(page_num=1, markdown="text", figures=[fig])
-        parsed = ParsedDocument(
-            title="Test", source_path="/test.pdf", pages=[page]
-        )
+        parsed = ParsedDocument(title="Test", source_path="/test.pdf", pages=[page])
 
         doc_dir = tmp_path / "test-doc"
         doc_dir.mkdir()
@@ -211,9 +202,7 @@ class TestFigurePersistence:
         from ingestible.pipeline.orchestrator import _save_figure_images
 
         page = PageContent(page_num=1, markdown="text")
-        parsed = ParsedDocument(
-            title="Test", source_path="/test.pdf", pages=[page]
-        )
+        parsed = ParsedDocument(title="Test", source_path="/test.pdf", pages=[page])
 
         doc_dir = tmp_path / "test-doc"
         doc_dir.mkdir()
@@ -224,7 +213,10 @@ class TestFigurePersistence:
 
     def test_figures_json_manifest(self, tmp_path):
         from ingestible.config import Settings
-        from ingestible.models.chunks import ChunkSet, L0Chunk, L1Chunk, L2Chunk, L3Chunk, ChunkPosition
+        from ingestible.models.chunks import (
+            ChunkSet,
+            L0Chunk,
+        )
         from ingestible.models.document import DocumentStructure, StructureNode
         from ingestible.pipeline.stage6_storage import save_document
 

@@ -23,8 +23,20 @@ def _make_watcher(tmp_path: Path) -> FileWatcher:
 class TestFileFilter:
     def test_supported_extensions_accepted(self, tmp_path):
         watcher = _make_watcher(tmp_path)
-        for ext in [".pdf", ".md", ".txt", ".docx", ".html", ".htm", ".epub",
-                    ".csv", ".xlsx", ".pptx", ".rst", ".adoc"]:
+        for ext in [
+            ".pdf",
+            ".md",
+            ".txt",
+            ".docx",
+            ".html",
+            ".htm",
+            ".epub",
+            ".csv",
+            ".xlsx",
+            ".pptx",
+            ".rst",
+            ".adoc",
+        ]:
             p = tmp_path / f"test{ext}"
             assert watcher._is_supported(p), f"{ext} should be supported"
 

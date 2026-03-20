@@ -11,11 +11,10 @@ Verifies:
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
-from ingestible.models.document import PageContent
 from ingestible.pipeline.stage1_parsing import (
     AUDIO_FORMATS,
     SUPPORTED_FORMATS,
@@ -112,7 +111,7 @@ class TestTimestampPropagation:
     """Timestamp propagation from pages to L3 chunks."""
 
     def test_propagate_timestamps_from_content(self):
-        from ingestible.models.chunks import ChunkSet, L0Chunk, L3Chunk, ChunkPosition
+        from ingestible.models.chunks import ChunkPosition, ChunkSet, L0Chunk, L3Chunk
         from ingestible.models.document import ParsedDocument
 
         chunks = ChunkSet(
@@ -133,20 +132,23 @@ class TestTimestampPropagation:
         )
 
         parsed = ParsedDocument(
-            title="Test", source_path="test.mp3", source_format="audio",
+            title="Test",
+            source_path="test.mp3",
+            source_format="audio",
             pages=[],
         )
 
         from ingestible.pipeline.orchestrator import _propagate_timestamps
+
         _propagate_timestamps(chunks, parsed)
 
         # MM:SS format
         assert chunks.l3_chunks[0].timestamp_start == 90.0  # 01:30
-        assert chunks.l3_chunks[0].timestamp_end == 135.0   # 02:15
+        assert chunks.l3_chunks[0].timestamp_end == 135.0  # 02:15
 
         # HH:MM:SS format
         assert chunks.l3_chunks[1].timestamp_start == 3930.0  # 1:05:30
-        assert chunks.l3_chunks[1].timestamp_end == 3960.0    # 1:06:00
+        assert chunks.l3_chunks[1].timestamp_end == 3960.0  # 1:06:00
 
 
 class TestAudioParsing:
@@ -159,8 +161,11 @@ class TestAudioParsing:
             {"start": 60.0, "end": 90.0, "text": "Attention is all you need."},
         ]
 
-        with patch("ingestible.pipeline.stage1_parsing._transcribe_audio", return_value=mock_segments):
+        with patch(
+            "ingestible.pipeline.stage1_parsing._transcribe_audio", return_value=mock_segments
+        ):
             from ingestible.pipeline.stage1_parsing import _parse_audio
+
             result = _parse_audio(Path("lecture.mp3"))
 
         assert result.source_format == "audio"
@@ -172,6 +177,7 @@ class TestAudioParsing:
     def test_parse_audio_empty_transcription(self):
         with patch("ingestible.pipeline.stage1_parsing._transcribe_audio", return_value=[]):
             from ingestible.pipeline.stage1_parsing import _parse_audio
+
             result = _parse_audio(Path("silence.mp3"))
 
         assert result.pages == []
@@ -192,11 +198,17 @@ class TestVideoParsing:
 
         with (
             patch("shutil.which", return_value="/usr/bin/ffmpeg"),
-            patch("ingestible.pipeline.stage1_parsing._extract_audio_from_video", return_value=tmp_path / "audio.wav"),
-            patch("ingestible.pipeline.stage1_parsing._transcribe_audio", return_value=mock_segments),
+            patch(
+                "ingestible.pipeline.stage1_parsing._extract_audio_from_video",
+                return_value=tmp_path / "audio.wav",
+            ),
+            patch(
+                "ingestible.pipeline.stage1_parsing._transcribe_audio", return_value=mock_segments
+            ),
             patch("pathlib.Path.unlink"),  # don't actually delete
         ):
             from ingestible.pipeline.stage1_parsing import _parse_video
+
             result = _parse_video(video_file)
 
         assert result.source_format == "video"
@@ -209,6 +221,7 @@ class TestVideoParsing:
 
         with patch("shutil.which", return_value=None):
             from ingestible.pipeline.stage1_parsing import _parse_video
+
             with pytest.raises(RuntimeError, match="ffmpeg"):
                 _parse_video(video_file)
 
@@ -218,7 +231,7 @@ class TestTimestampRoundTrip:
 
     def test_l3_timestamps_roundtrip(self, tmp_path):
         from ingestible.config import Settings
-        from ingestible.models.chunks import ChunkSet, L0Chunk, L3Chunk, ChunkPosition
+        from ingestible.models.chunks import ChunkPosition, ChunkSet, L0Chunk, L3Chunk
         from ingestible.models.document import DocumentStructure, StructureNode
         from ingestible.pipeline.stage6_storage import load_chunks, save_document
 
@@ -238,7 +251,8 @@ class TestTimestampRoundTrip:
         )
 
         structure = DocumentStructure(
-            doc_id="ts-test", title="Timestamp Test",
+            doc_id="ts-test",
+            title="Timestamp Test",
             root=StructureNode(id="ts-test", title="Timestamp Test", level=0),
         )
         settings = Settings(data_dir=tmp_path)

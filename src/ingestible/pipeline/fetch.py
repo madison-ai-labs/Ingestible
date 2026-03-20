@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import mimetypes
-import re
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
@@ -74,9 +73,7 @@ def fetch_url(
                 received += len(chunk)
                 if max_bytes is not None and received > max_bytes:
                     max_mb = max_bytes / 1_000_000
-                    raise FileTooLargeError(
-                        f"File too large. Maximum size: {max_mb:.0f}MB"
-                    )
+                    raise FileTooLargeError(f"File too large. Maximum size: {max_mb:.0f}MB")
                 chunks.append(chunk)
 
     body = b"".join(chunks)

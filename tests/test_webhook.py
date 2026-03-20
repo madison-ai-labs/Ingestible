@@ -27,8 +27,7 @@ from ingestible.models.chunks import (
 )
 from ingestible.models.document import DocumentStructure, StructureNode
 from ingestible.pipeline.stage5_embedding import build_indexes
-from ingestible.pipeline.stage6_storage import save_document, load_chunks
-
+from ingestible.pipeline.stage6_storage import load_chunks, save_document
 
 WEBHOOK_SECRET = "test-webhook-secret-42"
 
@@ -89,7 +88,11 @@ def _create_test_doc(settings: Settings, doc_id: str = "test-doc-wh") -> Path:
         total_passages=1,
     )
     chunks = ChunkSet(
-        doc_id=doc_id, l0=l0, l1_chunks=[l1], l2_chunks=[l2], l3_chunks=[l3],
+        doc_id=doc_id,
+        l0=l0,
+        l1_chunks=[l1],
+        l2_chunks=[l2],
+        l3_chunks=[l3],
     )
     root = StructureNode(id=doc_id, title="Webhook Test Doc", level=0)
     structure = DocumentStructure(doc_id=doc_id, title="Webhook Test Doc", root=root)
@@ -234,7 +237,9 @@ class TestWebhookChunkUpdate:
 
         # Verify re_enrich was called with correct args
         mock_re_enrich.assert_called_once_with(
-            doc_id, webhook_setup["settings"], changed_chunk_ids={chunk_id},
+            doc_id,
+            webhook_setup["settings"],
+            changed_chunk_ids={chunk_id},
         )
 
     def test_nonexistent_doc_returns_404(self, webhook_setup):

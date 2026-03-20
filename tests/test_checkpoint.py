@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ingestible.models.chunks import ChunkSet, L0Chunk, L3Chunk
-from ingestible.models.document import ParsedDocument, PageContent
+from ingestible.models.document import PageContent, ParsedDocument
 from ingestible.pipeline.checkpoint import (
     STAGE_ORDER,
     clear_checkpoints,

@@ -32,10 +32,13 @@ def _retry_download(func, *args, max_retries: int = 3, base_delay: float = 1.0, 
             # Retry on common transient errors
             exc_name = type(e).__name__
             if any(kw in exc_name for kw in ("Timeout", "Connection", "BrokenPipe", "Reset")):
-                delay = base_delay * (2 ** attempt)
+                delay = base_delay * (2**attempt)
                 logger.warning(
                     "Cloud download failed (attempt %d/%d): %s — retrying in %.1fs",
-                    attempt + 1, max_retries + 1, e, delay,
+                    attempt + 1,
+                    max_retries + 1,
+                    e,
+                    delay,
                 )
                 time.sleep(delay)
                 continue
@@ -100,9 +103,7 @@ def _fetch_s3(url: str, max_bytes: int | None = None) -> Path:
     try:
         import boto3
     except ImportError:
-        raise ImportError(
-            "S3 support requires boto3. Install with: pip install ingestible[cloud]"
-        )
+        raise ImportError("S3 support requires boto3. Install with: pip install ingestible[cloud]")
 
     bucket, key = _parse_s3_url(url)
     ext = Path(key).suffix or ".bin"
@@ -115,9 +116,7 @@ def _fetch_s3(url: str, max_bytes: int | None = None) -> Path:
         head = s3.head_object(Bucket=bucket, Key=key)
         size = head.get("ContentLength", 0)
         if size > max_bytes:
-            raise ValueError(
-                f"S3 object too large ({size} bytes). Max: {max_bytes} bytes"
-            )
+            raise ValueError(f"S3 object too large ({size} bytes). Max: {max_bytes} bytes")
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
     tmp.close()
@@ -133,8 +132,7 @@ def _fetch_gcs(url: str, max_bytes: int | None = None) -> Path:
         from google.cloud import storage
     except ImportError:
         raise ImportError(
-            "GCS support requires google-cloud-storage. "
-            "Install with: pip install ingestible[cloud]"
+            "GCS support requires google-cloud-storage. Install with: pip install ingestible[cloud]"
         )
 
     bucket_name, blob_name = _parse_gcs_url(url)
@@ -149,9 +147,7 @@ def _fetch_gcs(url: str, max_bytes: int | None = None) -> Path:
     if max_bytes is not None:
         blob.reload()
         if blob.size and blob.size > max_bytes:
-            raise ValueError(
-                f"GCS object too large ({blob.size} bytes). Max: {max_bytes} bytes"
-            )
+            raise ValueError(f"GCS object too large ({blob.size} bytes). Max: {max_bytes} bytes")
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
     tmp.close()
@@ -171,6 +167,7 @@ def _fetch_azure(url: str, max_bytes: int | None = None) -> Path:
         )
 
     import os
+
     container_name, blob_name = _parse_azure_url(url)
     ext = Path(blob_name).suffix or ".bin"
     logger.info("Downloading from Azure Blob: %s/%s", container_name, blob_name)
@@ -179,8 +176,7 @@ def _fetch_azure(url: str, max_bytes: int | None = None) -> Path:
     conn_str = os.environ.get("AZURE_STORAGE_CONNECTION_STRING", "")
     if not conn_str:
         raise ValueError(
-            "AZURE_STORAGE_CONNECTION_STRING environment variable is required "
-            "for Azure Blob access"
+            "AZURE_STORAGE_CONNECTION_STRING environment variable is required for Azure Blob access"
         )
 
     client = BlobServiceClient.from_connection_string(conn_str)
@@ -190,9 +186,7 @@ def _fetch_azure(url: str, max_bytes: int | None = None) -> Path:
     if max_bytes is not None:
         props = blob_client.get_blob_properties()
         if props.size and props.size > max_bytes:
-            raise ValueError(
-                f"Azure blob too large ({props.size} bytes). Max: {max_bytes} bytes"
-            )
+            raise ValueError(f"Azure blob too large ({props.size} bytes). Max: {max_bytes} bytes")
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
     tmp.close()

@@ -11,10 +11,9 @@ from pathlib import Path
 from ingestible.config import Settings
 from ingestible.models.chunks import ChunkPosition, ChunkSet, L3Chunk
 from ingestible.models.search import SearchResponse, SearchResult
-from ingestible.pipeline.stage5_embedding import Embedder
+from ingestible.pipeline.stage5_embedding import Embedder, _resolve_device
 from ingestible.search.bm25_store import BM25Store
 from ingestible.search.concept_index import ConceptIndex
-from ingestible.pipeline.stage5_embedding import _resolve_device
 from ingestible.search.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
@@ -39,16 +38,16 @@ class HybridSearcher:
         self._embedder = embedder
         self._settings = settings
         # Build chunk lookup
-        self._chunk_map: dict[str, L3Chunk] = {
-            c.chunk_id: c for c in chunks.l3_chunks
-        }
+        self._chunk_map: dict[str, L3Chunk] = {c.chunk_id: c for c in chunks.l3_chunks}
         # Lazy-load cross-encoder reranker
         self._reranker = None
         if settings.reranker_model:
             try:
                 from sentence_transformers import CrossEncoder
 
-                self._reranker = CrossEncoder(settings.reranker_model, device=_resolve_device(settings.embedding_device))
+                self._reranker = CrossEncoder(
+                    settings.reranker_model, device=_resolve_device(settings.embedding_device)
+                )
                 logger.info("Loaded reranker: %s", settings.reranker_model)
             except Exception as e:
                 logger.warning("Failed to load reranker: %s", e)

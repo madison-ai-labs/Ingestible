@@ -1,7 +1,8 @@
 """Tests for cloud storage URL parsing and detection."""
+
 import pytest
 
-from ingestible.pipeline.cloud import is_cloud_url, _parse_s3_url, _parse_gcs_url, _parse_azure_url
+from ingestible.pipeline.cloud import _parse_azure_url, _parse_gcs_url, _parse_s3_url, is_cloud_url
 
 
 class TestCloudURLDetection:

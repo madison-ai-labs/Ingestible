@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from ingestible.models.document import ParsedDocument
 
@@ -164,9 +163,7 @@ class _LLMProfileResult(BaseModel):
     reasoning: str = ""
 
 
-async def detect_profile_with_llm(
-    parsed: ParsedDocument, settings: Settings
-) -> ProfileName:
+async def detect_profile_with_llm(parsed: ParsedDocument, settings: Settings) -> ProfileName:
     """Detect profile using heuristics first, LLM fallback for low-confidence cases.
 
     Enabled by ``settings.profile_llm_fallback``. Falls back to pure heuristic
@@ -204,9 +201,7 @@ Respond with JSON:
         detected = llm_result.document_type.lower().strip()
 
         if detected in PROFILES:
-            logger.info(
-                "LLM profile detection: %s (reason: %s)", detected, llm_result.reasoning
-            )
+            logger.info("LLM profile detection: %s (reason: %s)", detected, llm_result.reasoning)
             return detected  # type: ignore[return-value]
 
         logger.warning("LLM returned unknown profile '%s', using heuristic result", detected)

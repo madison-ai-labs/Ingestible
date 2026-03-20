@@ -15,8 +15,6 @@ import asyncio
 import json
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
 from ingestible.config import Settings
 from ingestible.models.chunks import (
     ChunkPosition,
@@ -53,18 +51,30 @@ def _make_chunks(num_l3: int = 2) -> ChunkSet:
     return ChunkSet(
         doc_id=doc_id,
         l0=L0Chunk(
-            chunk_id=f"{doc_id}-L0", title="KG Test Doc",
-            total_pages=1, total_chapters=1, total_sections=1, total_passages=num_l3,
+            chunk_id=f"{doc_id}-L0",
+            title="KG Test Doc",
+            total_pages=1,
+            total_chapters=1,
+            total_sections=1,
+            total_passages=num_l3,
         ),
-        l1_chunks=[L1Chunk(
-            chunk_id=f"{doc_id}-ch1", title="Ch1", content="Chapter.",
-            children_ids=[f"{doc_id}-s1"],
-        )],
-        l2_chunks=[L2Chunk(
-            chunk_id=f"{doc_id}-s1", title="Sec1", content="Section.",
-            parent_chapter_id=f"{doc_id}-ch1",
-            children_ids=[c.chunk_id for c in l3_chunks],
-        )],
+        l1_chunks=[
+            L1Chunk(
+                chunk_id=f"{doc_id}-ch1",
+                title="Ch1",
+                content="Chapter.",
+                children_ids=[f"{doc_id}-s1"],
+            )
+        ],
+        l2_chunks=[
+            L2Chunk(
+                chunk_id=f"{doc_id}-s1",
+                title="Sec1",
+                content="Section.",
+                parent_chapter_id=f"{doc_id}-ch1",
+                children_ids=[c.chunk_id for c in l3_chunks],
+            )
+        ],
         l3_chunks=l3_chunks,
     )
 
@@ -94,7 +104,9 @@ def _mock_client_with_kg():
         name = output_type.__name__
         if name == "L3Enrichment":
             return L3Enrichment(
-                summary="Summary", concepts=["transformers"], keywords=["attention"],
+                summary="Summary",
+                concepts=["transformers"],
+                keywords=["attention"],
             )
         if name == "KGTripleList":
             idx = call_idx["l3"]
@@ -111,22 +123,26 @@ def _mock_client_with_kg():
             ]
             # Second chunk adds a duplicate + a unique triple
             if idx >= 1:
-                triples.append(KGTriple(
-                    subject="Transformer",
-                    subject_type="Method",
-                    predicate="uses",
-                    object="Attention",
-                    object_type="Concept",
-                    confidence=1.0,  # higher confidence duplicate
-                ))
-                triples.append(KGTriple(
-                    subject="BERT",
-                    subject_type="Method",
-                    predicate="is_a",
-                    object="Transformer",
-                    object_type="Method",
-                    confidence=0.95,
-                ))
+                triples.append(
+                    KGTriple(
+                        subject="Transformer",
+                        subject_type="Method",
+                        predicate="uses",
+                        object="Attention",
+                        object_type="Concept",
+                        confidence=1.0,  # higher confidence duplicate
+                    )
+                )
+                triples.append(
+                    KGTriple(
+                        subject="BERT",
+                        subject_type="Method",
+                        predicate="is_a",
+                        object="Transformer",
+                        object_type="Method",
+                        confidence=0.95,
+                    )
+                )
             return KGTripleList(triples=triples)
         if name == "L2Enrichment":
             return L2Enrichment(section_summary="Sec summary")
@@ -158,7 +174,9 @@ class TestKGExtraction:
         assert result.l3_chunks[0].kg_triples[0].source_chunk_id == "kg-test-p0"
 
         # Document-level deduplicated triples
-        assert len(result.knowledge_graph) == 2  # "Transformer uses Attention" + "BERT is_a Transformer"
+        assert (
+            len(result.knowledge_graph) == 2
+        )  # "Transformer uses Attention" + "BERT is_a Transformer"
 
     def test_kg_deduplication_keeps_highest_confidence(self):
         """Duplicate triples are deduplicated, keeping highest confidence."""
@@ -170,8 +188,11 @@ class TestKGExtraction:
             result = asyncio.run(enrich_chunks(chunks, _settings(), profile=profile))
 
         # Find the "Transformer uses Attention" triple
-        tu = [t for t in result.knowledge_graph
-              if t.subject.lower() == "transformer" and t.predicate.lower() == "uses"]
+        tu = [
+            t
+            for t in result.knowledge_graph
+            if t.subject.lower() == "transformer" and t.predicate.lower() == "uses"
+        ]
         assert len(tu) == 1
         assert tu[0].confidence == 1.0  # highest confidence kept
 
@@ -181,8 +202,10 @@ class TestKGExtraction:
         client = _mock_client_with_kg()
         profile = ExtractionProfile(name="general", extract_knowledge_graph=False)
         settings = Settings(
-            llm_provider="openai", openai_api_key="test-key",
-            llm_concurrency=1, extract_knowledge_graph=False,
+            llm_provider="openai",
+            openai_api_key="test-key",
+            llm_concurrency=1,
+            extract_knowledge_graph=False,
         )
 
         with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
@@ -198,8 +221,10 @@ class TestKGExtraction:
         client = _mock_client_with_kg()
         profile = ExtractionProfile(name="general", extract_knowledge_graph=False)
         settings = Settings(
-            llm_provider="openai", openai_api_key="test-key",
-            llm_concurrency=1, extract_knowledge_graph=True,
+            llm_provider="openai",
+            openai_api_key="test-key",
+            llm_concurrency=1,
+            extract_knowledge_graph=True,
         )
 
         with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
@@ -219,10 +244,14 @@ class TestKGSelectiveReEnrichment:
         # Populate previous with enrichment + KG
         for c in previous.l3_chunks:
             c.summary = "Previous summary"
-            c.kg_triples = [KGTriple(
-                subject="X", predicate="relates_to", object="Y",
-                source_chunk_id=c.chunk_id,
-            )]
+            c.kg_triples = [
+                KGTriple(
+                    subject="X",
+                    predicate="relates_to",
+                    object="Y",
+                    source_chunk_id=c.chunk_id,
+                )
+            ]
         previous.knowledge_graph = [
             KGTriple(subject="X", predicate="relates_to", object="Y"),
         ]
@@ -237,9 +266,14 @@ class TestKGSelectiveReEnrichment:
         profile = _kg_profile()
 
         with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
-            result = asyncio.run(enrich_chunks(
-                chunks, _settings(), profile=profile, previous_chunks=previous,
-            ))
+            result = asyncio.run(
+                enrich_chunks(
+                    chunks,
+                    _settings(),
+                    profile=profile,
+                    previous_chunks=previous,
+                )
+            )
 
         # KG copied from previous (no LLM calls)
         assert len(result.knowledge_graph) == 1
@@ -258,23 +292,30 @@ class TestKGStorageRoundTrip:
         chunks = _make_chunks(num_l3=1)
         chunks.l3_chunks[0].kg_triples = [
             KGTriple(
-                subject="Python", subject_type="Technology",
-                predicate="is_a", object="Programming Language",
-                object_type="Concept", confidence=1.0,
+                subject="Python",
+                subject_type="Technology",
+                predicate="is_a",
+                object="Programming Language",
+                object_type="Concept",
+                confidence=1.0,
                 source_chunk_id="kg-test-p0",
             ),
         ]
         chunks.knowledge_graph = [
             KGTriple(
-                subject="Python", subject_type="Technology",
-                predicate="is_a", object="Programming Language",
-                object_type="Concept", confidence=1.0,
+                subject="Python",
+                subject_type="Technology",
+                predicate="is_a",
+                object="Programming Language",
+                object_type="Concept",
+                confidence=1.0,
                 source_chunk_id="kg-test-p0",
             ),
         ]
 
         structure = DocumentStructure(
-            doc_id="kg-test", title="KG Test",
+            doc_id="kg-test",
+            title="KG Test",
             root=StructureNode(id="kg-test", title="KG Test", level=0),
         )
         settings = Settings(data_dir=tmp_path)

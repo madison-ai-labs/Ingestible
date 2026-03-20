@@ -8,11 +8,9 @@ from __future__ import annotations
 
 import logging
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from ingestible.config import Settings
-from ingestible.models.chunks import ChunkSet
 from ingestible.models.search import CorpusSearchResponse, SearchResult
 from ingestible.pipeline.stage5_embedding import Embedder
 from ingestible.pipeline.stage6_storage import load_chunks, load_document_meta
@@ -125,9 +123,7 @@ class CorpusSearcher:
                 scores[key] = scores.get(key, 0.0) + rrf_score
 
                 # Annotate with doc info
-                enriched = result.model_copy(
-                    update={"doc_id": doc_id, "doc_title": doc_title}
-                )
+                enriched = result.model_copy(update={"doc_id": doc_id, "doc_title": doc_title})
                 result_map[key] = enriched
 
         # Sort and take top N

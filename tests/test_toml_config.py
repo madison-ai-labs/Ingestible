@@ -6,11 +6,7 @@ Verifies priority: env vars > TOML > defaults.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from unittest.mock import patch
-
-import pytest
 
 from ingestible.config import Settings, TomlConfigSource
 
@@ -19,9 +15,7 @@ class TestTomlConfigSource:
     def test_loads_from_toml_file(self, tmp_path, monkeypatch):
         toml_path = tmp_path / "ingestible.toml"
         toml_path.write_text(
-            'data_dir = "custom_data"\n'
-            "max_chunk_tokens = 300\n"
-            'chunking_strategy = "recursive"\n'
+            'data_dir = "custom_data"\nmax_chunk_tokens = 300\nchunking_strategy = "recursive"\n'
         )
 
         # Patch TomlConfigSource.PATHS to point at our temp file

@@ -192,9 +192,17 @@ def ingest_batch(
                 report.results.append(result)
                 if result.error:
                     report.failed += 1
-                    logger.info("[%d/%d] FAILED %s: %s", done_count, len(files), f.name, result.error)
+                    logger.info(
+                        "[%d/%d] FAILED %s: %s", done_count, len(files), f.name, result.error
+                    )
                 else:
-                    logger.info("[%d/%d] OK %s (%.1fs)", done_count, len(files), f.name, result.elapsed_seconds)
+                    logger.info(
+                        "[%d/%d] OK %s (%.1fs)",
+                        done_count,
+                        len(files),
+                        f.name,
+                        result.elapsed_seconds,
+                    )
 
     report.elapsed_seconds = round(time.monotonic() - batch_start, 2)
 

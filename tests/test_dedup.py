@@ -8,6 +8,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from ingestible.config import Settings
+
 
 @pytest.fixture(autouse=True)
 def _mock_chromadb(monkeypatch):
@@ -19,11 +21,9 @@ def _mock_chromadb(monkeypatch):
         monkeypatch.setitem(sys.modules, "chromadb.config", MagicMock())
 
 
-from ingestible.config import Settings
-
-
 def _import_dedup():
     from ingestible.pipeline.orchestrator import _check_duplicate_content
+
     return _check_duplicate_content
 
 

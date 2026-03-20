@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import logging
 import re
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from pathlib import Path
 
 from ingestible.models.document import FigureRef, PageContent, ParsedDocument, TOCEntry
@@ -25,19 +26,46 @@ CHARS_PER_PAGE_THRESHOLD = 100
 IMAGE_FORMATS = {".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp"}
 
 SUPPORTED_FORMATS = {
-    ".pdf", ".md", ".txt", ".docx", ".html", ".htm",
-    ".epub", ".csv", ".xlsx", ".xls", ".pptx",
-    ".rst", ".adoc", ".asciidoc",
+    ".pdf",
+    ".md",
+    ".txt",
+    ".docx",
+    ".html",
+    ".htm",
+    ".epub",
+    ".csv",
+    ".xlsx",
+    ".xls",
+    ".pptx",
+    ".rst",
+    ".adoc",
+    ".asciidoc",
     # Images
     *IMAGE_FORMATS,
     # Email
-    ".eml", ".msg",
+    ".eml",
+    ".msg",
     # Structured data
-    ".xml", ".json", ".jsonl",
+    ".xml",
+    ".json",
+    ".jsonl",
     # Audio
-    ".mp3", ".wav", ".m4a", ".flac", ".ogg", ".wma", ".aac", ".opus",
+    ".mp3",
+    ".wav",
+    ".m4a",
+    ".flac",
+    ".ogg",
+    ".wma",
+    ".aac",
+    ".opus",
     # Video
-    ".mp4", ".mkv", ".avi", ".mov", ".webm", ".wmv", ".flv",
+    ".mp4",
+    ".mkv",
+    ".avi",
+    ".mov",
+    ".webm",
+    ".wmv",
+    ".flv",
     # Archives (Notion / Confluence exports)
     ".zip",
 }
@@ -58,7 +86,9 @@ def _with_timeout(func, *args, timeout: int = 300, **kwargs):
             )
 
 
-def parse_document(file_path: str | Path, force_ocr: bool = False, timeout: int = 300) -> ParsedDocument:
+def parse_document(
+    file_path: str | Path, force_ocr: bool = False, timeout: int = 300
+) -> ParsedDocument:
     """Parse a document into structured markdown. Auto-detects format from extension."""
     file_path = Path(file_path)
     if not file_path.exists():
@@ -66,9 +96,7 @@ def parse_document(file_path: str | Path, force_ocr: bool = False, timeout: int 
 
     ext = file_path.suffix.lower()
     if ext not in SUPPORTED_FORMATS:
-        raise ValueError(
-            f"Unsupported format '{ext}'. Supported: {sorted(SUPPORTED_FORMATS)}"
-        )
+        raise ValueError(f"Unsupported format '{ext}'. Supported: {sorted(SUPPORTED_FORMATS)}")
 
     if ext == ".pdf":
         return _with_timeout(parse_pdf, file_path, force_ocr=force_ocr, timeout=timeout)
@@ -153,9 +181,7 @@ def _try_docling(pdf_path: Path, ocr: bool = False) -> ParsedDocument | None:
 
         pipeline_opts = PdfPipelineOptions(do_ocr=ocr)
         converter = DocumentConverter(
-            format_options={
-                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_opts)
-            }
+            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_opts)}
         )
         result = converter.convert(str(pdf_path))
         doc_obj = result.document
@@ -208,7 +234,11 @@ def _extract_docling_figures(doc_obj) -> list[FigureRef]:
             fig_id = f"fig-{idx + 1}"
             caption = ""
             if hasattr(pic, "captions") and pic.captions:
-                caption = pic.captions[0].text if hasattr(pic.captions[0], "text") else str(pic.captions[0])
+                caption = (
+                    pic.captions[0].text
+                    if hasattr(pic.captions[0], "text")
+                    else str(pic.captions[0])
+                )
             label = getattr(pic, "label", "") or ""
             classification = getattr(pic, "classification", "") or ""
 
@@ -227,14 +257,16 @@ def _extract_docling_figures(doc_obj) -> list[FigureRef]:
             else:
                 filename = f"{fig_id}.png"
 
-            figures.append(FigureRef(
-                figure_id=fig_id,
-                filename=filename,
-                caption=caption,
-                label=str(label),
-                page_num=page_num,
-                classification=str(classification),
-            ))
+            figures.append(
+                FigureRef(
+                    figure_id=fig_id,
+                    filename=filename,
+                    caption=caption,
+                    label=str(label),
+                    page_num=page_num,
+                    classification=str(classification),
+                )
+            )
     except Exception:
         logger.debug("Figure extraction failed", exc_info=True)
 
@@ -364,8 +396,10 @@ def _parse_markdown(file_path: Path) -> ParsedDocument:
     text = file_path.read_text(errors="replace").strip()
     if not text:
         return ParsedDocument(
-            title=file_path.stem, source_path=str(file_path),
-            source_format="md", pages=[],
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="md",
+            pages=[],
         )
 
     toc = _extract_toc_from_markdown(text)
@@ -387,8 +421,10 @@ def _parse_plaintext(file_path: Path) -> ParsedDocument:
     text = file_path.read_text(errors="replace").strip()
     if not text:
         return ParsedDocument(
-            title=file_path.stem, source_path=str(file_path),
-            source_format="txt", pages=[],
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="txt",
+            pages=[],
         )
 
     # Title: first non-empty line, capped at 100 chars
@@ -414,7 +450,6 @@ def _parse_plaintext(file_path: Path) -> ParsedDocument:
 def _parse_docx(file_path: Path) -> ParsedDocument:
     """Parse a DOCX file using python-docx. Maps heading styles to markdown."""
     from docx import Document as DocxDocument
-    from docx.table import Table
 
     doc = DocxDocument(str(file_path))
     md_parts: list[str] = []
@@ -451,8 +486,10 @@ def _parse_docx(file_path: Path) -> ParsedDocument:
 
     if not full_md:
         return ParsedDocument(
-            title=file_path.stem, source_path=str(file_path),
-            source_format="docx", pages=[],
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="docx",
+            pages=[],
         )
 
     toc = _extract_toc_from_markdown(full_md)
@@ -490,8 +527,10 @@ def _parse_html(file_path: Path) -> ParsedDocument:
     html = file_path.read_text(errors="replace").strip()
     if not html:
         return ParsedDocument(
-            title=file_path.stem, source_path=str(file_path),
-            source_format="html", pages=[],
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="html",
+            pages=[],
         )
 
     # Remove <script> and <style> elements entirely (tag + content)
@@ -502,8 +541,10 @@ def _parse_html(file_path: Path) -> ParsedDocument:
 
     if not md:
         return ParsedDocument(
-            title=file_path.stem, source_path=str(file_path),
-            source_format="html", pages=[],
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="html",
+            pages=[],
         )
 
     toc = _extract_toc_from_markdown(md)
@@ -545,15 +586,15 @@ def _parse_epub(file_path: Path) -> ParsedDocument:
             continue
         page_num += 1
         md_parts.append(md)
-        pages.append(
-            PageContent(page_num=page_num, markdown=md, has_code_blocks="```" in md)
-        )
+        pages.append(PageContent(page_num=page_num, markdown=md, has_code_blocks="```" in md))
 
     full_md = "\n\n".join(md_parts)
     if not full_md:
         return ParsedDocument(
-            title=file_path.stem, source_path=str(file_path),
-            source_format="epub", pages=[],
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="epub",
+            pages=[],
         )
 
     toc = _extract_toc_from_markdown(full_md)
@@ -580,8 +621,10 @@ def _parse_csv(file_path: Path) -> ParsedDocument:
 
     if not rows:
         return ParsedDocument(
-            title=file_path.stem, source_path=str(file_path),
-            source_format="csv", pages=[],
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="csv",
+            pages=[],
         )
 
     # Convert to markdown table
@@ -641,16 +684,16 @@ def _parse_excel(file_path: Path) -> ParsedDocument:
             cells = [str(c).replace("|", "\\|") if c is not None else "" for c in row]
             md_lines.append("| " + " | ".join(cells) + " |")
 
-        pages.append(
-            PageContent(page_num=len(pages) + 1, markdown="\n".join(md_lines))
-        )
+        pages.append(PageContent(page_num=len(pages) + 1, markdown="\n".join(md_lines)))
 
     wb.close()
 
     if not pages:
         return ParsedDocument(
-            title=file_path.stem, source_path=str(file_path),
-            source_format="xlsx", pages=[],
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="xlsx",
+            pages=[],
         )
 
     full_md = "\n\n".join(p.markdown for p in pages)
@@ -704,8 +747,10 @@ def _parse_pptx(file_path: Path) -> ParsedDocument:
 
     if not pages:
         return ParsedDocument(
-            title=file_path.stem, source_path=str(file_path),
-            source_format="pptx", pages=[],
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="pptx",
+            pages=[],
         )
 
     full_md = "\n\n".join(p.markdown for p in pages)
@@ -743,8 +788,10 @@ def _parse_rst(file_path: Path) -> ParsedDocument:
     rst_text = file_path.read_text(errors="replace")
     if not rst_text.strip():
         return ParsedDocument(
-            title=file_path.stem, source_path=str(file_path),
-            source_format="rst", pages=[],
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="rst",
+            pages=[],
         )
 
     # RST → HTML
@@ -754,8 +801,10 @@ def _parse_rst(file_path: Path) -> ParsedDocument:
 
     if not md:
         return ParsedDocument(
-            title=file_path.stem, source_path=str(file_path),
-            source_format="rst", pages=[],
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="rst",
+            pages=[],
         )
 
     toc = _extract_toc_from_markdown(md)
@@ -777,8 +826,10 @@ def _parse_asciidoc(file_path: Path) -> ParsedDocument:
     text = file_path.read_text(errors="replace")
     if not text.strip():
         return ParsedDocument(
-            title=file_path.stem, source_path=str(file_path),
-            source_format="asciidoc", pages=[],
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="asciidoc",
+            pages=[],
         )
 
     md = _asciidoc_to_markdown(text)
@@ -895,6 +946,7 @@ def _parse_eml(file_path: Path) -> ParsedDocument:
         if content_type == "text/html":
             try:
                 from markdownify import markdownify
+
                 content = markdownify(content, heading_style="ATX").strip()
             except Exception:
                 pass
@@ -928,9 +980,7 @@ def _parse_msg(file_path: Path) -> ParsedDocument:
     try:
         import extract_msg
     except ImportError:
-        raise ImportError(
-            "MSG parsing requires extract-msg. Install with: pip install extract-msg"
-        )
+        raise ImportError("MSG parsing requires extract-msg. Install with: pip install extract-msg")
 
     msg = extract_msg.Message(str(file_path))
     md_parts: list[str] = []
@@ -977,8 +1027,10 @@ def _parse_xml(file_path: Path) -> ParsedDocument:
     text = file_path.read_text(errors="replace")
     if not text.strip():
         return ParsedDocument(
-            title=file_path.stem, source_path=str(file_path),
-            source_format="xml", pages=[],
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="xml",
+            pages=[],
         )
 
     try:
@@ -1037,8 +1089,10 @@ def _parse_json(file_path: Path) -> ParsedDocument:
     text = file_path.read_text(errors="replace").strip()
     if not text:
         return ParsedDocument(
-            title=file_path.stem, source_path=str(file_path),
-            source_format="json", pages=[],
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="json",
+            pages=[],
         )
 
     ext = file_path.suffix.lower()
@@ -1124,6 +1178,7 @@ def _format_timestamp(seconds: float) -> str:
 def _get_whisper_model() -> str:
     """Get the configured Whisper model name."""
     import os
+
     return os.environ.get("INGEST_WHISPER_MODEL", "base")
 
 
@@ -1150,7 +1205,9 @@ def _transcribe_audio(audio_path: Path) -> list[dict]:
 
     logger.info(
         "Detected language: %s (probability %.2f), duration: %.0fs",
-        info.language, info.language_probability, info.duration,
+        info.language,
+        info.language_probability,
+        info.duration,
     )
 
     segments = []
@@ -1162,9 +1219,7 @@ def _transcribe_audio(audio_path: Path) -> list[dict]:
     return segments
 
 
-def _segments_to_pages(
-    segments: list[dict], page_duration: float = 120.0
-) -> list[PageContent]:
+def _segments_to_pages(segments: list[dict], page_duration: float = 120.0) -> list[PageContent]:
     """Group transcription segments into pages by time windows.
 
     Each page covers ~page_duration seconds. Segments are grouped by time,
@@ -1183,12 +1238,14 @@ def _segments_to_pages(
         # Start a new page if we've exceeded the duration
         if seg["start"] - page_start >= page_duration and current_parts:
             md = "\n\n".join(current_parts)
-            pages.append(PageContent(
-                page_num=page_num,
-                markdown=md,
-                timestamp_start=page_start,
-                timestamp_end=page_end,
-            ))
+            pages.append(
+                PageContent(
+                    page_num=page_num,
+                    markdown=md,
+                    timestamp_start=page_start,
+                    timestamp_end=page_end,
+                )
+            )
             page_num += 1
             current_parts = []
             page_start = seg["start"]
@@ -1200,12 +1257,14 @@ def _segments_to_pages(
     # Flush remaining segments
     if current_parts:
         md = "\n\n".join(current_parts)
-        pages.append(PageContent(
-            page_num=page_num,
-            markdown=md,
-            timestamp_start=page_start,
-            timestamp_end=page_end,
-        ))
+        pages.append(
+            PageContent(
+                page_num=page_num,
+                markdown=md,
+                timestamp_start=page_start,
+                timestamp_end=page_end,
+            )
+        )
 
     return pages
 
@@ -1219,8 +1278,10 @@ def _parse_audio(file_path: Path) -> ParsedDocument:
 
     if not segments:
         return ParsedDocument(
-            title=file_path.stem, source_path=str(file_path),
-            source_format="audio", pages=[],
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="audio",
+            pages=[],
         )
 
     pages = _segments_to_pages(segments)
@@ -1228,21 +1289,15 @@ def _parse_audio(file_path: Path) -> ParsedDocument:
     toc = _extract_toc_from_markdown(full_md)
     title = file_path.stem.replace("_", " ").replace("-", " ").title()
 
-    # Detect language from transcription
-    detected_lang = "en"
-    try:
-        from faster_whisper import WhisperModel
-        # Language was already detected during transcription, but we don't
-        # have it here. Use the text-based detection in the orchestrator.
-    except ImportError:
-        pass
-
     duration = segments[-1]["end"] if segments else 0
     total_minutes = int(duration / 60)
 
     logger.info(
         "Transcribed %s: %d segments, %d pages, %d min",
-        file_path.name, len(segments), len(pages), total_minutes,
+        file_path.name,
+        len(segments),
+        len(pages),
+        total_minutes,
     )
 
     return ParsedDocument(
@@ -1264,11 +1319,16 @@ def _extract_audio_from_video(video_path: Path) -> Path:
 
     result = subprocess.run(
         [
-            "ffmpeg", "-i", str(video_path),
+            "ffmpeg",
+            "-i",
+            str(video_path),
             "-vn",  # no video
-            "-acodec", "pcm_s16le",  # WAV PCM
-            "-ar", "16000",  # 16kHz (Whisper optimal)
-            "-ac", "1",  # mono
+            "-acodec",
+            "pcm_s16le",  # WAV PCM
+            "-ar",
+            "16000",  # 16kHz (Whisper optimal)
+            "-ac",
+            "1",  # mono
             "-y",  # overwrite
             str(audio_path),
         ],
@@ -1284,13 +1344,14 @@ def _extract_audio_from_video(video_path: Path) -> Path:
     return audio_path
 
 
-def _extract_keyframes(video_path: Path, doc_dir: Path | None = None, interval: int = 60) -> list[FigureRef]:
+def _extract_keyframes(
+    video_path: Path, doc_dir: Path | None = None, interval: int = 60
+) -> list[FigureRef]:
     """Extract keyframes from video at regular intervals using ffmpeg.
 
     Returns FigureRef list. Images saved to doc_dir/figures/ if provided.
     """
     import subprocess
-    import tempfile
 
     if doc_dir is None:
         return []
@@ -1302,12 +1363,18 @@ def _extract_keyframes(video_path: Path, doc_dir: Path | None = None, interval: 
     try:
         probe = subprocess.run(
             [
-                "ffprobe", "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1",
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
                 str(video_path),
             ],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         duration = float(probe.stdout.strip())
     except (subprocess.TimeoutExpired, ValueError):
@@ -1327,22 +1394,31 @@ def _extract_keyframes(video_path: Path, doc_dir: Path | None = None, interval: 
         try:
             subprocess.run(
                 [
-                    "ffmpeg", "-ss", str(ts),
-                    "-i", str(video_path),
-                    "-vframes", "1",
-                    "-q:v", "2",
+                    "ffmpeg",
+                    "-ss",
+                    str(ts),
+                    "-i",
+                    str(video_path),
+                    "-vframes",
+                    "1",
+                    "-q:v",
+                    "2",
                     "-y",
                     str(output_path),
                 ],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             if output_path.exists() and output_path.stat().st_size > 0:
-                figures.append(FigureRef(
-                    figure_id=fig_id,
-                    filename=filename,
-                    caption=f"Keyframe at {_format_timestamp(ts)}",
-                    page_num=None,
-                ))
+                figures.append(
+                    FigureRef(
+                        figure_id=fig_id,
+                        filename=filename,
+                        caption=f"Keyframe at {_format_timestamp(ts)}",
+                        page_num=None,
+                    )
+                )
         except subprocess.TimeoutExpired:
             logger.warning("Keyframe extraction timed out at %ds", ts)
             continue
@@ -1376,8 +1452,10 @@ def _parse_video(file_path: Path) -> ParsedDocument:
 
     if not segments:
         return ParsedDocument(
-            title=file_path.stem, source_path=str(file_path),
-            source_format="video", pages=[],
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="video",
+            pages=[],
         )
 
     pages = _segments_to_pages(segments)
@@ -1393,7 +1471,10 @@ def _parse_video(file_path: Path) -> ParsedDocument:
 
     logger.info(
         "Transcribed video %s: %d segments, %d pages, %d min",
-        file_path.name, len(segments), len(pages), total_minutes,
+        file_path.name,
+        len(segments),
+        len(pages),
+        total_minutes,
     )
 
     return ParsedDocument(
@@ -1463,13 +1544,17 @@ def _parse_notion_zip(file_path: Path, zf) -> ParsedDocument:
         # Clean up Notion-specific link syntax: [text](Page%20Name%20uuid.md) → [text]
         content = re.sub(r"\[([^\]]+)\]\([^)]*\.md\)", r"[\1]", content)
 
-        pages.append(PageContent(page_num=page_num, markdown=content, has_code_blocks="```" in content))
+        pages.append(
+            PageContent(page_num=page_num, markdown=content, has_code_blocks="```" in content)
+        )
         md_parts.append(content)
 
     if not pages:
         return ParsedDocument(
-            title=file_path.stem, source_path=str(file_path),
-            source_format="notion", pages=[],
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="notion",
+            pages=[],
         )
 
     full_md = "\n\n".join(md_parts)
@@ -1494,14 +1579,17 @@ def _parse_confluence_zip(file_path: Path, zf) -> ParsedDocument:
     md_parts: list[str] = []
 
     # Find all HTML files (excluding assets)
-    html_files = sorted([
-        n for n in zf.namelist()
-        if n.endswith(".html")
-        and not n.startswith("__MACOSX")
-        and "styles/" not in n
-        and "images/" not in n
-        and "attachments/" not in n
-    ])
+    html_files = sorted(
+        [
+            n
+            for n in zf.namelist()
+            if n.endswith(".html")
+            and not n.startswith("__MACOSX")
+            and "styles/" not in n
+            and "images/" not in n
+            and "attachments/" not in n
+        ]
+    )
 
     for page_num, name in enumerate(html_files, 1):
         html = zf.read(name).decode("utf-8", errors="replace")
@@ -1522,8 +1610,10 @@ def _parse_confluence_zip(file_path: Path, zf) -> ParsedDocument:
 
     if not pages:
         return ParsedDocument(
-            title=file_path.stem, source_path=str(file_path),
-            source_format="confluence", pages=[],
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="confluence",
+            pages=[],
         )
 
     full_md = "\n\n".join(md_parts)
@@ -1561,6 +1651,7 @@ def _parse_generic_zip(file_path: Path, zf) -> ParsedDocument:
         if ext in (".html", ".htm"):
             try:
                 from markdownify import markdownify
+
                 content = markdownify(content, heading_style="ATX").strip()
             except Exception:
                 pass
@@ -1571,8 +1662,10 @@ def _parse_generic_zip(file_path: Path, zf) -> ParsedDocument:
 
     if not pages:
         return ParsedDocument(
-            title=file_path.stem, source_path=str(file_path),
-            source_format="zip", pages=[],
+            title=file_path.stem,
+            source_path=str(file_path),
+            source_format="zip",
+            pages=[],
         )
 
     full_md = "\n\n".join(md_parts)

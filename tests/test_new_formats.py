@@ -8,8 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from ingestible.pipeline.stage1_parsing import parse_document, SUPPORTED_FORMATS
-
+from ingestible.pipeline.stage1_parsing import SUPPORTED_FORMATS, parse_document
 
 # ---------------------------------------------------------------------------
 # WP 3.2: CSV
@@ -99,7 +98,6 @@ def test_parse_excel_multiple_sheets(tmp_path: Path):
 
 def test_parse_pptx(tmp_path: Path):
     from pptx import Presentation
-    from pptx.util import Inches
 
     prs = Presentation()
     slide_layout = prs.slide_layouts[1]  # title + content
@@ -328,6 +326,7 @@ class TestJSONParser:
 class TestImageParser:
     def test_image_formats_in_supported(self):
         from ingestible.pipeline.stage1_parsing import IMAGE_FORMATS
+
         for ext in IMAGE_FORMATS:
             assert ext in SUPPORTED_FORMATS, f"{ext} not in SUPPORTED_FORMATS"
 

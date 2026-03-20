@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import statistics
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from ingestible.models.chunks import ChunkSet
 from ingestible.utils.tokens import count_tokens
@@ -93,7 +93,5 @@ def validate_chunks(chunks: ChunkSet) -> tuple[ChunkSet, QualityReport]:
         report.token_max,
     )
 
-    cleaned = chunks.model_copy(
-        update={"l0": l0, "l2_chunks": l2_chunks, "l3_chunks": kept}
-    )
+    cleaned = chunks.model_copy(update={"l0": l0, "l2_chunks": l2_chunks, "l3_chunks": kept})
     return cleaned, report

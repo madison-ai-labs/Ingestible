@@ -35,6 +35,7 @@ def cleanup_stale(settings: Settings, max_age_hours: int = 24) -> dict[str, int]
                 mtime = cp_dir.stat().st_mtime
                 if now - mtime > max_age_seconds:
                     import shutil
+
                     shutil.rmtree(cp_dir)
                     counts["checkpoints"] += 1
                     logger.info("Cleaned stale checkpoint: %s", cp_dir)
@@ -53,10 +54,13 @@ def cleanup_stale(settings: Settings, max_age_hours: int = 24) -> dict[str, int]
                     if now - mtime > max_age_seconds:
                         # Only delete if no process currently holds the lock
                         import portalocker
+
                         try:
                             lock = portalocker.Lock(
-                                str(lock_file), mode="w",
-                                timeout=0, flags=portalocker.LOCK_EX | portalocker.LOCK_NB,
+                                str(lock_file),
+                                mode="w",
+                                timeout=0,
+                                flags=portalocker.LOCK_EX | portalocker.LOCK_NB,
                             )
                             lock.acquire()
                             lock.release()
@@ -80,9 +84,21 @@ def cleanup_stale(settings: Settings, max_age_hours: int = 24) -> dict[str, int]
                 # Only clean files that look like our temp uploads
                 # (they have document-like extensions)
                 ext = tmp_file.suffix.lower()
-                if ext in (".pdf", ".docx", ".epub", ".pptx", ".xlsx",
-                           ".csv", ".html", ".md", ".txt", ".wav",
-                           ".mp3", ".mp4", ".mkv"):
+                if ext in (
+                    ".pdf",
+                    ".docx",
+                    ".epub",
+                    ".pptx",
+                    ".xlsx",
+                    ".csv",
+                    ".html",
+                    ".md",
+                    ".txt",
+                    ".wav",
+                    ".mp3",
+                    ".mp4",
+                    ".mkv",
+                ):
                     tmp_file.unlink(missing_ok=True)
                     counts["temp_files"] += 1
         except OSError:

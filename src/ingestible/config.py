@@ -27,9 +27,7 @@ class TomlConfigSource(PydanticBaseSettingsSource):
                     self._data = tomllib.load(f)
                 break
 
-    def get_field_value(
-        self, field: FieldInfo, field_name: str
-    ) -> tuple[Any, str, bool]:
+    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
         val = self._data.get(field_name)
         return val, field_name, val is None
 

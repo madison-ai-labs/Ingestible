@@ -18,7 +18,9 @@ def _make_structure(content: str, doc_id: str = "test") -> DocumentStructure:
 
 def test_recursive_prefers_paragraph_separator(tmp_path):
     """Double-newlines are preferred over single newlines."""
-    content = "Paragraph one about dogs.\n\nParagraph two about cats.\n\nParagraph three about fish."
+    content = (
+        "Paragraph one about dogs.\n\nParagraph two about cats.\n\nParagraph three about fish."
+    )
     settings = Settings(
         data_dir=tmp_path,
         chunking_strategy="recursive",
