@@ -46,6 +46,9 @@ class ParsedDocument(BaseModel):
     pages: list[PageContent] = Field(default_factory=list)
     metadata: DocumentMetadata | None = None
 
+    # Content block classifications (populated by Stage 1c)
+    block_classifications: dict[str, list[tuple[str, str]]] = Field(default_factory=dict)
+
     @property
     def full_markdown(self) -> str:
         return "\n\n".join(p.markdown for p in self.pages if p.markdown)

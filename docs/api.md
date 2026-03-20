@@ -4,6 +4,12 @@ All endpoints are served by `ingest serve` (default: `http://localhost:8081`).
 
 Authentication: when `INGEST_API_KEYS` is set, all requests require `Authorization: Bearer <key>`.
 
+Rate limiting: all endpoints are rate-limited. Defaults: ingestion 10/min, search 60/min, others 120/min. Returns `429 Too Many Requests` when exceeded. Configure via `INGEST_RATE_LIMIT_*` env vars.
+
+Upload limits: file uploads are capped at 500 MB by default (`INGEST_MAX_UPLOAD_BYTES`). Returns `413` when exceeded.
+
+Document IDs: all `{doc_id}` path parameters are validated to prevent path traversal. Only lowercase alphanumeric characters, hyphens, and underscores are allowed.
+
 ## Ingestion
 
 | Method | Path | Description |
@@ -12,6 +18,7 @@ Authentication: when `INGEST_API_KEYS` is set, all requests require `Authorizati
 | `POST` | `/ingest/url` | Ingest from a URL |
 | `POST` | `/ingest/batch` | Ingest multiple files |
 | `POST` | `/ingest/stream` | Ingest with SSE progress streaming |
+| `POST` | `/ingest/async` | Submit file for background ingestion (returns 202) |
 
 ### POST /ingest
 
@@ -40,6 +47,28 @@ Ingest with real-time progress via Server-Sent Events.
 
 - **Body:** `multipart/form-data` with `file`, `skip_enrichment` (bool)
 - **Returns:** `text/event-stream` with JSON progress events, ending with `{ "status": "complete", "doc_id": "..." }`
+
+## Background Jobs
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/ingest/async` | Submit file for background ingestion (returns 202) |
+| `GET` | `/jobs/{job_id}` | Get job status and progress |
+| `GET` | `/jobs` | List all ingestion jobs |
+
+### POST /ingest/async
+
+Submit a document for background ingestion. Returns immediately with a job ID.
+
+- **Body:** `multipart/form-data` with `file` (required), `skip_enrichment` (bool, default: false)
+- **Returns:** `202 Accepted` with `{ "job_id": "...", "status": "pending" }`
+
+### GET /jobs/{job_id}
+
+Poll for job status.
+
+- **Returns:** `{ "job_id", "status", "doc_id", "error", "progress_stage", "progress_step", "progress_total", "created_at", "started_at", "finished_at" }`
+- Status: `pending`, `running`, `complete`, `failed`
 
 ## Documents
 
@@ -91,8 +120,29 @@ Returns extracted entity-relationship triples (requires KG extraction to be enab
 
 Receives `entry.updated` events from CognitiveVault. Requires `INGEST_WEBHOOK_SECRET` for HMAC-SHA256 signature verification. See [CognitiveVault Integration](cv-integration.md) for details.
 
-## Health
+## Health & Observability
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/health` | Health check |
+| `GET` | `/health` | Liveness check (fast, no deps) |
+| `GET` | `/health/ready` | Readiness check (verifies all dependencies) |
+| `GET` | `/metrics` | Prometheus metrics |
+
+### GET /health
+
+Fast liveness probe. Returns `{ "status": "ok", "documents_count": N }`.
+
+### GET /health/ready
+
+Deep readiness check. Verifies data directory is writable, disk space above threshold, embedding model loads, and LLM API is configured.
+
+- **Returns:** `{ "status": "ready"|"degraded", "checks": { ... } }`
+- Each check returns `{ "status": "ok"|"error"|"warning", ... }`
+
+### GET /metrics
+
+Prometheus-format metrics. Key metrics:
+- `ingestible_ingest_duration_seconds` -- ingestion latency by stage
+- `ingestible_active_ingestions` -- currently running ingestion jobs
+- `ingestible_llm_calls_total` -- LLM API calls by provider and status
+- `ingestible_search_duration_seconds` -- search query latency

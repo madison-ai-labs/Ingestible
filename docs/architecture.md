@@ -160,6 +160,8 @@ When re-ingesting with `--force`, `enrich_chunks()` accepts an optional `previou
 - Async with `Semaphore(N)` for concurrency control (`INGEST_LLM_CONCURRENCY`)
 - Swappable via `INGEST_LLM_PROVIDER` env var
 
+**Resilience:** All LLM calls use exponential backoff retry (configurable `INGEST_LLM_MAX_RETRIES`, default 3) on transient errors (429, 500, 502, 503). Per-call timeout is configurable via `INGEST_LLM_TIMEOUT` (default 120s).
+
 The pipeline works without enrichment (`--skip-enrichment`). Validate the full loop before spending API credits.
 
 ### Stage 5 — Embedding & Indexing
@@ -169,7 +171,7 @@ The pipeline works without enrichment (`--skip-enrichment`). Validate the full l
 Builds three search indexes:
 
 **Vector index (ChromaDB):**
-- Model: E5-large-v2 via sentence-transformers, running on MPS (Apple Silicon) or CPU
+- Model: E5-large-v2 via sentence-transformers. Device auto-detected: CUDA > MPS > CPU (configurable via `INGEST_EMBEDDING_DEVICE`)
 - Requires `"passage: "` prefix for documents, `"query: "` prefix for queries
 - `normalize_embeddings=True` for cosine similarity
 - Multiple embeddings per chunk (content, summary, hypothetical questions)
@@ -223,6 +225,8 @@ src/ingestible/
   profiles.py            # Extraction profiles (paper, article, documentation, general)
   web.py                 # Web UI (FastAPI + Jinja2 + htmx)
   api.py                 # REST API (FastAPI)
+  logging.py             # Structured logging (structlog)
+  metrics.py             # Prometheus metrics definitions
   models/
     document.py          # ParsedDocument, FigureRef, StructureNode, DocumentStructure
     chunks.py            # L0/L1/L2/L3 chunk models, ChunkSet
@@ -247,6 +251,9 @@ src/ingestible/
     progress.py          # Progress callbacks
     re_enrich.py         # Re-enrichment without re-parsing
     watcher.py           # Directory file watcher (watchdog)
+    task_queue.py        # Background ingestion job queue
+    locking.py           # Document-level file locking (portalocker)
+    cleanup.py           # Stale checkpoint/temp file cleanup
   search/
     hybrid.py            # RRF-based merge, optional cross-encoder reranking
     vector_store.py      # ChromaDB wrapper
@@ -264,5 +271,31 @@ src/ingestible/
     tokens.py            # tiktoken token counting
     text.py              # paragraph/sentence splitting
     language.py          # Language detection
+    retry.py             # LLM retry with exponential backoff
   templates/             # Jinja2 templates for web UI
 ```
+
+## Production Infrastructure
+
+**Concurrency & locking:**
+- Background ingestion via `TaskQueue` (ThreadPoolExecutor) — `POST /ingest/async` returns 202 with a job ID
+- Document-level file locking (portalocker) prevents concurrent write corruption during ingestion, re-enrichment, and webhook updates
+- Batch processing caps per-worker LLM concurrency to stay under `INGEST_MAX_TOTAL_LLM_CONCURRENCY`
+
+**Observability:**
+- Structured JSON logging via structlog (console output for CLI)
+- Request ID tracing — `X-Request-ID` header generated/propagated through all log entries
+- Prometheus metrics at `/metrics` — ingestion duration, LLM calls, active jobs, search latency
+- Readiness probe at `/health/ready` — checks data dir, disk space, embedding model, LLM config
+
+**Security:**
+- Path traversal protection on all `{doc_id}` parameters
+- File upload size limits (HTTP 413)
+- Rate limiting via slowapi (per-IP, configurable tiers)
+- CORS origins configurable via `INGEST_CORS_ORIGINS`
+
+**Deployment:**
+- Dockerfile (multi-stage, non-root, ffmpeg included) + docker-compose
+- Gunicorn with UvicornWorker, preload, max_requests leak protection
+- Graceful shutdown drains active ingestion jobs
+- Stale checkpoint/temp cleanup on startup

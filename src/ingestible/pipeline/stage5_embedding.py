@@ -140,6 +140,7 @@ def build_indexes(
             "chunk_id": chunk.chunk_id,
             "chapter": chunk.position.chapter,
             "section": chunk.position.section,
+            "version_status": "current",
         }
 
         # 1) Content embedding (with context_prefix if present)
@@ -164,7 +165,7 @@ def build_indexes(
 
     # 4) L0 digest embeddings (executive_summary + key_findings)
     l0 = chunks.l0
-    l0_meta = {"chunk_id": l0.chunk_id, "chapter": "", "section": ""}
+    l0_meta = {"chunk_id": l0.chunk_id, "chapter": "", "section": "", "version_status": "current"}
     if l0.executive_summary:
         embed_ids.append(f"{l0.chunk_id}::exec_summary")
         embed_texts.append(l0.executive_summary)
@@ -189,6 +190,60 @@ def build_indexes(
         documents=embed_texts,
     )
     logger.info("Vector store: %d embeddings indexed", vector_store.count)
+
+    # --- Version-aware search: add superseded chunks from previous version ---
+    if previous_chunks:
+        new_hashes = {c.content_hash for c in l3 if c.content_hash}
+        superseded = [
+            c for c in previous_chunks.l3_chunks
+            if c.content_hash and c.content_hash not in new_hashes
+        ]
+        if superseded:
+            logger.info("Adding %d superseded chunks to vector index", len(superseded))
+            sup_ids: list[str] = []
+            sup_texts: list[str] = []
+            sup_meta: list[dict] = []
+            for chunk in superseded:
+                meta = {
+                    "chunk_id": chunk.chunk_id,
+                    "chapter": chunk.position.chapter,
+                    "section": chunk.position.section,
+                    "version_status": "superseded",
+                    "embedding_type": "content",
+                }
+                sup_ids.append(f"{chunk.chunk_id}::content")
+                sup_texts.append(chunk.content)
+                sup_meta.append(meta)
+
+            sup_embeddings = embedder.embed_passages(sup_texts)
+            vector_store.add_embeddings(
+                ids=sup_ids,
+                embeddings=sup_embeddings,
+                metadatas=sup_meta,
+                documents=sup_texts,
+            )
+            logger.info("Vector store: added %d superseded embeddings", len(sup_ids))
+
+            # Persist superseded chunk data for search result rendering
+            import json
+
+            sup_data = [
+                {
+                    "chunk_id": c.chunk_id,
+                    "content": c.content,
+                    "summary": c.summary,
+                    "chapter": c.position.chapter,
+                    "section": c.position.section,
+                    "page_start": c.page_start,
+                    "page_end": c.page_end,
+                    "version_status": "superseded",
+                }
+                for c in superseded
+            ]
+            sup_path = doc_dir / "superseded.json"
+            sup_path.write_text(
+                json.dumps(sup_data, indent=2, default=str), encoding="utf-8"
+            )
 
     # --- BM25 ---
     bm25_store = BM25Store(language=language)

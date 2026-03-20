@@ -210,6 +210,7 @@ CHUNKSET_SCHEMA_SNAPSHOT = {
         "cross_references": "list[string]",
         "cited_references": "list[string]",
         "content_hash": "string",
+        "content_tier": "enum[T0,T1,T2,T3]",
         "kg_triples": {
             "subject": "string",
             "subject_type": "string",
@@ -219,6 +220,7 @@ CHUNKSET_SCHEMA_SNAPSHOT = {
             "confidence": "number",
             "source_chunk_id": "string",
         },
+        "version_status": "enum[current,superseded]",
     },
     "citations": {
         "citation_id": "string",

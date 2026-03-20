@@ -13,6 +13,7 @@ class SearchResult(BaseModel):
     page_start: int | None = None
     page_end: int | None = None
     match_sources: list[str] = Field(default_factory=list)  # "vector", "bm25", "concept"
+    version_status: str = "current"  # "current" or "superseded"
     doc_id: str = ""
     doc_title: str = ""
 

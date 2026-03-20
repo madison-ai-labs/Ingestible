@@ -178,6 +178,9 @@ def _split_into_passages(
     max_tokens = settings.max_chunk_tokens
     min_tokens = settings.min_chunk_tokens
     overlap_frac = settings.chunk_overlap_fraction
+    classify = settings.content_classification
+    if classify:
+        from ingestible.pipeline.stage1c_classify import classify_block
 
     chunks: list[L3Chunk] = []
     current_paras: list[str] = []
@@ -186,10 +189,17 @@ def _split_into_passages(
 
     for para in paragraphs:
         para_tokens = count_tokens(para)
-        atomic = is_table_block(para) or is_code_block(para)
 
-        # If this is an atomic block that exceeds max, emit it standalone
-        if atomic and para_tokens > max_tokens:
+        if classify:
+            tier = classify_block(para)
+        else:
+            tier = "T3"
+
+        # T0/T1 blocks always become standalone when classification is enabled
+        atomic_by_tier = classify and tier in ("T0", "T1")
+        atomic_by_format = is_table_block(para) or is_code_block(para)
+
+        if atomic_by_tier:
             # Flush current buffer first
             if current_paras:
                 chunks.append(
@@ -198,7 +208,22 @@ def _split_into_passages(
                 current_paras = []
                 current_tokens = 0
             chunks.append(
-                _make_l3([para], doc_id, chapter_id, section_id, len(chunks))
+                _make_l3([para], doc_id, chapter_id, section_id, len(chunks), tier=tier)
+            )
+            overlap_para = None
+            continue
+
+        # If this is an atomic block that exceeds max, emit it standalone
+        if atomic_by_format and para_tokens > max_tokens:
+            # Flush current buffer first
+            if current_paras:
+                chunks.append(
+                    _make_l3(current_paras, doc_id, chapter_id, section_id, len(chunks), tier="T3")
+                )
+                current_paras = []
+                current_tokens = 0
+            chunks.append(
+                _make_l3([para], doc_id, chapter_id, section_id, len(chunks), tier=tier)
             )
             overlap_para = None
             continue
@@ -206,7 +231,7 @@ def _split_into_passages(
         # Would adding this paragraph exceed the limit?
         if current_tokens + para_tokens > max_tokens and current_paras:
             chunks.append(
-                _make_l3(current_paras, doc_id, chapter_id, section_id, len(chunks))
+                _make_l3(current_paras, doc_id, chapter_id, section_id, len(chunks), tier="T3")
             )
             # Start new chunk with overlap
             overlap_para = current_paras[-1] if current_paras else None
@@ -252,6 +277,7 @@ def _make_l3(
     chapter_id: str,
     section_id: str,
     index: int,
+    tier: str = "T3",
 ) -> L3Chunk:
     content = "\n\n".join(paras)
     h = hashlib.md5(content.encode()).hexdigest()[:8]
@@ -262,6 +288,7 @@ def _make_l3(
         content_hash=hashlib.md5(content.encode()).hexdigest(),
         parent_section_id=section_id,
         position=ChunkPosition(chapter=chapter_id, section=section_id, index=index),
+        content_tier=tier,
     )
 
 

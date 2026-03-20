@@ -24,6 +24,8 @@ docker compose up -d
 
 The API and web UI are available at `http://localhost:8081`. Data is persisted via a Docker volume.
 
+The API runs behind gunicorn with multiple workers for production use. For development, use `ingest serve` directly.
+
 ## Configuration
 
 Copy `.env.example` to `.env` and fill in:
@@ -90,6 +92,23 @@ INGEST_CLEANING_ENABLED=true
 INGEST_DEDUP_ENABLED=true
 INGEST_CHECKPOINT_ENABLED=true
 INGEST_API_KEYS=key1,key2                       # API auth (empty = no auth)
+```
+
+**Production / deployment:**
+```
+INGEST_CORS_ORIGINS=*                          # comma-separated allowed origins
+INGEST_RATE_LIMIT_INGEST=10/minute             # rate limit for ingestion endpoints
+INGEST_RATE_LIMIT_SEARCH=60/minute             # rate limit for search endpoints
+INGEST_RATE_LIMIT_DEFAULT=120/minute           # rate limit for other endpoints
+INGEST_MAX_UPLOAD_BYTES=500000000              # max file upload size (500 MB)
+INGEST_MAX_CONCURRENT_INGESTIONS=2             # background ingestion workers
+INGEST_PARSE_TIMEOUT=300                       # seconds before parsing is aborted
+INGEST_LLM_TIMEOUT=120                        # seconds per LLM API call
+INGEST_LLM_MAX_RETRIES=3                      # retries on transient LLM errors
+INGEST_EMBEDDING_DEVICE=auto                  # auto | cuda | mps | cpu
+INGEST_LOG_JSON=true                          # JSON structured logging
+INGEST_LOG_LEVEL=INFO                         # DEBUG, INFO, WARNING, ERROR
+INGEST_MIN_DISK_SPACE_MB=500                  # readiness check threshold
 ```
 
 No API keys are needed if you use `--skip-enrichment`. The embedding model (E5-large-v2) runs locally.
@@ -232,6 +251,14 @@ ingest versions <doc_id>
 ```
 
 Shows version history when a document has been re-ingested.
+
+### Clean up stale files
+
+```bash
+ingest cleanup --max-age 24
+```
+
+Removes stale checkpoint directories, lock files, and temp uploads older than the specified hours. Also runs automatically on API startup.
 
 ### Show configuration
 

@@ -28,6 +28,9 @@ class L3Chunk(BaseModel):
     parent_section_id: str = ""
     position_in_section: Literal["first", "middle", "last", "only"] = "only"
 
+    # Content tier (populated by Stage 1c when content classification is enabled)
+    content_tier: Literal["T0", "T1", "T2", "T3"] = "T3"
+
     # Timestamps (audio/video sources only, in seconds)
     timestamp_start: float | None = Field(default=None, ge=0.0)
     timestamp_end: float | None = Field(default=None, ge=0.0)
@@ -47,6 +50,9 @@ class L3Chunk(BaseModel):
 
     # Knowledge graph triples (populated by Stage 4 when enabled)
     kg_triples: list[KGTriple] = Field(default_factory=list)
+
+    # Version tracking (set automatically during re-ingestion)
+    version_status: Literal["current", "superseded"] = "current"
 
 
 class L2Chunk(BaseModel):

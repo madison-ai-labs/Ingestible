@@ -73,6 +73,7 @@ Passages found by multiple indexes rank higher. No score normalization needed.
 - **Export** — jsonl, parquet, llamaindex, langchain formats
 - **CLI + REST API + Web UI** — ingest and search from anywhere
 - **Docker-ready** — one-command deployment with persistent storage
+- **Production-grade** — rate limiting, structured logging, Prometheus metrics, background ingestion, file locking, graceful shutdown
 - **Zero cloud dependencies** — embeddings run locally (CPU/Apple Silicon MPS). LLM enrichment is optional.
 
 ## Quickstart
@@ -111,6 +112,8 @@ docker compose up -d
 ```
 
 The API and web UI are available at `http://localhost:8081`. Document data is persisted via a Docker volume.
+
+The container runs behind gunicorn with multiple workers. Monitor via `/health/ready` and `/metrics`.
 
 ### With LLM Enrichment
 
@@ -173,6 +176,7 @@ ingest versions <doc_id>       # Show document version history
 ingest config                  # Show effective configuration
 ingest serve                   # Start web UI + API server
 ingest watch <dir>             # Watch directory for changes, auto-ingest
+ingest cleanup                 # Remove stale checkpoints and temp files
 ingest export-cv [doc_id]      # Export to CognitiveVault
 ```
 
@@ -227,6 +231,13 @@ INGEST_CONTEXTUAL_CHUNKING=false
 
 # API auth (empty = no auth)
 INGEST_API_KEYS=key1,key2
+
+# Production
+INGEST_RATE_LIMIT_INGEST=10/minute    # rate limiting per endpoint tier
+INGEST_MAX_UPLOAD_BYTES=500000000     # 500 MB upload cap
+INGEST_LLM_TIMEOUT=120               # per-call timeout (seconds)
+INGEST_EMBEDDING_DEVICE=auto          # auto | cuda | mps | cpu
+INGEST_LOG_JSON=true                  # structured JSON logging
 ```
 
 See the [Usage Guide](docs/usage.md) for full configuration options.

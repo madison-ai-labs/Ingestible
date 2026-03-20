@@ -135,6 +135,8 @@ def _count_steps(settings: Settings, skip_enrichment: bool) -> int:
     steps = 6
     if settings.cleaning_enabled:
         steps += 1
+    if settings.content_classification:
+        steps += 1
     if not skip_enrichment:
         steps += 1  # enrichment
         if settings.contextual_chunking:
@@ -272,6 +274,12 @@ def ingest(
                     parsed = clean_document(parsed)
                     if use_checkpoint:
                         save_checkpoint(doc_dir, "cleaned", parsed)
+
+            # Stage 1c: Content classification (if enabled)
+            if settings.content_classification:
+                _log("Classifying content blocks...")
+                from ingestible.pipeline.stage1c_classify import classify_document
+                parsed.block_classifications = classify_document(parsed)
 
             # --- Profile resolution ---
             if settings.extraction_profile == "auto":

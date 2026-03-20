@@ -156,6 +156,12 @@ async def enrich_chunks(
     l3_to_enrich: list[tuple[int, L3Chunk]] = []
 
     for i, chunk in enumerate(chunks.l3_chunks):
+        # T0/T1 chunks skip full enrichment — only extract keywords heuristically
+        if chunk.content_tier in ("T0", "T1"):
+            chunk.keywords = _extract_keywords_heuristic(chunk.content)
+            skipped += 1
+            continue
+
         prev = prev_by_hash.get(chunk.content_hash) if chunk.content_hash else None
         if prev is not None:
             # Copy enrichment fields from previous version
@@ -314,6 +320,20 @@ def _copy_upper_enrichment(chunks: ChunkSet, previous: ChunkSet) -> None:
     chunks.l0.limitations = previous.l0.limitations
     chunks.l0.document_type = previous.l0.document_type
     chunks.l0.target_audience = previous.l0.target_audience
+
+
+def _extract_keywords_heuristic(text: str) -> list[str]:
+    """Extract keywords from code/structural content without LLM calls."""
+    import re
+    words = set()
+    # CamelCase identifiers
+    words.update(re.findall(r'\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b', text))
+    # snake_case identifiers
+    words.update(re.findall(r'\b[a-z]+(?:_[a-z]+)+\b', text))
+    # Capitalized terms (class names, proper nouns)
+    words.update(w for w in text.split() if len(w) > 3 and w.isalpha() and w[0].isupper())
+    # Deduplicate and limit
+    return sorted(words)[:20]
 
 
 async def _enrich_l3(

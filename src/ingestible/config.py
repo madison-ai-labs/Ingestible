@@ -121,6 +121,9 @@ class Settings(BaseSettings):
     # Knowledge graph
     extract_knowledge_graph: bool = False
 
+    # Content classification
+    content_classification: bool = False  # classify content blocks into tiers (T0-T3)
+
     # Dedup
     dedup_enabled: bool = True
 

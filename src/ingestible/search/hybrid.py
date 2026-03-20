@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 
 from ingestible.config import Settings
-from ingestible.models.chunks import ChunkSet, L3Chunk
+from ingestible.models.chunks import ChunkPosition, ChunkSet, L3Chunk
 from ingestible.models.search import SearchResponse, SearchResult
 from ingestible.pipeline.stage5_embedding import Embedder
 from ingestible.search.bm25_store import BM25Store
@@ -72,10 +72,13 @@ class HybridSearcher:
         vector_weight = self._settings.vector_weight
         bm25_weight = self._settings.bm25_weight
 
+        superseded_cids: set[str] = set()
         for rank, (cid, _dist, _meta) in enumerate(vector_results):
             rrf = vector_weight / (RRF_K + rank + 1)
             scores[cid] = scores.get(cid, 0.0) + rrf
             sources.setdefault(cid, []).append("vector")
+            if _meta.get("version_status") == "superseded":
+                superseded_cids.add(cid)
 
         for rank, (cid, _score) in enumerate(bm25_results):
             rrf = bm25_weight / (RRF_K + rank + 1)
@@ -87,6 +90,11 @@ class HybridSearcher:
         for cid in concept_chunk_ids:
             scores[cid] = scores.get(cid, 0.0) + concept_boost
             sources.setdefault(cid, []).append("concept")
+
+        # Version-aware weighting: superseded chunks get 0.3x score
+        for cid in superseded_cids:
+            if cid in scores:
+                scores[cid] *= 0.3
 
         # Sort by score
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
@@ -140,6 +148,7 @@ class HybridSearcher:
                     page_start=chunk.page_start,
                     page_end=chunk.page_end,
                     match_sources=sources.get(cid, []),
+                    version_status="superseded" if cid in superseded_cids else "current",
                 )
             )
 
@@ -162,7 +171,7 @@ def load_searcher(
     bm25_store = BM25Store.load(doc_dir / "bm25_index.pkl")
     concept_index = ConceptIndex.load(doc_dir / "concept_index.json")
 
-    return HybridSearcher(
+    searcher = HybridSearcher(
         vector_store=vector_store,
         bm25_store=bm25_store,
         concept_index=concept_index,
@@ -170,3 +179,30 @@ def load_searcher(
         embedder=embedder,
         settings=settings,
     )
+
+    # Load superseded chunks for version-aware search
+    sup_path = doc_dir / "superseded.json"
+    if sup_path.exists():
+        import json
+
+        try:
+            sup_data = json.loads(sup_path.read_text(encoding="utf-8"))
+            for item in sup_data:
+                cid = item["chunk_id"]
+                if cid not in searcher._chunk_map:
+                    searcher._chunk_map[cid] = L3Chunk(
+                        chunk_id=cid,
+                        content=item.get("content", ""),
+                        summary=item.get("summary", ""),
+                        position=ChunkPosition(
+                            chapter=item.get("chapter", ""),
+                            section=item.get("section", ""),
+                        ),
+                        page_start=item.get("page_start"),
+                        page_end=item.get("page_end"),
+                        version_status="superseded",
+                    )
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    return searcher
