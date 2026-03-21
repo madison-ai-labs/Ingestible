@@ -49,7 +49,7 @@ limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(
     title="Ingestible API",
     description="PDF ingestion pipeline with hierarchical retrieval",
-    version="0.16.0",
+    version="1.0.0",
 )
 
 app.state.limiter = limiter
