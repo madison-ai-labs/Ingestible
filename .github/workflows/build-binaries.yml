@@ -26,8 +26,6 @@ jobs:
         include:
           - os: ubuntu-latest
             artifact: ingest-linux-x86_64
-          - os: macos-13
-            artifact: ingest-macos-x86_64
           - os: macos-latest
             artifact: ingest-macos-arm64
           - os: windows-latest

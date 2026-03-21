@@ -75,7 +75,6 @@ jobs:
           mkdir -p release/
           cp artifacts/dist/* release/
           cp artifacts/ingest-linux-x86_64/* release/
-          cp artifacts/ingest-macos-x86_64/* release/
           cp artifacts/ingest-macos-arm64/* release/
           cp artifacts/ingest-windows-x86_64/* release/
 
@@ -127,8 +126,7 @@ jobs:
 
           cat >> /tmp/release-notes.md << EOF
           | Linux x86_64 | [\`ingest-linux-x86_64\`](https://github.com/${repo}/releases/download/${tag}/ingest-linux-x86_64) |
-          | macOS x86_64 (Intel) | [\`ingest-macos-x86_64\`](https://github.com/${repo}/releases/download/${tag}/ingest-macos-x86_64) |
-          | macOS arm64 (Apple Silicon) | [\`ingest-macos-arm64\`](https://github.com/${repo}/releases/download/${tag}/ingest-macos-arm64) |
+          | macOS (Apple Silicon) | [\`ingest-macos-arm64\`](https://github.com/${repo}/releases/download/${tag}/ingest-macos-arm64) |
           | Windows x86_64 | [\`ingest-windows-x86_64.exe\`](https://github.com/${repo}/releases/download/${tag}/ingest-windows-x86_64.exe) |
           EOF
 
