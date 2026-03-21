@@ -387,6 +387,7 @@ async def ingest_document(
     file: UploadFile = File(...),
     skip_enrichment: bool = Form(False),
     profile: str = Form("auto"),
+    access_tags: str = Form(""),
 ):
     """
     Ingest a PDF into the knowledge store.
@@ -409,11 +410,16 @@ async def ingest_document(
 
             settings = _gs(extraction_profile=profile)
 
+        parsed_tags = (
+            [t.strip() for t in access_tags.split(",") if t.strip()] if access_tags else None
+        )
+
         doc_dir = ingest(
             tmp_path,
             settings,
             skip_enrichment=skip_enrichment,
             verbose=False,
+            access_tags=parsed_tags,
         )
 
         meta = load_document_meta(doc_dir)
@@ -691,7 +697,21 @@ async def search_document(doc_id: str, body: SearchRequest, request: Request):
     embedder = get_cached_embedder()
     searcher = load_searcher(doc_dir, chunks, embedder, settings)
 
-    response = searcher.search(body.query, n_results=body.n_results)
+    # Access control
+    user_tags = None
+    if settings.access_control_enabled:
+        tags_header = request.headers.get("X-Access-Tags", "")
+        user_tags = (
+            [t.strip() for t in tags_header.split(",") if t.strip()] if tags_header else None
+        )
+
+    # Audit: identify user from bearer token
+    user = ""
+    if settings.audit_enabled:
+        auth_header = request.headers.get("Authorization", "")
+        user = auth_header[7:15] if auth_header.startswith("Bearer ") else "anonymous"
+
+    response = searcher.search(body.query, n_results=body.n_results, user_tags=user_tags, user=user)
     return response
 
 
@@ -787,8 +807,25 @@ async def corpus_search(body: CorpusSearchRequest, request: Request):
     from ingestible.search.corpus import CorpusSearcher
 
     settings = get_cached_settings()
+
+    # Access control
+    user_tags = None
+    if settings.access_control_enabled:
+        tags_header = request.headers.get("X-Access-Tags", "")
+        user_tags = (
+            [t.strip() for t in tags_header.split(",") if t.strip()] if tags_header else None
+        )
+
+    # Audit: identify user from bearer token
+    user = ""
+    if settings.audit_enabled:
+        auth_header = request.headers.get("Authorization", "")
+        user = auth_header[7:15] if auth_header.startswith("Bearer ") else "anonymous"
+
     searcher = CorpusSearcher(settings, embedder=get_cached_embedder())
-    return searcher.search(body.query, n_results=body.n_results, doc_ids=body.doc_ids)
+    return searcher.search(
+        body.query, n_results=body.n_results, doc_ids=body.doc_ids, user_tags=user_tags, user=user
+    )
 
 
 # ---------------------------------------------------------------------------

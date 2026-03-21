@@ -90,6 +90,8 @@ class CorpusSearcher:
         query: str,
         n_results: int = 10,
         doc_ids: list[str] | None = None,
+        user_tags: list[str] | None = None,
+        user: str = "",
     ) -> CorpusSearchResponse:
         """Search across all (or selected) documents, merging via RRF."""
         doc_dirs = self._discover_doc_dirs(doc_ids)
@@ -106,7 +108,9 @@ class CorpusSearcher:
                 meta = load_document_meta(doc_dir)
                 doc_title = meta.get("title", doc_id)
                 searcher = self._get_searcher(doc_dir)
-                response = searcher.search(query, n_results=n_results)
+                response = searcher.search(
+                    query, n_results=n_results, user_tags=user_tags, user=user
+                )
                 per_doc_results.append((doc_id, doc_title, response.results))
             except Exception as e:
                 logger.warning("Search failed for %s: %s", doc_id, e)

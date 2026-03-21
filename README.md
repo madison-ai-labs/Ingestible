@@ -39,7 +39,7 @@ graph LR
 | **Structure** | Builds hierarchy tree from TOC tables, heading patterns, or page range heuristics. |
 | **Chunk** | Splits into 4 levels (L0-L3). Tables and code blocks stay atomic. ~10% overlap. Small trailing chunks get merged. |
 | **Enrich** | Bottom-up LLM pass (L3→L0) generates summaries, concepts, hypothetical questions, entities. Skippable. |
-| **Embed** | E5-large-v2 vectors (ChromaDB, MPS-accelerated) + BM25 sparse index + concept→chunk mapping. |
+| **Embed** | E5-large-v2 vectors (ChromaDB, auto-detected CUDA/MPS/CPU) + BM25 sparse index + concept→chunk mapping. |
 | **Store** | JSON file hierarchy under `data/documents/{doc_id}/`. |
 
 **The 4-level chunk hierarchy:**
@@ -150,7 +150,7 @@ ingest ingest /path/to/document.pdf -v
 | reStructuredText | `.rst` | |
 | AsciiDoc | `.adoc` | |
 | Plain text | `.txt` | |
-| Audio | `.mp3`, `.wav`, `.m4a`, `.flac`, `.ogg`, `.aac`, `.opus` | ASR via faster-whisper, timestamped |
+| Audio | `.mp3`, `.wav`, `.m4a`, `.flac`, `.ogg`, `.wma`, `.aac`, `.opus` | ASR via faster-whisper, timestamped |
 | Video | `.mp4`, `.mkv`, `.avi`, `.mov`, `.webm`, `.wmv`, `.flv` | Audio extraction + ASR + keyframes |
 | Images | `.png`, `.jpg`, `.jpeg`, `.tiff`, `.bmp`, `.webp` | OCR + layout via Docling VLM |
 | Email | `.eml`, `.msg` | Headers, body, attachments |
@@ -196,7 +196,7 @@ ingest mcp                     # Start MCP server for AI agents
 ```bash
 ingest ingest /path/to/docs/ \
   --profile auto \              # auto | paper | article | documentation | general
-  --chunking paragraph \        # paragraph | semantic | recursive
+  --chunking paragraph \        # paragraph | semantic | recursive | docling
   --parallel 4 \                # concurrent file processing
   --force \                     # re-ingest even if unchanged
   --skip-enrichment \           # skip LLM enrichment

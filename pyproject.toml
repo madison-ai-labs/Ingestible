@@ -72,6 +72,12 @@ msg = [
 mcp = [
     "mcp[cli]>=1.0",
 ]
+cohere = [
+    "cohere>=5.0",
+]
+voyage = [
+    "voyageai>=0.3",
+]
 cloud = [
     "boto3>=1.28",
     "google-cloud-storage>=2.0",

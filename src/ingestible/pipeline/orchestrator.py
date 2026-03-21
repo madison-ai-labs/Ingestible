@@ -175,6 +175,7 @@ def ingest(
     force: bool = False,
     resume: bool = True,
     progress_callback=None,
+    access_tags: list[str] | None = None,
 ) -> Path:
     """Run the full ingestion pipeline on a document. Returns the document directory.
 
@@ -436,6 +437,7 @@ def ingest(
                 embedder,
                 language=parsed.detected_language,
                 previous_chunks=previous_chunks,
+                access_tags=access_tags,
             )
 
             # Stage 6: Storage
@@ -446,6 +448,7 @@ def ingest(
                 settings,
                 content_hash=content_hash,
                 extraction_profile=profile.name,
+                access_tags=access_tags,
             )
 
             # Clean up checkpoints on success

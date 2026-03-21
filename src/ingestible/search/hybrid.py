@@ -6,6 +6,7 @@ Merges vector (weight 0.7), BM25 (weight 0.3), and concept index boost.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 from ingestible.config import Settings
@@ -19,6 +20,15 @@ from ingestible.search.vector_store import VectorStore
 logger = logging.getLogger(__name__)
 
 RRF_K = 60  # Standard RRF constant
+
+
+def _check_access(tags_str: str, user_tags: list[str]) -> bool:
+    """Check if any of the user's tags match the document's access tags.
+    Empty access_tags means public (accessible to all)."""
+    if not tags_str:
+        return True  # no tags = public
+    doc_tags = set(tags_str.split(","))
+    return bool(doc_tags & set(user_tags))
 
 
 class HybridSearcher:
@@ -52,12 +62,27 @@ class HybridSearcher:
             except Exception as e:
                 logger.warning("Failed to load reranker: %s", e)
 
-    def search(self, query: str, n_results: int | None = None) -> SearchResponse:
+    def search(
+        self,
+        query: str,
+        n_results: int | None = None,
+        user_tags: list[str] | None = None,
+        user: str = "",
+    ) -> SearchResponse:
+        _start = time.monotonic()
         n = n_results or self._settings.default_search_results
 
         # 1) Vector search
         query_embedding = self._embedder.embed_query(query)
         vector_results = self._vector.query(query_embedding, n_results=n * 3)
+
+        # Access control filtering
+        if user_tags is not None and self._settings.access_control_enabled:
+            vector_results = [
+                (cid, dist, meta)
+                for cid, dist, meta in vector_results
+                if _check_access(meta.get("access_tags", ""), user_tags)
+            ]
 
         # 2) BM25 search
         bm25_results = self._bm25.query(query, n_results=n * 3)
@@ -152,6 +177,22 @@ class HybridSearcher:
                 )
             )
 
+        # Audit trail
+        if self._settings.audit_enabled:
+            from ingestible.audit import log_search
+
+            latency = (time.monotonic() - _start) * 1000
+            log_search(
+                self._settings.data_dir / "audit.jsonl",
+                query=query,
+                doc_id=self._chunks.doc_id,
+                user=user,
+                retrieved_chunk_ids=[r.chunk_id for r in results],
+                scores=[r.score for r in results],
+                n_results=n,
+                latency_ms=latency,
+            )
+
         return SearchResponse(
             doc_id=self._chunks.doc_id,
             query=query,
@@ -168,7 +209,16 @@ def load_searcher(
 ) -> HybridSearcher:
     """Load persisted indexes and create a HybridSearcher."""
     vector_store = VectorStore(doc_dir / "chroma")
-    bm25_store = BM25Store.load(doc_dir / "bm25_index.pkl")
+
+    # Load sparse retrieval backend (SPLADE if available, else BM25)
+    splade_path = doc_dir / "splade_index.json"
+    if splade_path.exists():
+        from ingestible.search.splade_store import SpladeStore
+
+        bm25_store = SpladeStore.load(splade_path)
+    else:
+        bm25_store = BM25Store.load(doc_dir / "bm25_index.pkl")
+
     concept_index = ConceptIndex.load(doc_dir / "concept_index.json")
 
     searcher = HybridSearcher(

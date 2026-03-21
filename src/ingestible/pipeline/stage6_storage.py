@@ -34,6 +34,7 @@ def save_document(
     settings: Settings,
     content_hash: str = "",
     extraction_profile: str = "",
+    access_tags: list[str] | None = None,
 ) -> Path:
     """Persist a processed document to disk as a JSON file hierarchy."""
     doc_dir = settings.documents_dir / chunks.doc_id
@@ -55,6 +56,7 @@ def save_document(
         "source_language": chunks.l0.source_language,
         "version": len(list_versions(doc_dir)) + 1,
         "extraction_profile": extraction_profile,
+        "access_tags": access_tags or [],
         "l0": chunks.l0.model_dump(),
     }
     _write_json(doc_dir / "meta.json", meta)
