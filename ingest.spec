@@ -2,11 +2,12 @@
 """PyInstaller spec for the `ingest` CLI binary."""
 
 import sys
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_submodules, collect_data_files
 
 block_cipher = None
 
-# Heavy packages that need full collection (data files, binaries, submodules)
+# Packages that need their data files and binaries collected.
+# Torch is handled separately to exclude unused distributed/quantization modules.
 collected = {}
 for pkg in [
     "sentence_transformers",
@@ -14,7 +15,6 @@ for pkg in [
     "tokenizers",
     "chromadb",
     "docling",
-    "torch",
     "tqdm",
     "pydantic",
     "tiktoken",
@@ -27,6 +27,27 @@ for pkg in [
     collected.setdefault("datas", []).extend(datas)
     collected.setdefault("binaries", []).extend(binaries)
     collected.setdefault("hiddenimports", []).extend(hiddenimports)
+
+# Torch: collect data files and binaries but NOT all submodules —
+# collect_all("torch") pulls in torch.distributed which adds >2GB and
+# causes the 4GB struct.pack limit on Linux.
+torch_datas, torch_binaries, _ = collect_all("torch")
+collected["datas"].extend(torch_datas)
+collected["binaries"].extend(torch_binaries)
+
+# Only the torch submodules we actually need
+torch_hidden = [
+    "torch",
+    "torch.nn",
+    "torch.nn.functional",
+    "torch.utils",
+    "torch.utils.data",
+    "torch.autograd",
+    "torch.cuda",
+    "torch.backends",
+    "torch.backends.mps",
+    "torch.backends.cudnn",
+]
 
 # Additional hidden imports that PyInstaller misses
 extra_hidden = [
@@ -60,7 +81,7 @@ a = Analysis(
     pathex=["src"],
     binaries=collected.get("binaries", []),
     datas=collected.get("datas", []),
-    hiddenimports=collected.get("hiddenimports", []) + extra_hidden,
+    hiddenimports=collected.get("hiddenimports", []) + extra_hidden + torch_hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -72,6 +93,19 @@ a = Analysis(
         "IPython",
         "notebook",
         "scipy",
+        # Torch submodules we don't need (distributed training, quantization, profiling)
+        "torch.distributed",
+        "torch.ao",
+        "torch.testing",
+        "torch.utils.tensorboard",
+        "torch.utils.bottleneck",
+        "torch.utils.benchmark",
+        "torch.profiler",
+        "torch.onnx",
+        "torch.jit",
+        "torch.fx",
+        "torch.export",
+        "torch.compiler",
     ],
     noarchive=False,
     cipher=block_cipher,
