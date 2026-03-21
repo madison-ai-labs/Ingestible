@@ -36,7 +36,7 @@ cp .env.example .env
 
 **Required for enrichment (Stage 4):**
 ```
-INGEST_LLM_PROVIDER=openai           # or "anthropic"
+INGEST_LLM_PROVIDER=anthropic        # or "openai"
 INGEST_OPENAI_API_KEY=sk-...         # needed if provider=openai
 INGEST_OPENAI_MODEL=gpt-4o-mini
 INGEST_ANTHROPIC_API_KEY=sk-ant-...  # needed if provider=anthropic
@@ -117,6 +117,36 @@ INGEST_LOG_LEVEL=INFO                         # DEBUG, INFO, WARNING, ERROR
 INGEST_MIN_DISK_SPACE_MB=500                  # readiness check threshold
 INGEST_SEARCHER_CACHE_SIZE=50                  # max cached document searchers in memory
 ```
+
+**Embedding providers:**
+```
+INGEST_EMBEDDING_PROVIDER=local                # local | openai | cohere | voyage
+INGEST_OPENAI_EMBEDDING_API_KEY=               # falls back to INGEST_OPENAI_API_KEY
+INGEST_COHERE_API_KEY=                         # for Cohere Embed v3/v4
+INGEST_VOYAGE_API_KEY=                         # for Voyage-3
+```
+
+When using API providers, set `INGEST_EMBEDDING_MODEL` to the provider-specific model name (e.g., `text-embedding-3-large` for OpenAI).
+
+**Access control:**
+```
+INGEST_ACCESS_CONTROL_ENABLED=false            # enable per-document access filtering
+```
+
+Tag documents during ingestion with `--access-tags admin,engineering`. Filter at search time with the `X-Access-Tags: admin` header. Empty tags = public (accessible to all).
+
+**Audit trail:**
+```
+INGEST_AUDIT_ENABLED=false                     # log every search to data/audit.jsonl
+```
+
+**Sparse retrieval:**
+```
+INGEST_SPARSE_RETRIEVAL=bm25                   # bm25 or splade
+INGEST_SPLADE_MODEL=naver/splade-cocondenser-ensembledistil
+```
+
+SPLADE uses learned sparse vectors with term expansion. Requires `pip install transformers torch`.
 
 No API keys are needed if you use `--skip-enrichment`. The embedding model (E5-large-v2) runs locally.
 
@@ -214,6 +244,16 @@ ingest enrich <doc_id>
 Re-runs enrichment (Stage 4) without re-parsing or re-chunking. Useful when you want to update summaries and concepts after changing LLM settings or prompt templates.
 
 **Selective re-enrichment:** When re-ingesting with `--force`, unchanged chunks (same content hash) automatically skip LLM enrichment — their summaries, concepts, and questions are copied from the previous version. When all L3 chunks are unchanged, L2/L1/L0 enrichment is also skipped. This happens automatically; no flags needed.
+
+### View audit trail
+
+```bash
+ingest audit                     # show last 20 entries
+ingest audit -n 50               # show last 50
+ingest audit --query "machine"   # filter by query text
+```
+
+Requires `INGEST_AUDIT_ENABLED=true`. Logs are stored in `data/audit.jsonl`.
 
 ### Export
 

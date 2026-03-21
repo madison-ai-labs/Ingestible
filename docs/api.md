@@ -10,6 +10,8 @@ Upload limits: file uploads are capped at 500 MB by default (`INGEST_MAX_UPLOAD_
 
 Document IDs: all `{doc_id}` path parameters are validated to prevent path traversal. Only lowercase alphanumeric characters, hyphens, and underscores are allowed.
 
+Access control: when `INGEST_ACCESS_CONTROL_ENABLED=true`, search endpoints filter results by the `X-Access-Tags` header (comma-separated tags). Documents tagged during ingestion are only returned to users with matching tags. Untagged documents are public.
+
 ## Ingestion
 
 | Method | Path | Description |
@@ -26,6 +28,8 @@ Upload a file for ingestion.
 
 - **Body:** `multipart/form-data` with `file` (required), `skip_enrichment` (bool, default: false), `profile` (string, default: "auto")
 - **Returns:** `IngestResponse` with `doc_id`, `title`, `total_pages`, `total_chunks`, `l0_tokens`, `enriched`
+
+The `/ingest` endpoint also accepts an `access_tags` form field (comma-separated) to tag the document for access control.
 
 ### POST /ingest/url
 

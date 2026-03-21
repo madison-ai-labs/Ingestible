@@ -1,6 +1,6 @@
 # Ingestible Roadmap — Complete
 
-> **Status: feature-complete as of v0.16.0** — all planned phases delivered.
+> **Status: v1.0.0 released** — all planned phases delivered.
 
 ---
 
@@ -230,6 +230,22 @@
 
 ---
 
+## Phase 16: Embedding Providers, Access Control, Audit & SPLADE (v1.0.0)
+
+| WP | Feature | Status |
+|----|---------|--------|
+| 16.1 | API Embedding Providers | **done** |
+| 16.2 | Document-Level Access Control | **done** |
+| 16.3 | Retrieval Audit Trail | **done** |
+| 16.4 | SPLADE Sparse Retrieval | **done** |
+
+- **16.1** — Embedding provider abstraction: `INGEST_EMBEDDING_PROVIDER=local|openai|cohere|voyage`. API providers (OpenAI, Cohere, Voyage) alongside local sentence-transformers. Lazy model import so API-only users don't need sentence-transformers. Provider-specific API keys via config.
+- **16.2** — Per-document access tags stored in meta.json and ChromaDB metadata. Search filters by `X-Access-Tags` header. Empty tags = public. CLI: `--access-tags tag1,tag2`. Opt-in via `INGEST_ACCESS_CONTROL_ENABLED`.
+- **16.3** — Every search logged to `data/audit.jsonl` with query, user (from bearer token), retrieved chunk IDs, scores, and latency. CLI: `ingest audit`. Opt-in via `INGEST_AUDIT_ENABLED`.
+- **16.4** — SPLADE learned sparse retrieval as alternative to BM25. Term expansion activates vocabulary terms not in the original text. JSON serialization (not pickle). Same RRF fusion, backward compatible. Config: `INGEST_SPARSE_RETRIEVAL=bm25|splade`.
+
+---
+
 ## Dependency Graph
 
 ```
@@ -301,4 +317,10 @@ Phase 14 (after core pipeline):
            │
 Phase 15 (standalone):
   WP 15.1-15.3 Cloud ───────── standalone
+           │
+Phase 16 (v1.0.0):
+  WP 16.1 Embedding providers ── standalone
+  WP 16.2 Access control ─────── standalone
+  WP 16.3 Audit trail ────────── standalone
+  WP 16.4 SPLADE ──────────────── standalone
 ```

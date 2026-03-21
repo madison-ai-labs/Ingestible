@@ -9,7 +9,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Small%20Business-blue" alt="License"></a>
   <img src="https://img.shields.io/badge/python-3.11--3.13-3776AB?logo=python&logoColor=white" alt="Python 3.11-3.13">
-  <img src="https://img.shields.io/badge/stage-beta-orange" alt="Beta">
+  <img src="https://img.shields.io/badge/v1.0.0-stable-green" alt="v1.0.0">
 </p>
 
 ---
@@ -77,6 +77,10 @@ Passages found by multiple indexes rank higher. No score normalization needed.
 - **MCP server** — AI agents (Claude, GPT) can ingest and search directly via Model Context Protocol
 - **Retrieval evaluation** — measure Hit Rate, MRR, Precision@K with synthetic or manual queries
 - **Cloud storage** — ingest from S3, GCS, Azure Blob (`s3://`, `gs://`, `az://`)
+- **Embedding providers** — local (sentence-transformers), OpenAI, Cohere, Voyage. Swap with one config change.
+- **Document access control** — per-document access tags, filtered at retrieval time via `X-Access-Tags` header
+- **Retrieval audit trail** — every search logged to JSONL with query, user, results, latency. CLI: `ingest audit`
+- **SPLADE sparse retrieval** — learned sparse vectors with term expansion as BM25 alternative
 - **Zero cloud dependencies** — embeddings run locally (CPU/Apple Silicon MPS). LLM enrichment is optional.
 
 ## Quickstart
@@ -187,6 +191,7 @@ ingest watch <dir>             # Watch directory for changes, auto-ingest
 ingest cleanup                 # Remove stale checkpoints and temp files
 ingest export-cv [doc_id]      # Export to CognitiveVault
 ingest eval <doc_id>           # Evaluate retrieval quality
+ingest audit                   # View search audit trail
 ingest mcp                     # Start MCP server for AI agents
 ```
 
@@ -248,6 +253,24 @@ INGEST_MAX_UPLOAD_BYTES=500000000     # 500 MB upload cap
 INGEST_LLM_TIMEOUT=120               # per-call timeout (seconds)
 INGEST_EMBEDDING_DEVICE=auto          # auto | cuda | mps | cpu
 INGEST_LOG_JSON=true                  # structured JSON logging
+```
+
+```bash
+# Embedding provider (default: local sentence-transformers)
+INGEST_EMBEDDING_PROVIDER=local       # local | openai | cohere | voyage
+# INGEST_COHERE_API_KEY=...           # for cohere provider
+# INGEST_VOYAGE_API_KEY=...           # for voyage provider
+
+# Access control (off by default)
+INGEST_ACCESS_CONTROL_ENABLED=false
+# Set access tags during ingestion: --access-tags tag1,tag2
+# Filter at search time: X-Access-Tags: tag1,tag2 header
+
+# Audit trail (off by default)
+INGEST_AUDIT_ENABLED=false            # log searches to data/audit.jsonl
+
+# Sparse retrieval backend
+INGEST_SPARSE_RETRIEVAL=bm25          # bm25 | splade
 ```
 
 ```bash

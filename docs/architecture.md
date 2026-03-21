@@ -185,6 +185,8 @@ Builds three search indexes:
 - Configurable dimensions (Matryoshka truncation) and quantization
 - Chunk-level cache: unchanged chunks skip re-embedding
 
+**Embedding providers:** Supports local models (sentence-transformers, default E5-large-v2) and API providers (OpenAI, Cohere, Voyage). Provider selected via `INGEST_EMBEDDING_PROVIDER`. API providers don't require sentence-transformers installed.
+
 **BM25 index (rank-bm25):**
 - Classic term-frequency search over `content + keywords`
 - Language-aware tokenization (detected via `utils/language.py`)
@@ -233,6 +235,7 @@ src/ingestible/
   web.py                 # Web UI (FastAPI + Jinja2 + htmx)
   api.py                 # REST API (FastAPI)
   logging.py             # Structured logging (structlog)
+  audit.py               # Retrieval audit trail (JSONL logging)
   metrics.py             # Prometheus metrics definitions
   models/
     document.py          # ParsedDocument, FigureRef, StructureNode, DocumentStructure
@@ -268,6 +271,7 @@ src/ingestible/
     vector_store.py      # ChromaDB wrapper
     bm25_store.py        # rank-bm25 wrapper (with language-aware tokenization)
     concept_index.py     # concept → chunk_ids index
+    splade_store.py      # SPLADE learned sparse retrieval
     corpus.py            # Cross-document corpus search
   export/
     jsonl.py             # JSONL export
@@ -323,6 +327,12 @@ Shutdown: drains active ingestion jobs.
 - File upload size limits (HTTP 413)
 - Rate limiting via slowapi (per-IP, configurable tiers)
 - CORS origins configurable via `INGEST_CORS_ORIGINS`
+
+**Sparse retrieval:** BM25 (default) or SPLADE (learned sparse vectors with term expansion). SPLADE activates vocabulary terms not in the original text, improving recall on domain-specific queries. Configurable via `INGEST_SPARSE_RETRIEVAL`.
+
+**Access control:** Optional per-document access tags stored in meta.json and ChromaDB metadata. Search filters by user tags at retrieval time (not post-filtering). Enabled via `INGEST_ACCESS_CONTROL_ENABLED`.
+
+**Audit trail:** Optional JSONL logging of every search query with results, user, and latency. Stored at `data/audit.jsonl`. CLI: `ingest audit`.
 
 **Deployment:**
 - Dockerfile (multi-stage, non-root, ffmpeg included) + docker-compose
