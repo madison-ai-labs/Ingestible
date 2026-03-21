@@ -75,10 +75,15 @@ class Settings(BaseSettings):
     llm_retry_base_delay: float = 1.0
 
     # Embedding
+    embedding_provider: Literal["local", "openai", "cohere", "voyage"] = "local"
     embedding_model: str = "intfloat/e5-large-v2"
-    embedding_dimensions: int | None = None  # Matryoshka truncation (None = full)
+    embedding_dimensions: int | None = None
     embedding_quantization: Literal["none", "binary"] = "none"
-    embedding_device: str = "auto"  # "auto", "cuda", "mps", "cpu"
+    embedding_device: str = "auto"
+    # API keys for embedding providers (only needed if embedding_provider != "local")
+    openai_embedding_api_key: str = ""  # falls back to openai_api_key if empty
+    cohere_api_key: str = ""
+    voyage_api_key: str = ""
 
     # CORS
     cors_origins: list[str] = Field(default=["*"])
@@ -131,6 +136,16 @@ class Settings(BaseSettings):
     # Logging
     log_json: bool = True  # JSON structured logging (False for console dev output)
     log_level: str = "INFO"
+
+    # Access control
+    access_control_enabled: bool = False  # enable per-document access filtering
+
+    # Audit
+    audit_enabled: bool = False  # log search queries to data/audit.jsonl
+
+    # Sparse retrieval
+    sparse_retrieval: Literal["bm25", "splade"] = "bm25"  # sparse retrieval backend
+    splade_model: str = "naver/splade-cocondenser-ensembledistil"
 
     # Search
     searcher_cache_size: int = 50  # max cached document searchers in memory

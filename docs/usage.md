@@ -5,7 +5,7 @@
 ```bash
 cd Ingestible
 
-# Create virtual environment (requires Python 3.11-3.12, ChromaDB incompatible with 3.14)
+# Create virtual environment (requires Python 3.11-3.13, ChromaDB incompatible with 3.14)
 python3.12 -m venv .venv
 source .venv/bin/activate
 
@@ -84,6 +84,12 @@ INGEST_EXTRACT_KNOWLEDGE_GRAPH=false            # extract entity-relationship tr
 
 Enabled by default for `paper` and `documentation` profiles regardless of this setting.
 
+**Content classification:**
+```
+INGEST_CONTENT_CLASSIFICATION=false            # classify blocks into tiers (T0-T3)
+INGEST_PROFILE_LLM_FALLBACK=false              # LLM fallback for ambiguous profile detection
+```
+
 **Other:**
 ```
 INGEST_DATA_DIR=data                            # where documents are stored
@@ -109,6 +115,7 @@ INGEST_EMBEDDING_DEVICE=auto                  # auto | cuda | mps | cpu
 INGEST_LOG_JSON=true                          # JSON structured logging
 INGEST_LOG_LEVEL=INFO                         # DEBUG, INFO, WARNING, ERROR
 INGEST_MIN_DISK_SPACE_MB=500                  # readiness check threshold
+INGEST_SEARCHER_CACHE_SIZE=50                  # max cached document searchers in memory
 ```
 
 No API keys are needed if you use `--skip-enrichment`. The embedding model (E5-large-v2) runs locally.
@@ -408,7 +415,7 @@ rm -rf data/documents/<doc_id>
 
 ## Known Limitations
 
-- ChromaDB requires Python 3.11-3.12 (incompatible with 3.14)
+- ChromaDB requires Python 3.11-3.13 (incompatible with 3.14)
 - PDFs with non-standard page dimension metadata may fail Docling parsing (PyMuPDF4LLM fallback handles these)
 - Visual-only hierarchy (same font size for all headings) requires TOC table extraction or page-range heuristics
 - Figure extraction only works with the Docling parser (not PyMuPDF4LLM fallback)

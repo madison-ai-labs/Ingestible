@@ -104,6 +104,10 @@ The first chunk wins — it appeared in both systems. This is the key property o
 
 The `match_sources` field on each result tells you which systems contributed: `["vector", "bm25"]` means both agreed, `["vector"]` means only semantic similarity matched.
 
+### Version-Aware Weighting
+
+When document versioning is active, superseded chunks (from older versions) receive a 0.3x multiplier on their final RRF score. This means current-version results naturally rank higher while older versions remain discoverable if the query specifically matches them.
+
 ## Corpus Search (Cross-Document)
 
 **File:** `search/corpus.py`

@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Small%20Business-blue" alt="License"></a>
-  <img src="https://img.shields.io/badge/python-3.11--3.12-3776AB?logo=python&logoColor=white" alt="Python 3.11-3.12">
+  <img src="https://img.shields.io/badge/python-3.11--3.13-3776AB?logo=python&logoColor=white" alt="Python 3.11-3.13">
   <img src="https://img.shields.io/badge/stage-beta-orange" alt="Beta">
 </p>
 
@@ -39,7 +39,7 @@ graph LR
 | **Structure** | Builds hierarchy tree from TOC tables, heading patterns, or page range heuristics. |
 | **Chunk** | Splits into 4 levels (L0-L3). Tables and code blocks stay atomic. ~10% overlap. Small trailing chunks get merged. |
 | **Enrich** | Bottom-up LLM pass (L3→L0) generates summaries, concepts, hypothetical questions, entities. Skippable. |
-| **Embed** | E5-large-v2 vectors (ChromaDB, MPS-accelerated) + BM25 sparse index + concept→chunk mapping. |
+| **Embed** | E5-large-v2 vectors (ChromaDB, auto-detected CUDA/MPS/CPU) + BM25 sparse index + concept→chunk mapping. |
 | **Store** | JSON file hierarchy under `data/documents/{doc_id}/`. |
 
 **The 4-level chunk hierarchy:**
@@ -85,7 +85,7 @@ Passages found by multiple indexes rank higher. No score normalization needed.
 git clone https://github.com/simplyliz/Ingestible.git
 cd Ingestible
 
-# Requires Python 3.11-3.12 (ChromaDB incompatible with 3.14)
+# Requires Python 3.11-3.13 (ChromaDB incompatible with 3.14)
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
@@ -150,7 +150,7 @@ ingest ingest /path/to/document.pdf -v
 | reStructuredText | `.rst` | |
 | AsciiDoc | `.adoc` | |
 | Plain text | `.txt` | |
-| Audio | `.mp3`, `.wav`, `.m4a`, `.flac`, `.ogg`, `.aac`, `.opus` | ASR via faster-whisper, timestamped |
+| Audio | `.mp3`, `.wav`, `.m4a`, `.flac`, `.ogg`, `.wma`, `.aac`, `.opus` | ASR via faster-whisper, timestamped |
 | Video | `.mp4`, `.mkv`, `.avi`, `.mov`, `.webm`, `.wmv`, `.flv` | Audio extraction + ASR + keyframes |
 | Images | `.png`, `.jpg`, `.jpeg`, `.tiff`, `.bmp`, `.webp` | OCR + layout via Docling VLM |
 | Email | `.eml`, `.msg` | Headers, body, attachments |
@@ -196,7 +196,7 @@ ingest mcp                     # Start MCP server for AI agents
 ```bash
 ingest ingest /path/to/docs/ \
   --profile auto \              # auto | paper | article | documentation | general
-  --chunking paragraph \        # paragraph | semantic | recursive
+  --chunking paragraph \        # paragraph | semantic | recursive | docling
   --parallel 4 \                # concurrent file processing
   --force \                     # re-ingest even if unchanged
   --skip-enrichment \           # skip LLM enrichment

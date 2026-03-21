@@ -1,19 +1,15 @@
 """Stage 5 — Embedding & Indexing.
 
-Uses sentence-transformers (E5-large-v2) for embeddings.
+Supports local models via sentence-transformers and API providers
+(OpenAI, Cohere, Voyage). Default: BAAI/bge-en-icl (local).
 Builds: ChromaDB vector index, BM25 sparse index, concept index.
-
-E5 models require prefixes:
-  - "passage: " for documents
-  - "query: " for queries
 """
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-
-from sentence_transformers import SentenceTransformer
+from typing import Any
 
 from ingestible.config import Settings
 from ingestible.models.chunks import ChunkSet
@@ -39,15 +35,20 @@ def _resolve_device(device: str) -> str:
 
 
 class Embedder:
-    """Manages the embedding model and index creation."""
+    """Manages embedding generation. Supports local (sentence-transformers) and
+    API providers (OpenAI, Cohere, Voyage)."""
 
     def __init__(self, settings: Settings):
         self._settings = settings
-        self._model: SentenceTransformer | None = None
+        self._model: Any = None
+        self._provider = settings.embedding_provider
 
     @property
-    def model(self) -> SentenceTransformer:
+    def model(self):
+        """Lazy-load the local sentence-transformers model."""
         if self._model is None:
+            from sentence_transformers import SentenceTransformer
+
             logger.info("Loading embedding model: %s", self._settings.embedding_model)
             device = _resolve_device(self._settings.embedding_device)
             logger.info("Embedding device: %s", device)
@@ -58,23 +59,92 @@ class Embedder:
         return self._model
 
     def embed_passages(self, texts: list[str]) -> list[list[float]]:
-        """Embed passage texts with the 'passage: ' prefix."""
-        prefixed = [f"passage: {t}" for t in texts]
-        embeddings = self.model.encode(prefixed, normalize_embeddings=True, show_progress_bar=True)
-        result = embeddings.tolist()
-        return [self._post_process(v) for v in result]
+        if self._provider == "openai":
+            return self._embed_openai(texts)
+        elif self._provider == "cohere":
+            return self._embed_cohere(texts, input_type="search_document")
+        elif self._provider == "voyage":
+            return self._embed_voyage(texts, input_type="document")
+        else:
+            prefixed = [f"passage: {t}" for t in texts]
+            embeddings = self.model.encode(
+                prefixed, normalize_embeddings=True, show_progress_bar=True
+            )
+            result = embeddings.tolist()
+            return [self._post_process(v) for v in result]
 
     def embed_query(self, query: str) -> list[float]:
-        """Embed a query with the 'query: ' prefix."""
-        embedding = self.model.encode(f"query: {query}", normalize_embeddings=True)
-        return self._post_process(embedding.tolist())
+        if self._provider == "openai":
+            return self._embed_openai([query])[0]
+        elif self._provider == "cohere":
+            return self._embed_cohere([query], input_type="search_query")[0]
+        elif self._provider == "voyage":
+            return self._embed_voyage([query], input_type="query")[0]
+        else:
+            embedding = self.model.encode(f"query: {query}", normalize_embeddings=True)
+            return self._post_process(embedding.tolist())
+
+    def _embed_openai(self, texts: list[str]) -> list[list[float]]:
+        """Embed via OpenAI API."""
+        import openai
+
+        api_key = self._settings.openai_embedding_api_key or self._settings.openai_api_key
+        if not api_key:
+            raise ValueError(
+                "OpenAI embedding requires INGEST_OPENAI_EMBEDDING_API_KEY or INGEST_OPENAI_API_KEY"
+            )
+        client = openai.OpenAI(api_key=api_key)
+        kwargs: dict[str, Any] = {"model": self._settings.embedding_model, "input": texts}
+        if self._settings.embedding_dimensions:
+            kwargs["dimensions"] = self._settings.embedding_dimensions
+        response = client.embeddings.create(**kwargs)
+        vectors = [item.embedding for item in sorted(response.data, key=lambda x: x.index)]
+        return [self._post_process(v) for v in vectors]
+
+    def _embed_cohere(
+        self, texts: list[str], input_type: str = "search_document"
+    ) -> list[list[float]]:
+        """Embed via Cohere API."""
+        try:
+            import cohere
+        except ImportError:
+            raise ImportError(
+                "Cohere embedding requires the cohere package. Install with: pip install cohere"
+            )
+        if not self._settings.cohere_api_key:
+            raise ValueError("Cohere embedding requires INGEST_COHERE_API_KEY")
+        client = cohere.Client(api_key=self._settings.cohere_api_key)
+        response = client.embed(
+            texts=texts,
+            model=self._settings.embedding_model,
+            input_type=input_type,
+        )
+        vectors = response.embeddings
+        return [self._post_process(v) for v in vectors]
+
+    def _embed_voyage(self, texts: list[str], input_type: str = "document") -> list[list[float]]:
+        """Embed via Voyage API."""
+        try:
+            import voyageai
+        except ImportError:
+            raise ImportError(
+                "Voyage embedding requires the voyageai package. Install with: pip install voyageai"
+            )
+        if not self._settings.voyage_api_key:
+            raise ValueError("Voyage embedding requires INGEST_VOYAGE_API_KEY")
+        client = voyageai.Client(api_key=self._settings.voyage_api_key)
+        response = client.embed(
+            texts=texts,
+            model=self._settings.embedding_model,
+            input_type=input_type,
+        )
+        return [self._post_process(v) for v in response.embeddings]
 
     def _post_process(self, vector: list[float]) -> list[float]:
         """Apply Matryoshka truncation and/or binary quantization."""
         dims = self._settings.embedding_dimensions
         if dims is not None and dims < len(vector):
             vector = vector[:dims]
-            # Re-normalize after truncation
             import math
 
             norm = math.sqrt(sum(x * x for x in vector))
@@ -93,6 +163,7 @@ def build_indexes(
     embedder: Embedder,
     language: str = "en",
     previous_chunks: ChunkSet | None = None,
+    access_tags: list[str] | None = None,
 ) -> tuple[VectorStore, BM25Store, ConceptIndex]:
     """Build all search indexes for a document.
 
@@ -100,6 +171,8 @@ def build_indexes(
     are skipped during embedding — their embeddings are reused from the
     existing vector store.
     """
+    access_tags_str = ",".join(access_tags) if access_tags else ""
+
     l3 = chunks.l3_chunks
     # Build set of unchanged content hashes for cache reuse
     unchanged_hashes: set[str] = set()
@@ -139,6 +212,7 @@ def build_indexes(
             "chapter": chunk.position.chapter,
             "section": chunk.position.section,
             "version_status": "current",
+            "access_tags": access_tags_str,
         }
 
         # 1) Content embedding (with context_prefix if present)
@@ -242,20 +316,35 @@ def build_indexes(
             sup_path = doc_dir / "superseded.json"
             sup_path.write_text(json.dumps(sup_data, indent=2, default=str), encoding="utf-8")
 
-    # --- BM25 ---
-    bm25_store = BM25Store(language=language)
-    bm25_ids = [c.chunk_id for c in l3]
-    bm25_texts = []
-    for c in l3:
-        parts = [c.content]
-        if c.keywords:
-            parts.append(" ".join(c.keywords))
-        bm25_texts.append(" ".join(parts))
+    # --- Sparse retrieval (BM25 or SPLADE) ---
+    if embedder._settings.sparse_retrieval == "splade":
+        from ingestible.search.splade_store import SpladeStore
 
-    bm25_store.add_documents(bm25_ids, bm25_texts)
-    bm25_store.build()
-    bm25_store.save(doc_dir / "bm25_index.pkl")
-    logger.info("BM25 store: %d documents indexed", bm25_store.count)
+        splade_store = SpladeStore(model_name=embedder._settings.splade_model)
+        splade_ids = [c.chunk_id for c in l3]
+        splade_texts = []
+        for c in l3:
+            parts = [c.content]
+            if c.keywords:
+                parts.append(" ".join(c.keywords))
+            splade_texts.append(" ".join(parts))
+        splade_store.add_documents(splade_ids, splade_texts)
+        splade_store.save(doc_dir / "splade_index.json")
+        logger.info("SPLADE store: %d documents indexed", splade_store.count)
+        bm25_store = BM25Store()  # empty placeholder
+    else:
+        bm25_store = BM25Store(language=language)
+        bm25_ids = [c.chunk_id for c in l3]
+        bm25_texts = []
+        for c in l3:
+            parts = [c.content]
+            if c.keywords:
+                parts.append(" ".join(c.keywords))
+            bm25_texts.append(" ".join(parts))
+        bm25_store.add_documents(bm25_ids, bm25_texts)
+        bm25_store.build()
+        bm25_store.save(doc_dir / "bm25_index.pkl")
+        logger.info("BM25 store: %d documents indexed", bm25_store.count)
 
     # --- Concept index ---
     concept_index = ConceptIndex()

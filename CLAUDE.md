@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Run Commands
 
 ```bash
-# Install (requires Python 3.11-3.12, ChromaDB breaks on 3.14)
+# Install (requires Python 3.11-3.13, ChromaDB breaks on 3.14)
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
@@ -97,3 +97,13 @@ When `INGEST_CONTENT_CLASSIFICATION=true`, Stage 1c (`stage1c_classify.py`) labe
 - Embedding device must use `_resolve_device()` — never hardcode `"mps"` or `"cuda"`
 - Schema changes require bumping `schema_version` in `stage6_storage.py`
 - `asyncio_mode = "auto"` in pytest — async test functions work without markers
+
+## Branching & CI/CD
+
+- **`develop`** — default branch, day-to-day work
+- **`main`** — release branch, only receives PRs from develop
+- **Feature branches** — branch from develop, PR back to develop
+
+CI quality gates (must all pass): lint (ruff) → test (3.11/3.12/3.13) → import check → security scan (bandit). PRs to main also run Docker build smoke test.
+
+Release: tag `v*` on main triggers PyPI publish + GitHub Release + Docker image push to ghcr.io.

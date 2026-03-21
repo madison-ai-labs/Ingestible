@@ -284,6 +284,27 @@ src/ingestible/
   templates/             # Jinja2 templates for web UI
 ```
 
+## Web UI
+
+**File:** `web.py`
+
+Jinja2 templates with HTMX for interactivity. Routes: dashboard (list documents), document detail, chunk tree viewer, search (single-doc and corpus), file upload. Templates auto-escape HTML output.
+
+## API Infrastructure
+
+**File:** `api.py`
+
+FastAPI application with layered middleware (bottom to top):
+1. CORS (configurable origins)
+2. Authentication (Bearer token matching against `INGEST_API_KEYS`)
+3. Request ID (generates/reads `X-Request-ID`, binds to structlog)
+4. Rate limiting (slowapi, per-IP, three tiers: ingest/search/default)
+
+Prometheus instrumentation via `prometheus-fastapi-instrumentator` exposes `/metrics`.
+Background ingestion via `TaskQueue` — `POST /ingest/async` returns 202 with job ID.
+Startup: configures structured logging, runs stale file cleanup.
+Shutdown: drains active ingestion jobs.
+
 ## Production Infrastructure
 
 **Concurrency & locking:**

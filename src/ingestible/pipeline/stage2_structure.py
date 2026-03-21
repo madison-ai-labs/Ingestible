@@ -229,7 +229,7 @@ def _detect_headings_from_markdown(md: str) -> list[TOCEntry]:
 
 
 def _make_node_id(doc_id: str, title: str, level: int) -> str:
-    h = hashlib.md5(f"{title}:{level}".encode()).hexdigest()[:8]
+    h = hashlib.md5(f"{title}:{level}".encode(), usedforsecurity=False).hexdigest()[:8]
     return f"{doc_id}-L{level}-{h}"
 
 

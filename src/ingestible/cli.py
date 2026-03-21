@@ -61,6 +61,11 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help="Extraction profile (default: auto-detect from content)",
     )
+    p_ingest.add_argument(
+        "--access-tags",
+        default=None,
+        help="Comma-separated access tags for the document (e.g. team-a,confidential)",
+    )
 
     # --- list ---
     sub.add_parser("list", help="List all ingested documents")
@@ -106,6 +111,14 @@ def main(argv: list[str] | None = None) -> None:
     # --- config ---
     sub.add_parser("config", help="Show effective configuration (all sources merged)")
 
+    # --- serve ---
+    p_serve = sub.add_parser("serve", help="Start the API server and web UI")
+    p_serve.add_argument("--host", default="0.0.0.0", help="Bind address (default: 0.0.0.0)")
+    p_serve.add_argument("--port", type=int, default=8081, help="Port (default: 8081)")
+    p_serve.add_argument(
+        "--reload", action="store_true", help="Auto-reload on code changes (dev mode)"
+    )
+
     # --- watch ---
     p_watch = sub.add_parser("watch", help="Watch a directory and auto-ingest on changes")
     p_watch.add_argument("dir", help="Directory to watch")
@@ -147,6 +160,11 @@ def main(argv: list[str] | None = None) -> None:
         "--compare", action="store_true", help="Compare hybrid vs vector-only vs BM25-only"
     )
     eval_parser.add_argument("--output", "-o", help="Save detailed results to JSON file")
+
+    # --- audit ---
+    audit_parser = sub.add_parser("audit", help="View search audit trail")
+    audit_parser.add_argument("-n", type=int, default=20, help="Number of recent entries")
+    audit_parser.add_argument("--query", help="Filter by query substring")
 
     # --- cleanup ---
     cleanup_parser = sub.add_parser("cleanup", help="Clean stale checkpoints and temp files")
@@ -208,6 +226,15 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_export(args)
     elif args.command == "config":
         _cmd_config()
+    elif args.command == "serve":
+        import uvicorn
+
+        uvicorn.run(
+            "ingestible.api:app",
+            host=args.host,
+            port=args.port,
+            reload=args.reload,
+        )
     elif args.command == "watch":
         _cmd_watch(args)
     elif args.command == "eval":
@@ -250,6 +277,26 @@ def main(argv: list[str] | None = None) -> None:
                 ]
                 Path(args.output).write_text(json.dumps(output, indent=2))
                 print(f"\nDetailed results saved to {args.output}")
+    elif args.command == "audit":
+        import json
+        import time
+
+        from ingestible.config import get_settings
+
+        settings = get_settings()
+        audit_path = settings.data_dir / "audit.jsonl"
+        if not audit_path.exists():
+            print("No audit log found. Enable with INGEST_AUDIT_ENABLED=true")
+        else:
+            lines = audit_path.read_text().strip().split("\n")
+            entries = [json.loads(ln) for ln in lines if ln.strip()]
+            if args.query:
+                entries = [e for e in entries if args.query.lower() in e.get("query", "").lower()]
+            for e in entries[-args.n :]:
+                ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(e["timestamp"]))
+                print(
+                    f'[{ts}] query="{e["query"]}" doc={e.get("doc_id", "corpus")} results={len(e["retrieved_chunk_ids"])} latency={e.get("latency_ms", 0):.0f}ms'
+                )
     elif args.command == "cleanup":
         from ingestible.config import get_settings
         from ingestible.pipeline.cleanup import cleanup_stale
@@ -303,6 +350,10 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
 
     settings = get_settings(**overrides)
 
+    parsed_access_tags = None
+    if args.access_tags:
+        parsed_access_tags = [t.strip() for t in args.access_tags.split(",") if t.strip()]
+
     if _is_batch_input(args.file_path):
         from ingestible.pipeline.batch import ingest_batch
 
@@ -341,6 +392,7 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
             verbose=args.verbose,
             force=args.force,
             progress_callback=callback,
+            access_tags=parsed_access_tags,
         )
         print(f"Ingested → {doc_dir}")
 
