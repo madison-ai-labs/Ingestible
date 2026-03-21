@@ -44,20 +44,131 @@ jobs:
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
 
+  binaries:
+    name: Build standalone binaries
+    needs: ci
+    uses: ./.github/workflows/build-binaries.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets:
+      APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
   github-release:
     name: GitHub Release
-    needs: build
+    needs: [build, binaries]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
-          name: dist
-          path: dist/
+          path: artifacts/
+
+      - name: Collect release assets
+        run: |
+          mkdir -p release/
+          cp artifacts/dist/* release/
+          cp artifacts/ingest-linux-x86_64/* release/
+          cp artifacts/ingest-macos-x86_64/* release/
+          cp artifacts/ingest-macos-arm64/* release/
+          cp artifacts/ingest-windows-x86_64/* release/
+
+      - name: Generate checksums
+        working-directory: release
+        run: |
+          sha256sum ingest-* > checksums-sha256.txt
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Get previous tag
+        id: prev_tag
+        run: |
+          prev=$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || echo "")
+          echo "tag=$prev" >> "$GITHUB_OUTPUT"
+
+      - name: Build changelog
+        id: changelog
+        run: |
+          if [ -n "${{ steps.prev_tag.outputs.tag }}" ]; then
+            log=$(git log --pretty=format:"- %s (%h)" "${{ steps.prev_tag.outputs.tag }}".."$GITHUB_REF_NAME" -- . ':!docs' ':!*.md')
+          else
+            log=$(git log --pretty=format:"- %s (%h)" "$GITHUB_REF_NAME" -- . ':!docs' ':!*.md')
+          fi
+          echo "$log" > /tmp/changelog.txt
+
+      - name: Build release notes
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          repo="${GITHUB_REPOSITORY}"
+
+          cat > /tmp/release-notes.md << 'HEADER'
+          ## Install
+
+          ### Standalone binary (no Python required)
+
+          Download the binary for your platform, make it executable, and run:
+
+          ```bash
+          chmod +x ingest-*
+          ./ingest-macos-arm64 --help
+          ```
+
+          | Platform | Binary |
+          |----------|--------|
+          HEADER
+
+          cat >> /tmp/release-notes.md << EOF
+          | Linux x86_64 | [\`ingest-linux-x86_64\`](https://github.com/${repo}/releases/download/${tag}/ingest-linux-x86_64) |
+          | macOS x86_64 (Intel) | [\`ingest-macos-x86_64\`](https://github.com/${repo}/releases/download/${tag}/ingest-macos-x86_64) |
+          | macOS arm64 (Apple Silicon) | [\`ingest-macos-arm64\`](https://github.com/${repo}/releases/download/${tag}/ingest-macos-arm64) |
+          | Windows x86_64 | [\`ingest-windows-x86_64.exe\`](https://github.com/${repo}/releases/download/${tag}/ingest-windows-x86_64.exe) |
+          EOF
+
+          cat >> /tmp/release-notes.md << 'MID'
+
+          ### Python package
+
+          ```bash
+          pip install ingestible
+          ```
+
+          ### Docker
+
+          ```bash
+          MID
+
+          echo "docker pull ghcr.io/${repo,,}:${tag}" >> /tmp/release-notes.md
+
+          cat >> /tmp/release-notes.md << 'MID2'
+          ```
+
+          ## What's changed
+          MID2
+
+          cat /tmp/changelog.txt >> /tmp/release-notes.md
+
+          cat >> /tmp/release-notes.md << 'FOOTER'
+
+          ## Checksums (SHA-256)
+
+          ```
+          FOOTER
+
+          cat release/checksums-sha256.txt >> /tmp/release-notes.md
+          echo '```' >> /tmp/release-notes.md
+
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
-          generate_release_notes: true
+          files: release/*
+          body_path: /tmp/release-notes.md
 
   docker:
     name: Build & push Docker image
