@@ -109,8 +109,12 @@ jobs:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          # Find the exact signing identity from the imported cert
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "Signing with: $IDENTITY"
+
           codesign --force --options runtime \
-            --sign "Developer ID Application: ($APPLE_TEAM_ID)" \
+            --sign "$IDENTITY" \
             --timestamp \
             dist/ingest
 
