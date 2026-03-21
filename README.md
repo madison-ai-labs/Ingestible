@@ -83,17 +83,24 @@ Passages found by multiple indexes rank higher. No score normalization needed.
 - **SPLADE sparse retrieval** — learned sparse vectors with term expansion as BM25 alternative
 - **Zero cloud dependencies** — embeddings run locally (CPU/Apple Silicon MPS). LLM enrichment is optional.
 
+## Install
+
+```bash
+pip install ingestible
+```
+
+Or with optional extras:
+
+```bash
+pip install ingestible[audio]    # audio/video transcription (faster-whisper)
+pip install ingestible[cloud]    # S3, GCS, Azure Blob connectors
+pip install ingestible[mcp]      # MCP server for AI agents
+pip install ingestible[watch]    # file watcher (watchdog)
+```
+
 ## Quickstart
 
 ```bash
-git clone https://github.com/simplyliz/Ingestible.git
-cd Ingestible
-
-# Requires Python 3.11-3.13 (ChromaDB incompatible with 3.14)
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-
 # Ingest without API keys (skips LLM enrichment, still builds all search indexes)
 ingest ingest /path/to/document.pdf -v --skip-enrichment
 
@@ -107,9 +114,18 @@ ingest search <doc_id> "your query here"
 ingest corpus-search "your query here"
 ```
 
-**First run downloads the E5-large-v2 embedding model (~1.3GB). Runs locally on CPU/Apple Silicon MPS.**
+**First run downloads the E5-large-v2 embedding model (~1.3GB). Runs locally on CPU/Apple Silicon MPS/CUDA.**
 
 ### With Docker
+
+```bash
+docker pull ghcr.io/simplyliz/ingestible:latest
+
+# Or run directly
+docker run -d -p 8081:8081 -v ingestible-data:/app/data ghcr.io/simplyliz/ingestible:latest
+```
+
+Or with docker-compose:
 
 ```bash
 cp .env.example .env
@@ -121,6 +137,18 @@ docker compose up -d
 The API and web UI are available at `http://localhost:8081`. Document data is persisted via a Docker volume.
 
 The container runs behind gunicorn with multiple workers. Monitor via `/health/ready` and `/metrics`.
+
+### From Source
+
+```bash
+git clone https://github.com/simplyliz/Ingestible.git
+cd Ingestible
+
+# Requires Python 3.11-3.13
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
 
 ### With LLM Enrichment
 
