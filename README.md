@@ -20,30 +20,66 @@ Instead of dumping 90,000 tokens into an LLM context window, Ingestible gives yo
 
 ## Install
 
-```bash
-pip install ingestible              # lightweight, uses API embeddings (OpenAI/Cohere/Voyage)
-pip install ingestible[local]       # + local embeddings via sentence-transformers + ChromaDB (~2GB)
-```
-
-Optional extras:
+### Option 1: pip (recommended)
 
 ```bash
-pip install ingestible[audio]       # audio/video transcription (faster-whisper)
-pip install ingestible[cloud]       # S3, GCS, Azure Blob connectors
-pip install ingestible[mcp]         # MCP server for AI agents
-pip install ingestible[watch]       # file watcher (watchdog)
+pip install ingestible                # base install (~50MB) — uses API embeddings
 ```
 
-Without `[local]`, set `INGEST_EMBEDDING_PROVIDER=openai` (or `cohere`/`voyage`) to use API-based embeddings.
-
-Docker:
+To use **local embeddings** (no API keys needed, runs fully offline):
 
 ```bash
-docker run -d -p 8081:8081 -v ingestible-data:/app/data ghcr.io/simplyliz/ingestible:latest
+pip install ingestible[local]         # adds torch + sentence-transformers + ChromaDB (~2GB)
 ```
+
+> **Which to choose?** Use `ingestible` if you have an OpenAI/Cohere/Voyage API key.
+> Use `ingestible[local]` if you want zero cloud dependencies.
+
+Optional extras (combine with comma: `pip install ingestible[local,audio,cloud]`):
+
+| Extra | What it adds |
+|-------|-------------|
+| `local` | Local embeddings — sentence-transformers, ChromaDB, torch |
+| `audio` | Audio/video transcription — faster-whisper |
+| `cloud` | S3, GCS, Azure Blob connectors — boto3, google-cloud-storage, azure-storage-blob |
+| `mcp` | MCP server for AI agent integration |
+| `watch` | File watcher — watchdog |
+| `cohere` | Cohere embedding provider |
+| `voyage` | Voyage embedding provider |
+
+### Option 2: Docker
+
+```bash
+# Pull and run (includes all dependencies, ready to go)
+docker run -d \
+  -p 8081:8081 \
+  -v ingestible-data:/app/data \
+  ghcr.io/simplyliz/ingestible:latest
+```
+
+The API and web UI are at `http://localhost:8081`. Data persists via the Docker volume.
+
+With environment variables:
+
+```bash
+docker run -d \
+  -p 8081:8081 \
+  -v ingestible-data:/app/data \
+  -e INGEST_ANTHROPIC_API_KEY=sk-ant-... \
+  ghcr.io/simplyliz/ingestible:latest
+```
+
+Or with docker-compose (clone the repo first for `.env.example`):
+
+```bash
+cp .env.example .env    # edit with your API keys
+docker compose up -d
+```
+
+The container runs behind gunicorn with multiple workers. Monitor via `/health/ready` and `/metrics`.
 
 <details>
-<summary>From source</summary>
+<summary>From source (for development)</summary>
 
 ```bash
 git clone https://github.com/simplyliz/Ingestible.git
