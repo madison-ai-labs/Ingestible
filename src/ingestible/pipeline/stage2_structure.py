@@ -60,7 +60,13 @@ def detect_structure(doc: ParsedDocument, doc_id: str) -> DocumentStructure:
             page_end=doc.total_pages,
             content=doc.full_markdown,
         )
-        return DocumentStructure(doc_id=doc_id, title=doc.title, root=root)
+        return DocumentStructure(
+            doc_id=doc_id,
+            title=doc.title,
+            root=root,
+            source_format=doc.source_format,
+            source_path=doc.source_path,
+        )
 
     root = _build_tree(toc, doc, doc_id)
     _assign_content(root, doc)
@@ -70,7 +76,13 @@ def detect_structure(doc: ParsedDocument, doc_id: str) -> DocumentStructure:
     sec_count = sum(len(c.children) for c in root.children)
     logger.info("Structure detected: %d chapters, %d sections", ch_count, sec_count)
 
-    return DocumentStructure(doc_id=doc_id, title=doc.title, root=root)
+    return DocumentStructure(
+        doc_id=doc_id,
+        title=doc.title,
+        root=root,
+        source_format=doc.source_format,
+        source_path=doc.source_path,
+    )
 
 
 def _extract_toc_from_tables(md: str) -> list[TOCEntry]:

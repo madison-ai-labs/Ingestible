@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-ProfileName = Literal["paper", "article", "documentation", "general"]
+ProfileName = Literal["paper", "article", "documentation", "general", "code"]
 
 
 class ExtractionProfile(BaseModel):
@@ -91,6 +91,23 @@ PROFILES: dict[str, ExtractionProfile] = {
         extract_citations=False,
         extract_methodology=False,
     ),
+    "code": ExtractionProfile(
+        name="code",
+        max_chunk_tokens=600,
+        min_chunk_tokens=50,
+        chunking_strategy="code",
+        extract_citations=False,
+        extract_methodology=False,
+        extract_knowledge_graph=True,
+        l3_prompt_suffix=(
+            "This is source code. Focus on function signatures, parameters, "
+            "return types, algorithms, and dependencies between components."
+        ),
+        l0_prompt_suffix=(
+            "This is a source code file. Summarize the module's purpose, "
+            "key classes/functions, and dependencies. Leave methodology empty."
+        ),
+    ),
 }
 
 # Patterns used for heuristic profile detection
@@ -119,6 +136,11 @@ class _DetectionResult:
 
 def _detect_heuristic(parsed: ParsedDocument) -> _DetectionResult:
     """Run heuristic detection. Returns profile name + confidence level."""
+    # Source code files always get the code profile
+    if getattr(parsed, "source_format", "") == "code":
+        logger.info("Profile auto-detected: code (source_format=code)")
+        return _DetectionResult("code", "high")
+
     toc_text = parsed.toc if hasattr(parsed, "toc") and parsed.toc else ""
     if isinstance(toc_text, list):
         toc_text = " ".join(str(t) for t in toc_text)

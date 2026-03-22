@@ -29,7 +29,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     p_ingest.add_argument(
         "--chunking",
-        choices=["paragraph", "semantic", "recursive"],
+        choices=["paragraph", "semantic", "recursive", "docling", "code"],
         default=None,
         help="Chunking strategy (default: from config)",
     )
@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     p_ingest.add_argument(
         "--profile",
-        choices=["auto", "paper", "article", "documentation", "general"],
+        choices=["auto", "paper", "article", "documentation", "general", "code"],
         default=None,
         help="Extraction profile (default: auto-detect from content)",
     )
@@ -65,6 +65,22 @@ def main(argv: list[str] | None = None) -> None:
         "--access-tags",
         default=None,
         help="Comma-separated access tags for the document (e.g. team-a,confidential)",
+    )
+    p_ingest.add_argument(
+        "--weight",
+        type=float,
+        default=0.0,
+        help="Document weight/authority boost for search scoring (e.g. 0.3 for mandatory, 0.15 for guideline)",
+    )
+    p_ingest.add_argument(
+        "--pinned",
+        action="store_true",
+        help="Pin document: top chunks always included in corpus search results",
+    )
+    p_ingest.add_argument(
+        "--tags",
+        default=None,
+        help="Comma-separated category tags for filtering (e.g. compliance,coding,style)",
     )
 
     # --- list ---
@@ -86,6 +102,11 @@ def main(argv: list[str] | None = None) -> None:
     )
     p_csearch.add_argument(
         "--doc-ids", nargs="*", default=None, help="Limit to specific document IDs"
+    )
+    p_csearch.add_argument(
+        "--tags",
+        default=None,
+        help="Comma-separated tags to filter documents (e.g. compliance,style)",
     )
 
     # --- enrich ---
@@ -354,6 +375,10 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
     if args.access_tags:
         parsed_access_tags = [t.strip() for t in args.access_tags.split(",") if t.strip()]
 
+    parsed_tags = None
+    if args.tags:
+        parsed_tags = [t.strip() for t in args.tags.split(",") if t.strip()]
+
     if _is_batch_input(args.file_path):
         from ingestible.pipeline.batch import ingest_batch
 
@@ -393,6 +418,9 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
             force=args.force,
             progress_callback=callback,
             access_tags=parsed_access_tags,
+            weight=args.weight,
+            pinned=args.pinned,
+            tags=parsed_tags,
         )
         print(f"Ingested → {doc_dir}")
 
@@ -465,8 +493,13 @@ def _cmd_corpus_search(args: argparse.Namespace) -> None:
     from ingestible.search.corpus import CorpusSearcher
 
     settings = get_settings()
+    filter_tags = None
+    if args.tags:
+        filter_tags = [t.strip() for t in args.tags.split(",") if t.strip()]
     searcher = CorpusSearcher(settings)
-    response = searcher.search(args.query, n_results=args.results, doc_ids=args.doc_ids)
+    response = searcher.search(
+        args.query, n_results=args.results, doc_ids=args.doc_ids, tags=filter_tags
+    )
 
     if not response.results:
         print("No results found.")
