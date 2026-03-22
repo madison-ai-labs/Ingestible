@@ -214,6 +214,20 @@ def _check_upload_size(content: bytes, settings) -> None:
         )
 
 
+def _get_user(request: Request) -> str:
+    """Extract user identity from request headers.
+
+    Priority: X-User-ID header (set by auth proxy) > bearer token prefix > 'anonymous'.
+    """
+    user_id = request.headers.get("X-User-ID", "")
+    if user_id:
+        return user_id.strip()
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer ") and len(auth) > 15:
+        return auth[7:15]
+    return "anonymous"
+
+
 def _l0_overview_text(l0: L0Chunk) -> str:
     """Compose readable overview text from L0's structured fields."""
     parts = [l0.title]
@@ -429,8 +443,23 @@ async def ingest_document(
 
         l0_tokens = count_tokens(_l0_overview_text(chunks.l0))
 
+        doc_id = meta.get("doc_id", doc_dir.name)
+
+        if settings.audit_enabled:
+            from ingestible.audit import log_ingest
+
+            log_ingest(
+                settings.data_dir / "audit.jsonl",
+                doc_id=doc_id,
+                user=_get_user(request),
+                title=meta.get("title", ""),
+                source_path=file.filename or "",
+                total_chunks=len(chunks.l3_chunks),
+                enriched=not skip_enrichment,
+            )
+
         return IngestResponse(
-            doc_id=meta.get("doc_id", doc_dir.name),
+            doc_id=doc_id,
             title=meta.get("title", "Untitled"),
             total_pages=meta.get("total_pages", 0),
             total_chunks=len(chunks.l3_chunks),
@@ -633,6 +662,15 @@ async def delete_document(doc_id: str, request: Request):
 
     shutil.rmtree(doc_dir)
 
+    if settings.audit_enabled:
+        from ingestible.audit import log_delete
+
+        log_delete(
+            settings.data_dir / "audit.jsonl",
+            doc_id=doc_id,
+            user=_get_user(request),
+        )
+
     return DeleteResponse(deleted=doc_id)
 
 
@@ -706,10 +744,7 @@ async def search_document(doc_id: str, body: SearchRequest, request: Request):
         )
 
     # Audit: identify user from bearer token
-    user = ""
-    if settings.audit_enabled:
-        auth_header = request.headers.get("Authorization", "")
-        user = auth_header[7:15] if auth_header.startswith("Bearer ") else "anonymous"
+    user = _get_user(request) if settings.audit_enabled else ""
 
     response = searcher.search(body.query, n_results=body.n_results, user_tags=user_tags, user=user)
     return response
@@ -816,11 +851,7 @@ async def corpus_search(body: CorpusSearchRequest, request: Request):
             [t.strip() for t in tags_header.split(",") if t.strip()] if tags_header else None
         )
 
-    # Audit: identify user from bearer token
-    user = ""
-    if settings.audit_enabled:
-        auth_header = request.headers.get("Authorization", "")
-        user = auth_header[7:15] if auth_header.startswith("Bearer ") else "anonymous"
+    user = _get_user(request) if settings.audit_enabled else ""
 
     searcher = CorpusSearcher(settings, embedder=get_cached_embedder())
     return searcher.search(
@@ -853,6 +884,15 @@ async def enrich_document(doc_id: str, request: Request):
     from ingestible.utils.tokens import count_tokens
 
     l0_tokens = count_tokens(_l0_overview_text(chunks.l0))
+
+    if settings.audit_enabled:
+        from ingestible.audit import log_re_enrich
+
+        log_re_enrich(
+            settings.data_dir / "audit.jsonl",
+            doc_id=doc_id,
+            user=_get_user(request),
+        )
 
     return IngestResponse(
         doc_id=meta.get("doc_id", doc_dir.name),
@@ -929,6 +969,16 @@ async def export_document_endpoint(
     output_path = doc_dir / f"export{ext}"
 
     export_document(chunks, format, output_path, doc_title=meta.get("title", ""))
+
+    if settings.audit_enabled:
+        from ingestible.audit import log_export
+
+        log_export(
+            settings.data_dir / "audit.jsonl",
+            doc_id=doc_id,
+            user=_get_user(request),
+            format=format,
+        )
 
     media_types = {
         "jsonl": "application/x-ndjson",
@@ -1210,6 +1260,15 @@ async def cv_webhook(request: Request):
     from ingestible.pipeline.re_enrich import re_enrich
 
     re_enrich(doc_id, settings, changed_chunk_ids={chunk_id})
+
+    if settings.audit_enabled:
+        from ingestible.audit import log_webhook
+
+        log_webhook(
+            settings.data_dir / "audit.jsonl",
+            doc_id=doc_id,
+            chunk_id=chunk_id,
+        )
 
     return {
         "status": "ok",
