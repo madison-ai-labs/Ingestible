@@ -110,7 +110,9 @@ class Settings(BaseSettings):
     max_chunk_tokens: int = 500
     min_chunk_tokens: int = 100
     chunk_overlap_fraction: float = 0.1
-    chunking_strategy: Literal["paragraph", "semantic", "recursive", "docling"] = "paragraph"
+    chunking_strategy: Literal["paragraph", "semantic", "recursive", "docling", "code"] = (
+        "paragraph"
+    )
     semantic_threshold_percentile: int = 10
     contextual_chunking: bool = False
 
@@ -156,6 +158,7 @@ class Settings(BaseSettings):
     reranker_model: str = ""
     reranker_top_k: int = 50
     reranker_weight: float = 0.5
+    pinned_top_n: int = 3  # chunks per pinned document to always include in corpus search
 
     @property
     def documents_dir(self) -> Path:

@@ -82,6 +82,7 @@ def search(
     query: str,
     doc_id: str | None = None,
     n_results: int = 5,
+    tags: list[str] | None = None,
 ) -> str:
     """Search across ingested documents.
 
@@ -92,6 +93,7 @@ def search(
         query: The search query
         doc_id: Optional document ID to search within (omit for corpus-wide search)
         n_results: Number of results to return (default: 5)
+        tags: Optional list of tags to filter documents by (corpus search only)
 
     Returns:
         JSON with ranked search results including content, scores, and metadata
@@ -115,7 +117,7 @@ def search(
         from ingestible.search.corpus import CorpusSearcher
 
         searcher = CorpusSearcher(settings, embedder=embedder)
-        response = searcher.search(query, n_results=n_results)
+        response = searcher.search(query, n_results=n_results, tags=tags)
 
     return response.model_dump_json()
 

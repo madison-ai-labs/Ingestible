@@ -85,3 +85,5 @@ class DocumentStructure(BaseModel):
     doc_id: str
     title: str
     root: StructureNode
+    source_format: str = ""
+    source_path: str = ""

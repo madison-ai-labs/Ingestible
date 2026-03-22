@@ -30,7 +30,7 @@ from ingestible.profiles import PROFILES, ExtractionProfile, detect_profile
 
 
 def test_all_profiles_present():
-    assert set(PROFILES) == {"paper", "article", "documentation", "general"}
+    assert set(PROFILES) == {"paper", "article", "documentation", "general", "code"}
 
 
 def test_profile_types():

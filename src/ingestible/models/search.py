@@ -16,6 +16,8 @@ class SearchResult(BaseModel):
     version_status: str = "current"  # "current" or "superseded"
     doc_id: str = ""
     doc_title: str = ""
+    doc_tags: list[str] = Field(default_factory=list)
+    pinned: bool = False
 
 
 class SearchResponse(BaseModel):

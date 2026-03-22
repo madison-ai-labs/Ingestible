@@ -36,6 +36,7 @@ from ingestible.pipeline.stage6_storage import (
     load_chunks,
     load_document_meta,
     load_structure,
+    update_document_meta,
 )
 from ingestible.pipeline.task_queue import get_task_queue
 from ingestible.search.hybrid import load_searcher
@@ -402,6 +403,9 @@ async def ingest_document(
     skip_enrichment: bool = Form(False),
     profile: str = Form("auto"),
     access_tags: str = Form(""),
+    weight: float = Form(0.0),
+    pinned: bool = Form(False),
+    tags: str = Form(""),
 ):
     """
     Ingest a PDF into the knowledge store.
@@ -424,16 +428,20 @@ async def ingest_document(
 
             settings = _gs(extraction_profile=profile)
 
-        parsed_tags = (
+        parsed_access_tags = (
             [t.strip() for t in access_tags.split(",") if t.strip()] if access_tags else None
         )
+        parsed_tags = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
 
         doc_dir = ingest(
             tmp_path,
             settings,
             skip_enrichment=skip_enrichment,
             verbose=False,
-            access_tags=parsed_tags,
+            access_tags=parsed_access_tags,
+            weight=weight,
+            pinned=pinned,
+            tags=parsed_tags,
         )
 
         meta = load_document_meta(doc_dir)
@@ -595,10 +603,12 @@ async def list_docs(
     request: Request,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=1000),
+    tags: str = Query(default="", description="Comma-separated tags to filter by"),
 ):
-    """List all ingested documents."""
+    """List all ingested documents, optionally filtered by tags."""
     settings = get_cached_settings()
-    docs = list_documents(settings)
+    filter_tags = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
+    docs = list_documents(settings, tags=filter_tags)
     paginated = docs[offset : offset + limit]
     return [
         DocumentSummary(
@@ -643,6 +653,32 @@ async def get_document(doc_id: str, request: Request):
         total_chunks=len(chunks.l3_chunks),
         chapters=chapters,
     )
+
+
+class UpdateMetaRequest(BaseModel):
+    weight: float | None = None
+    pinned: bool | None = None
+    tags: list[str] | None = None
+
+
+@app.patch("/documents/{doc_id}/meta")
+@limiter.limit(_RATE_DEFAULT)
+async def patch_document_meta(doc_id: str, body: UpdateMetaRequest, request: Request):
+    """Update mutable metadata (weight, pinned, tags) without re-ingesting."""
+    doc_id = _validate_doc_id(doc_id)
+    settings = get_cached_settings()
+    doc_dir = settings.documents_dir / doc_id
+
+    if not doc_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
+
+    meta = update_document_meta(doc_dir, weight=body.weight, pinned=body.pinned, tags=body.tags)
+    return {
+        "doc_id": doc_id,
+        "weight": meta.get("weight", 0.0),
+        "pinned": meta.get("pinned", False),
+        "tags": meta.get("tags", []),
+    }
 
 
 class DeleteResponse(BaseModel):
@@ -833,6 +869,7 @@ class CorpusSearchRequest(BaseModel):
     query: str
     n_results: int = Field(default=10, ge=1, le=50)
     doc_ids: list[str] | None = None
+    tags: list[str] | None = None
 
 
 @app.post("/search")
@@ -855,7 +892,12 @@ async def corpus_search(body: CorpusSearchRequest, request: Request):
 
     searcher = CorpusSearcher(settings, embedder=get_cached_embedder())
     return searcher.search(
-        body.query, n_results=body.n_results, doc_ids=body.doc_ids, user_tags=user_tags, user=user
+        body.query,
+        n_results=body.n_results,
+        doc_ids=body.doc_ids,
+        user_tags=user_tags,
+        user=user,
+        tags=body.tags,
     )
 
 

@@ -35,6 +35,9 @@ def save_document(
     content_hash: str = "",
     extraction_profile: str = "",
     access_tags: list[str] | None = None,
+    weight: float = 0.0,
+    pinned: bool = False,
+    tags: list[str] | None = None,
 ) -> Path:
     """Persist a processed document to disk as a JSON file hierarchy."""
     doc_dir = settings.documents_dir / chunks.doc_id
@@ -42,7 +45,7 @@ def save_document(
 
     # meta.json
     meta = {
-        "schema_version": 2,  # increment when chunk model changes
+        "schema_version": 3,
         "doc_id": chunks.doc_id,
         "title": structure.title,
         "total_pages": chunks.l0.total_pages,
@@ -57,6 +60,9 @@ def save_document(
         "version": len(list_versions(doc_dir)) + 1,
         "extraction_profile": extraction_profile,
         "access_tags": access_tags or [],
+        "weight": weight,
+        "pinned": pinned,
+        "tags": tags or [],
         "l0": chunks.l0.model_dump(),
     }
     _write_json(doc_dir / "meta.json", meta)
@@ -127,10 +133,10 @@ def load_document_meta(doc_dir: Path) -> dict:
     """Load meta.json for a document."""
     meta = _read_json(doc_dir / "meta.json")
     schema_version = meta.get("schema_version", 1)
-    if schema_version > 2:
+    if schema_version > 3:
         raise ValueError(
             f"Document {doc_dir.name} uses schema version {schema_version}, "
-            f"but this version of Ingestible only supports up to version 2. "
+            f"but this version of Ingestible only supports up to version 3. "
             f"Please upgrade Ingestible."
         )
     return meta
@@ -140,10 +146,10 @@ def load_chunks(doc_dir: Path) -> ChunkSet:
     """Reconstruct a ChunkSet from the stored file hierarchy."""
     meta = _read_json(doc_dir / "meta.json")
     schema_version = meta.get("schema_version", 1)
-    if schema_version > 2:
+    if schema_version > 3:
         raise ValueError(
             f"Document {doc_dir.name} uses schema version {schema_version}, "
-            f"but this version of Ingestible only supports up to version 2. "
+            f"but this version of Ingestible only supports up to version 3. "
             f"Please upgrade Ingestible."
         )
     doc_id = meta["doc_id"]
@@ -220,8 +226,8 @@ def load_structure(doc_dir: Path) -> DocumentStructure:
     return DocumentStructure(**data)
 
 
-def list_documents(settings: Settings) -> list[dict]:
-    """List all ingested documents."""
+def list_documents(settings: Settings, tags: list[str] | None = None) -> list[dict]:
+    """List all ingested documents, optionally filtered by tags."""
     docs_dir = settings.documents_dir
     if not docs_dir.exists():
         return []
@@ -229,8 +235,35 @@ def list_documents(settings: Settings) -> list[dict]:
     for d in sorted(docs_dir.iterdir()):
         meta_path = d / "meta.json"
         if meta_path.exists():
-            results.append(_read_json(meta_path))
+            meta = _read_json(meta_path)
+            if tags:
+                doc_tags = set(meta.get("tags", []))
+                if not doc_tags & set(tags):
+                    continue
+            results.append(meta)
     return results
+
+
+def update_document_meta(
+    doc_dir: Path,
+    weight: float | None = None,
+    pinned: bool | None = None,
+    tags: list[str] | None = None,
+) -> dict:
+    """Update mutable metadata fields on an existing document without re-ingesting.
+
+    Only non-None arguments are applied. Returns the updated meta dict.
+    """
+    meta = _read_json(doc_dir / "meta.json")
+    if weight is not None:
+        meta["weight"] = weight
+    if pinned is not None:
+        meta["pinned"] = pinned
+    if tags is not None:
+        meta["tags"] = tags
+    _write_json(doc_dir / "meta.json", meta)
+    logger.info("Updated metadata for %s", doc_dir.name)
+    return meta
 
 
 def archive_version(doc_dir: Path) -> int | None:

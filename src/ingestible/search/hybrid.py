@@ -40,6 +40,7 @@ class HybridSearcher:
         chunks: ChunkSet,
         embedder: Embedder,
         settings: Settings,
+        doc_weight: float = 0.0,
     ):
         self._vector = vector_store
         self._bm25 = bm25_store
@@ -47,6 +48,7 @@ class HybridSearcher:
         self._chunks = chunks
         self._embedder = embedder
         self._settings = settings
+        self._doc_weight = doc_weight
         # Build chunk lookup
         self._chunk_map: dict[str, L3Chunk] = {c.chunk_id: c for c in chunks.l3_chunks}
         # Lazy-load cross-encoder reranker
@@ -139,6 +141,11 @@ class HybridSearcher:
             if cid in scores:
                 scores[cid] *= 0.3
 
+        # Document-level weight boost (e.g. mandatory=+0.3, guideline=+0.15)
+        if self._doc_weight:
+            for cid in scores:
+                scores[cid] += self._doc_weight
+
         # Sort by score
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
@@ -224,6 +231,7 @@ def load_searcher(
     chunks: ChunkSet,
     embedder: Embedder,
     settings: Settings,
+    doc_weight: float = 0.0,
 ) -> HybridSearcher:
     """Load persisted indexes and create a HybridSearcher."""
     vector_store = VectorStore(doc_dir / "chroma")
@@ -246,6 +254,7 @@ def load_searcher(
         chunks=chunks,
         embedder=embedder,
         settings=settings,
+        doc_weight=doc_weight,
     )
 
     # Load superseded chunks for version-aware search
