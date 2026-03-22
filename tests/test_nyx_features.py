@@ -437,6 +437,134 @@ function other() {
         assert "render" in names
         assert "other" in names
 
+    # --- Edge cases that only tree-sitter handles correctly ---
+
+    def test_python_def_in_multiline_string(self):
+        """def/class keywords inside triple-quoted strings must not cause false splits."""
+        source = '''"""
+def ghost_function():
+    not real
+"""
+
+def real_function():
+    pass
+'''
+        decls = split_code_declarations(source, "python")
+        names = [d.name for d in decls]
+        assert "real_function" in names
+        # ghost_function should NOT appear as a separate declaration
+        assert "ghost_function" not in names
+
+    def test_python_nested_class_not_split(self):
+        """Nested classes inside a parent class should stay together."""
+        source = """class Outer:
+    class Inner:
+        pass
+
+    def method(self):
+        pass
+"""
+        decls = split_code_declarations(source, "python")
+        outer = next(d for d in decls if d.name == "Outer")
+        assert "class Inner:" in outer.content
+        assert "def method(self):" in outer.content
+        # Inner should NOT be a separate top-level declaration
+        assert not any(d.name == "Inner" for d in decls)
+
+    def test_typescript_arrow_function(self):
+        source = """export const handler = async (req: Request) => {
+    return new Response("ok");
+};
+
+export function greet(): string {
+    return "hi";
+}
+"""
+        decls = split_code_declarations(source, "typescript")
+        names = [d.name for d in decls]
+        assert "handler" in names
+        assert "greet" in names
+
+    def test_java_annotations_stay_with_class(self):
+        source = """import java.util.List;
+
+@Entity
+@Table(name = "users")
+public class User {
+    @Id
+    private Long id;
+
+    public Long getId() {
+        return id;
+    }
+}
+"""
+        decls = split_code_declarations(source, "java")
+        user = next(d for d in decls if d.name == "User")
+        assert "@Entity" in user.content
+        assert "@Table" in user.content
+
+    def test_go_var_block(self):
+        """Go var(...) blocks should be captured."""
+        source = """package main
+
+var (
+    ErrNotFound = errors.New("not found")
+    ErrTimeout  = errors.New("timeout")
+)
+
+func Run() {
+    // run
+}
+"""
+        decls = split_code_declarations(source, "go")
+        names = [d.name for d in decls]
+        assert "Run" in names
+        # The var block should exist as a declaration (not merged into preamble)
+        var_decls = [
+            d for d in decls if d.kind in ("variable", "preamble") and "ErrNotFound" in d.content
+        ]
+        assert len(var_decls) >= 1
+
+    def test_rust_impl_with_methods(self):
+        """impl blocks with methods should be a single declaration."""
+        source = """pub struct Server {
+    port: u16,
+}
+
+impl Server {
+    pub fn new(port: u16) -> Self {
+        Server { port }
+    }
+
+    pub fn start(&self) {
+        println!("Starting on port {}", self.port);
+    }
+}
+"""
+        decls = split_code_declarations(source, "rust")
+        impl_decl = next((d for d in decls if d.kind == "impl"), None)
+        assert impl_decl is not None
+        assert "pub fn new" in impl_decl.content
+        assert "pub fn start" in impl_decl.content
+
+    def test_template_literal_braces(self):
+        """Template literals with ${} should not corrupt brace counting."""
+        source = """function render(items) {
+    return `<div>
+        ${items.map(i => `<span>{${i}}</span>`)}
+    </div>`;
+}
+
+function other() {
+    return 1;
+}
+"""
+        decls = split_code_declarations(source, "javascript")
+        names = [d.name for d in decls]
+        assert "render" in names
+        assert "other" in names
+
 
 # ---------------------------------------------------------------------------
 # Code profile detection
