@@ -43,6 +43,8 @@ jobs:
 
       - name: Install dependencies and PyInstaller
         run: |
+          # Install torch CPU-only to avoid 2GB+ CUDA libs that blow past PyInstaller's 4GB limit
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -e "."
           pip install pyinstaller
 

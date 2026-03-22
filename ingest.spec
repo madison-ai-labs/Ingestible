@@ -35,23 +35,43 @@ torch_datas, torch_binaries, _ = collect_all("torch")
 
 # Filter out massive libraries we don't need
 _torch_exclude_patterns = [
+    # Training / distributed
     "distributed",
+    "nccl",
+    # Compilation stack
+    "inductor",
+    "_dynamo",
+    "compiler",
+    "functorch",
+    "nvfuser",
+    "triton",
+    "export",
+    "fx/",
+    # Quantization / profiling / testing
     "ao/",
     "testing",
+    "profiler",
     "tensorboard",
     "bottleneck",
     "benchmark",
-    "profiler",
+    # Legacy / interop
     "onnx",
     "caffe2",
-    "functorch",
-    "inductor",
-    "export",
-    "compiler",
-    "_dynamo",
-    "nccl",
-    "nvfuser",
-    "triton",
+    # CUDA shared libraries (>2GB on Linux, not needed for CPU/MPS inference)
+    "libtorch_cuda",
+    "libc10_cuda",
+    "libcudnn",
+    "libcublas",
+    "libcufft",
+    "libcurand",
+    "libcusparse",
+    "libcusolver",
+    "libnvrtc",
+    "libnvjitlink",
+    "libnvfuser",
+    "libnccl",
+    "cuda_runtime",
+    "nvidia/",
 ]
 
 def _torch_keep(entry):
