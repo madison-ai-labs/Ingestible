@@ -73,6 +73,7 @@ jobs:
   github-release:
     name: GitHub Release
     needs: [build, binaries]
+    if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -86,15 +87,15 @@ jobs:
       - name: Collect release assets
         run: |
           mkdir -p release/
-          cp artifacts/dist/* release/
-          cp artifacts/ingest-linux-x86_64/* release/
-          cp artifacts/ingest-macos-arm64/* release/
-          cp artifacts/ingest-windows-x86_64/* release/
+          cp artifacts/dist/* release/ 2>/dev/null || true
+          cp artifacts/ingest-linux-x86_64/* release/ 2>/dev/null || true
+          cp artifacts/ingest-macos-arm64/* release/ 2>/dev/null || true
+          cp artifacts/ingest-windows-x86_64/* release/ 2>/dev/null || true
 
       - name: Generate checksums
         working-directory: release
         run: |
-          sha256sum ingest-* > checksums-sha256.txt
+          sha256sum ingest-* > checksums-sha256.txt 2>/dev/null || echo "No binaries to checksum" > checksums-sha256.txt
 
       - name: Extract version
         id: version

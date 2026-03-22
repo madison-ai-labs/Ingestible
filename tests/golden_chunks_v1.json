@@ -1,0 +1,66 @@
+{
+  "settings": {
+    "max_chunk_tokens": 200,
+    "min_chunk_tokens": 30,
+    "chunking_strategy": "paragraph"
+  },
+  "counts": {
+    "l1": 3,
+    "l2": 4,
+    "l3": 4
+  },
+  "l3_chunks": [
+    {
+      "chunk_id": "golden-doc-ch1-sec1-p0-1f53dbaa",
+      "parent_section_id": "ch1-sec1",
+      "content_length": 220,
+      "token_count": 39,
+      "content_hash": 666770126,
+      "first_50_chars": "Machine learning is a subset of artificial intelli",
+      "position": {
+        "chapter": "ch1",
+        "section": "ch1-sec1",
+        "index": 0
+      }
+    },
+    {
+      "chunk_id": "golden-doc-ch1-sec2-p0-d3bfd1ae",
+      "parent_section_id": "ch1-sec2",
+      "content_length": 186,
+      "token_count": 33,
+      "content_hash": 386678958,
+      "first_50_chars": "Supervised learning uses labeled training data. Co",
+      "position": {
+        "chapter": "ch1",
+        "section": "ch1-sec2",
+        "index": 0
+      }
+    },
+    {
+      "chunk_id": "golden-doc-ch2-sec1-p0-b2d7e38a",
+      "parent_section_id": "ch2-sec1",
+      "content_length": 1025,
+      "token_count": 160,
+      "content_hash": 52698196,
+      "first_50_chars": "Natural language processing deals with the interac",
+      "position": {
+        "chapter": "ch2",
+        "section": "ch2-sec1",
+        "index": 0
+      }
+    },
+    {
+      "chunk_id": "golden-doc-ch3-sec1-p0-11bd8b9e",
+      "parent_section_id": "ch3-sec1",
+      "content_length": 351,
+      "token_count": 104,
+      "content_hash": 41257235,
+      "first_50_chars": "The following table compares model architectures:\n",
+      "position": {
+        "chapter": "ch3",
+        "section": "ch3-sec1",
+        "index": 0
+      }
+    }
+  ]
+}
