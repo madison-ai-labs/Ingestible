@@ -183,7 +183,7 @@ def run_eval():
         # --- Per-query breakdown for default hybrid ---
         try:
             default_report = evaluate_document(doc_id, settings, queries=queries, k=5)
-            print(f"\n  Per-query breakdown (hybrid default):")
+            print("\n  Per-query breakdown (hybrid default):")
             for r in default_report.results:
                 hit_marker = "✓" if r.hit else "✗"
                 print(f"    {hit_marker} MRR={r.reciprocal_rank:.2f} NDCG={r.ndcg_at_k:.2f}  {r.query[:60]}")
