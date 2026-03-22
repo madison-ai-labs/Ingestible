@@ -24,9 +24,9 @@ RUN groupadd -r ingestible && useradd -r -g ingestible -m ingestible
 
 WORKDIR /app
 
-# Install the wheel + gunicorn
+# Install the wheel with local embedding support
 COPY --from=builder /build/dist/*.whl /tmp/
-RUN pip install --no-cache-dir /tmp/*.whl gunicorn>=22.0 && \
+RUN pip install --no-cache-dir "/tmp/ingestible-*.whl[local]" && \
     rm /tmp/*.whl
 
 # Copy gunicorn config

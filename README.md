@@ -21,17 +21,20 @@ Instead of dumping 90,000 tokens into an LLM context window, Ingestible gives yo
 ## Install
 
 ```bash
-pip install ingestible
+pip install ingestible              # lightweight, uses API embeddings (OpenAI/Cohere/Voyage)
+pip install ingestible[local]       # + local embeddings via sentence-transformers + ChromaDB (~2GB)
 ```
 
 Optional extras:
 
 ```bash
-pip install ingestible[audio]    # audio/video transcription (faster-whisper)
-pip install ingestible[cloud]    # S3, GCS, Azure Blob connectors
-pip install ingestible[mcp]      # MCP server for AI agents
-pip install ingestible[watch]    # file watcher (watchdog)
+pip install ingestible[audio]       # audio/video transcription (faster-whisper)
+pip install ingestible[cloud]       # S3, GCS, Azure Blob connectors
+pip install ingestible[mcp]         # MCP server for AI agents
+pip install ingestible[watch]       # file watcher (watchdog)
 ```
+
+Without `[local]`, set `INGEST_EMBEDDING_PROVIDER=openai` (or `cohere`/`voyage`) to use API-based embeddings.
 
 Docker:
 

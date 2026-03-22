@@ -20,30 +20,34 @@ classifiers = [
 ]
 requires-python = ">=3.11,<3.14"
 dependencies = [
+    # Parsing
     "docling>=2.0",
     "pymupdf4llm>=0.0.10",
+    "python-docx>=1.1",
+    "markdownify>=0.13",
+    "ebooklib>=0.18",
+    "openpyxl>=3.1",
+    "python-pptx>=0.6",
+    "docutils>=0.20",
+    # LLM clients
     "openai>=1.0",
     "anthropic>=0.40",
-    "sentence-transformers>=3.0",
-    "chromadb>=0.5",
+    # Search (lightweight)
     "rank-bm25>=0.2",
     "tiktoken>=0.7",
+    "numpy>=1.24",
+    # Core
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "python-dotenv>=1.0",
-    "python-docx>=1.1",
-    "markdownify>=0.13",
-    "numpy>=1.24",
+    # API
     "fastapi>=0.115",
     "uvicorn>=0.32",
     "python-multipart>=0.0.12",
     "jinja2>=3.1",
     "aiofiles>=23.0",
     "httpx>=0.27",
-    "ebooklib>=0.18",
-    "openpyxl>=3.1",
-    "python-pptx>=0.6",
-    "docutils>=0.20",
+    # Production
     "slowapi>=0.1",
     "portalocker>=2.0",
     "structlog>=24.0",
@@ -52,7 +56,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Local embedding models (adds ~2GB: torch + sentence-transformers + chromadb)
+local = [
+    "sentence-transformers>=3.0",
+    "chromadb>=0.5",
+]
 dev = [
+    "sentence-transformers>=3.0",
+    "chromadb>=0.5",
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "ruff>=0.8",
