@@ -101,6 +101,16 @@ class CorpusSearcher:
         self._searcher_cache.put(doc_id, searcher)
         return searcher
 
+    def _load_doc_metas(self, doc_dirs: list[Path]) -> dict[str, dict]:
+        """Load and cache meta.json for a list of doc directories."""
+        metas: dict[str, dict] = {}
+        for d in doc_dirs:
+            try:
+                metas[d.name] = load_document_meta(d)
+            except Exception:
+                pass
+        return metas
+
     def search(
         self,
         query: str,
@@ -112,30 +122,37 @@ class CorpusSearcher:
     ) -> CorpusSearchResponse:
         """Search across all (or selected) documents, merging via RRF."""
         doc_dirs = self._discover_doc_dirs(doc_ids, tags=tags)
+        doc_dir_set = set(doc_dirs)
 
-        if not doc_dirs:
-            return CorpusSearchResponse(query=query)
+        # Load all metas once to avoid repeated I/O
+        metas = self._load_doc_metas(doc_dirs)
 
-        # Collect pinned document directories (search all docs, not just filtered)
-        pinned_dirs: list[Path] = []
+        # Find pinned docs not already in the search set
+        pinned_extra_dirs: list[Path] = []
         if not doc_ids:
-            # Only auto-include pinned docs when not explicitly filtering by doc_ids
             all_dirs = self._discover_doc_dirs()
             for d in all_dirs:
-                try:
-                    meta = load_document_meta(d)
-                    if meta.get("pinned", False) and d not in doc_dirs:
-                        pinned_dirs.append(d)
-                except Exception:
-                    pass
+                if d not in doc_dir_set:
+                    try:
+                        meta = load_document_meta(d)
+                        if meta.get("pinned", False):
+                            pinned_extra_dirs.append(d)
+                            metas[d.name] = meta
+                    except Exception:
+                        pass
+
+        if not doc_dirs and not pinned_extra_dirs:
+            return CorpusSearchResponse(query=query)
 
         # Query each document's searcher
         per_doc_results: list[tuple[str, str, list[SearchResult], list[str]]] = []
 
         for doc_dir in doc_dirs:
             doc_id = doc_dir.name
+            meta = metas.get(doc_id)
+            if meta is None:
+                continue
             try:
-                meta = load_document_meta(doc_dir)
                 doc_title = meta.get("title", doc_id)
                 doc_weight = meta.get("weight", 0.0)
                 doc_tags = meta.get("tags", [])
@@ -147,14 +164,19 @@ class CorpusSearcher:
             except Exception as e:
                 logger.warning("Search failed for %s: %s", doc_id, e)
 
-        # Query pinned documents that weren't in the main set
+        # Collect pinned results — from docs in main set + extra pinned docs
         pinned_results: list[SearchResult] = []
         pinned_top_n = self._settings.pinned_top_n
+        pinned_doc_dirs = pinned_extra_dirs + [
+            d for d in doc_dirs if metas.get(d.name, {}).get("pinned", False)
+        ]
 
-        for doc_dir in pinned_dirs:
+        for doc_dir in pinned_doc_dirs:
             doc_id = doc_dir.name
+            meta = metas.get(doc_id)
+            if meta is None:
+                continue
             try:
-                meta = load_document_meta(doc_dir)
                 doc_title = meta.get("title", doc_id)
                 doc_weight = meta.get("weight", 0.0)
                 doc_tags = meta.get("tags", [])
@@ -176,51 +198,20 @@ class CorpusSearcher:
             except Exception as e:
                 logger.warning("Pinned search failed for %s: %s", doc_id, e)
 
-        # Also collect pinned results from docs in the main set
-        for doc_dir in doc_dirs:
-            try:
-                meta = load_document_meta(doc_dir)
-                if meta.get("pinned", False):
-                    doc_id = doc_dir.name
-                    doc_title = meta.get("title", doc_id)
-                    doc_tags = meta.get("tags", [])
-                    doc_weight = meta.get("weight", 0.0)
-                    searcher = self._get_searcher(doc_dir, doc_weight=doc_weight)
-                    response = searcher.search(
-                        query, n_results=pinned_top_n, user_tags=user_tags, user=user
-                    )
-                    for r in response.results[:pinned_top_n]:
-                        pinned_results.append(
-                            r.model_copy(
-                                update={
-                                    "doc_id": doc_id,
-                                    "doc_title": doc_title,
-                                    "doc_tags": doc_tags,
-                                    "pinned": True,
-                                }
-                            )
-                        )
-            except Exception:
-                pass
-
         # Cross-document RRF merge
         scores: dict[str, float] = {}
         result_map: dict[str, SearchResult] = {}
 
         for doc_id, doc_title, results, doc_tags in per_doc_results:
             for rank, result in enumerate(results):
-                # Prefix chunk_id with doc_id to avoid collisions
                 key = f"{doc_id}::{result.chunk_id}"
                 rrf_score = 1.0 / (RRF_K + rank + 1)
                 scores[key] = scores.get(key, 0.0) + rrf_score
-
-                # Annotate with doc info
                 enriched = result.model_copy(
                     update={"doc_id": doc_id, "doc_title": doc_title, "doc_tags": doc_tags}
                 )
                 result_map[key] = enriched
 
-        # Sort and take top N
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:n_results]
 
         merged = []
@@ -239,7 +230,6 @@ class CorpusSearcher:
                     unique_pinned.append(pr)
                     seen_pinned_keys.add(key)
                 elif key in merged_keys:
-                    # Mark existing result as pinned
                     for i, mr in enumerate(merged):
                         if f"{mr.doc_id}::{mr.chunk_id}" == key:
                             merged[i] = mr.model_copy(update={"pinned": True})
