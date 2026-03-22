@@ -5,8 +5,10 @@
 
 <p align="center">
   <a href="https://pypi.org/project/ingestible"><img src="https://img.shields.io/pypi/v/ingestible" alt="PyPI"></a>
+  <a href="https://github.com/SimplyLiz/Ingestible/actions/workflows/ci.yml"><img src="https://github.com/SimplyLiz/Ingestible/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/SimplyLiz/Ingestible/pkgs/container/ingestible"><img src="https://img.shields.io/badge/docker-ghcr.io-blue?logo=docker&logoColor=white" alt="Docker"></a>
+  <a href="https://pypi.org/project/ingestible"><img src="https://img.shields.io/badge/python-3.11--3.13-3776AB?logo=python&logoColor=white" alt="Python 3.11-3.13"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Small%20Business-blue" alt="License"></a>
-  <img src="https://img.shields.io/badge/python-3.11--3.13-3776AB?logo=python&logoColor=white" alt="Python 3.11-3.13">
 </p>
 
 ---
