@@ -1,0 +1,200 @@
+{
+  "recomp_2310.04408-b788867b880a": {
+    "label": "RECOMP (prompt compression)",
+    "doc_id": "recomp_2310.04408-b788867b880a",
+    "strategies": {
+      "hybrid_default": {
+        "doc_id": "recomp_2310.04408-b788867b880a",
+        "total_queries": 5,
+        "k": 5,
+        "hit_rate": 0.8,
+        "mrr": 0.6,
+        "mean_precision_at_k": 0.36,
+        "mean_recall_at_k": 0.6,
+        "mean_ndcg_at_k": 0.5359
+      },
+      "vector_only": {
+        "doc_id": "recomp_2310.04408-b788867b880a",
+        "total_queries": 5,
+        "k": 5,
+        "hit_rate": 0.8,
+        "mrr": 0.6,
+        "mean_precision_at_k": 0.32,
+        "mean_recall_at_k": 0.5333,
+        "mean_ndcg_at_k": 0.4955
+      },
+      "bm25_only": {
+        "doc_id": "recomp_2310.04408-b788867b880a",
+        "total_queries": 5,
+        "k": 5,
+        "hit_rate": 1.0,
+        "mrr": 0.9,
+        "mean_precision_at_k": 0.52,
+        "mean_recall_at_k": 0.8667,
+        "mean_ndcg_at_k": 0.811
+      },
+      "hybrid_50_50": {
+        "doc_id": "recomp_2310.04408-b788867b880a",
+        "total_queries": 5,
+        "k": 5,
+        "hit_rate": 1.0,
+        "mrr": 0.64,
+        "mean_precision_at_k": 0.4,
+        "mean_recall_at_k": 0.6667,
+        "mean_ndcg_at_k": 0.5764
+      },
+      "hybrid_30_70": {
+        "doc_id": "recomp_2310.04408-b788867b880a",
+        "total_queries": 5,
+        "k": 5,
+        "hit_rate": 1.0,
+        "mrr": 0.74,
+        "mean_precision_at_k": 0.4,
+        "mean_recall_at_k": 0.6667,
+        "mean_ndcg_at_k": 0.6298
+      },
+      "hybrid_80_20": {
+        "doc_id": "recomp_2310.04408-b788867b880a",
+        "total_queries": 5,
+        "k": 5,
+        "hit_rate": 0.8,
+        "mrr": 0.6,
+        "mean_precision_at_k": 0.36,
+        "mean_recall_at_k": 0.6,
+        "mean_ndcg_at_k": 0.5318
+      }
+    }
+  },
+  "selectivecontext_2310.06201-39bcba21f823": {
+    "label": "Selective Context (self-information filtering)",
+    "doc_id": "selectivecontext_2310.06201-39bcba21f823",
+    "strategies": {
+      "hybrid_default": {
+        "doc_id": "selectivecontext_2310.06201-39bcba21f823",
+        "total_queries": 5,
+        "k": 5,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "mean_precision_at_k": 0.52,
+        "mean_recall_at_k": 0.8667,
+        "mean_ndcg_at_k": 0.8702
+      },
+      "vector_only": {
+        "doc_id": "selectivecontext_2310.06201-39bcba21f823",
+        "total_queries": 5,
+        "k": 5,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "mean_precision_at_k": 0.52,
+        "mean_recall_at_k": 0.8667,
+        "mean_ndcg_at_k": 0.8603
+      },
+      "bm25_only": {
+        "doc_id": "selectivecontext_2310.06201-39bcba21f823",
+        "total_queries": 5,
+        "k": 5,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "mean_precision_at_k": 0.56,
+        "mean_recall_at_k": 0.9333,
+        "mean_ndcg_at_k": 0.9229
+      },
+      "hybrid_50_50": {
+        "doc_id": "selectivecontext_2310.06201-39bcba21f823",
+        "total_queries": 5,
+        "k": 5,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "mean_precision_at_k": 0.52,
+        "mean_recall_at_k": 0.8667,
+        "mean_ndcg_at_k": 0.8661
+      },
+      "hybrid_30_70": {
+        "doc_id": "selectivecontext_2310.06201-39bcba21f823",
+        "total_queries": 5,
+        "k": 5,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "mean_precision_at_k": 0.52,
+        "mean_recall_at_k": 0.8667,
+        "mean_ndcg_at_k": 0.8866
+      },
+      "hybrid_80_20": {
+        "doc_id": "selectivecontext_2310.06201-39bcba21f823",
+        "total_queries": 5,
+        "k": 5,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "mean_precision_at_k": 0.52,
+        "mean_recall_at_k": 0.8667,
+        "mean_ndcg_at_k": 0.8702
+      }
+    }
+  },
+  "llmlingua-2_2403.12968-0fc7eb960768": {
+    "label": "LLMLingua-2 (prompt compression)",
+    "doc_id": "llmlingua-2_2403.12968-0fc7eb960768",
+    "strategies": {
+      "hybrid_default": {
+        "doc_id": "llmlingua-2_2403.12968-0fc7eb960768",
+        "total_queries": 5,
+        "k": 5,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "mean_precision_at_k": 0.52,
+        "mean_recall_at_k": 0.8667,
+        "mean_ndcg_at_k": 0.8686
+      },
+      "vector_only": {
+        "doc_id": "llmlingua-2_2403.12968-0fc7eb960768",
+        "total_queries": 5,
+        "k": 5,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "mean_precision_at_k": 0.48,
+        "mean_recall_at_k": 0.8,
+        "mean_ndcg_at_k": 0.8175
+      },
+      "bm25_only": {
+        "doc_id": "llmlingua-2_2403.12968-0fc7eb960768",
+        "total_queries": 5,
+        "k": 5,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "mean_precision_at_k": 0.48,
+        "mean_recall_at_k": 0.8,
+        "mean_ndcg_at_k": 0.8192
+      },
+      "hybrid_50_50": {
+        "doc_id": "llmlingua-2_2403.12968-0fc7eb960768",
+        "total_queries": 5,
+        "k": 5,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "mean_precision_at_k": 0.48,
+        "mean_recall_at_k": 0.8,
+        "mean_ndcg_at_k": 0.8404
+      },
+      "hybrid_30_70": {
+        "doc_id": "llmlingua-2_2403.12968-0fc7eb960768",
+        "total_queries": 5,
+        "k": 5,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "mean_precision_at_k": 0.48,
+        "mean_recall_at_k": 0.8,
+        "mean_ndcg_at_k": 0.8363
+      },
+      "hybrid_80_20": {
+        "doc_id": "llmlingua-2_2403.12968-0fc7eb960768",
+        "total_queries": 5,
+        "k": 5,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "mean_precision_at_k": 0.52,
+        "mean_recall_at_k": 0.8667,
+        "mean_ndcg_at_k": 0.8644
+      }
+    }
+  }
+}
