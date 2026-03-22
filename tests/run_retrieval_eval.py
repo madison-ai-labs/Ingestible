@@ -140,9 +140,9 @@ def run_eval():
             print(f"SKIP {eval_set['label']}: document not found")
             continue
 
-        print(f"\n{'='*72}")
+        print(f"\n{'=' * 72}")
         print(f"Evaluating: {eval_set['label']} ({doc_id})")
-        print(f"{'='*72}")
+        print(f"{'=' * 72}")
 
         queries = _match_queries_to_chunks(doc_id, eval_set["queries"], settings)
         if not queries:
@@ -164,7 +164,7 @@ def run_eval():
         }
 
         print(f"\n  {'Strategy':<20} {'Hit@5':>8} {'MRR':>8} {'P@5':>8} {'R@5':>8} {'NDCG@5':>8}")
-        print(f"  {'-'*60}")
+        print(f"  {'-' * 60}")
 
         for name, weights in weight_configs.items():
             s = settings.model_copy(update=weights)
@@ -186,7 +186,9 @@ def run_eval():
             print("\n  Per-query breakdown (hybrid default):")
             for r in default_report.results:
                 hit_marker = "✓" if r.hit else "✗"
-                print(f"    {hit_marker} MRR={r.reciprocal_rank:.2f} NDCG={r.ndcg_at_k:.2f}  {r.query[:60]}")
+                print(
+                    f"    {hit_marker} MRR={r.reciprocal_rank:.2f} NDCG={r.ndcg_at_k:.2f}  {r.query[:60]}"
+                )
                 if not r.hit:
                     print(f"      Expected: {r.expected_chunk_ids[:2]}")
                     print(f"      Got:      {r.retrieved_chunk_ids[:3]}")
@@ -196,11 +198,18 @@ def run_eval():
         results[doc_id] = doc_results
 
     # --- Aggregate cross-document summary ---
-    print(f"\n{'='*72}")
+    print(f"\n{'=' * 72}")
     print("CROSS-DOCUMENT SUMMARY")
-    print(f"{'='*72}")
+    print(f"{'=' * 72}")
 
-    for strategy in ["hybrid_default", "vector_only", "bm25_only", "hybrid_50_50", "hybrid_30_70", "hybrid_80_20"]:
+    for strategy in [
+        "hybrid_default",
+        "vector_only",
+        "bm25_only",
+        "hybrid_50_50",
+        "hybrid_30_70",
+        "hybrid_80_20",
+    ]:
         hit_rates = []
         mrrs = []
         ndcgs = []
@@ -215,7 +224,9 @@ def run_eval():
             avg_hit = sum(hit_rates) / len(hit_rates)
             avg_mrr = sum(mrrs) / len(mrrs)
             avg_ndcg = sum(ndcgs) / len(ndcgs)
-            print(f"  {strategy:<20} avg_hit={avg_hit:.1%}  avg_MRR={avg_mrr:.4f}  avg_NDCG={avg_ndcg:.4f}")
+            print(
+                f"  {strategy:<20} avg_hit={avg_hit:.1%}  avg_MRR={avg_mrr:.4f}  avg_NDCG={avg_ndcg:.4f}"
+            )
 
     # Save raw results
     out_path = Path(__file__).parent.parent / "docs" / "reports" / "eval_results.json"
