@@ -189,7 +189,7 @@ Passages found by multiple indexes rank higher. No score normalization needed.
 - **File watcher** — `ingest watch` monitors a directory and auto-ingests on changes
 - **Retrieval evaluation** — Hit Rate, MRR, Precision@K with synthetic or manual queries
 - **Document access control** — per-document access tags, filtered at retrieval time
-- **Retrieval audit trail** — every search logged to JSONL with query, user, results, latency
+- **Full data lifecycle audit trail** — ingest, search, delete, export, re-enrich, webhook events logged to JSONL with user identity and timestamps
 - **Embedding providers** — local (sentence-transformers), OpenAI, Cohere, Voyage
 - **Zero cloud dependencies** — embeddings run locally. LLM enrichment is optional.
 
@@ -309,6 +309,35 @@ ingest ingest /path/to/docs/ \
 
 </details>
 
+## Compliance & Data Governance
+
+Ingestible is designed for regulated environments. See [COMPLIANCE.md](COMPLIANCE.md) for full details on GDPR, EU AI Act, and ISO mapping.
+
+### On-prem / air-gapped deployment
+
+With `pip install ingestible[local]` and `--skip-enrichment`, **zero data leaves your infrastructure**. No API calls, no cloud dependencies, no external network access. Embeddings run locally, search runs locally, storage is local JSON on disk. This is the strongest compliance posture.
+
+### Standard deployment (with LLM enrichment)
+
+When LLM enrichment is enabled, chunk text (~250-500 tokens each) is sent to the configured LLM provider (Anthropic or OpenAI). Both are EU-US Data Privacy Framework certified. The deploying organization must sign the provider's DPA.
+
+### What's built in
+
+| Capability | Details |
+|-----------|---------|
+| **Data lifecycle audit** | Every ingest, search, delete, export, re-enrich, and webhook event logged to `data/audit.jsonl` with user identity and timestamps |
+| **Deletion proof** | DELETE operations are audit-logged — evidence for GDPR Art. 17 right to erasure |
+| **User identity** | `X-User-ID` header (from auth proxy) or bearer token. Propagated to all audit events and structured logs |
+| **Access control** | Per-document access tags, filtered at retrieval time (not post-filtering) |
+| **Request tracing** | `X-Request-ID` header generated/propagated through all logs |
+| **Version-aware search** | Superseded content from old document versions ranked lower, never silently served as current |
+| **AI transparency** | AI-generated fields clearly named (`summary`, `hypothetical_questions`, `kg_triples`). Non-AI fields are deterministic |
+| **Quality monitoring** | `ingest eval` measures retrieval precision/recall against synthetic or manual test sets |
+
+### EU AI Act classification
+
+Ingestible is a **data processing pipeline**, not an AI system under Art. 3(1). EU AI Act obligations apply to the LLM providers (Anthropic, OpenAI) and to deployers of high-risk systems that use Ingestible as a component — not to Ingestible itself.
+
 ## Documentation
 
 - [Architecture Overview](docs/architecture.md) — pipeline stages, data flow, project structure
@@ -317,6 +346,7 @@ ingest ingest /path/to/docs/ \
 - [REST API Reference](docs/api.md) — all HTTP endpoints
 - [Token Economics](docs/token-economics.md) — why hierarchical retrieval matters, real-world numbers
 - [CognitiveVault Integration](docs/cv-integration.md) — export to CognitiveVault
+- [Compliance & Data Governance](COMPLIANCE.md) — GDPR, EU AI Act, ISO 27001, Austrian DSG
 - [Roadmap](docs/roadmap.md)
 - [Changelog](CHANGELOG.md)
 

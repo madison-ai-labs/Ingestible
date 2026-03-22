@@ -14,7 +14,8 @@ This document describes how Ingestible maps to EU/Austrian regulatory requiremen
 |-------------|---------------|--------|
 | **Right to erasure (Art. 17)** | `DELETE /documents/{doc_id}` removes all data (chunks, indexes, metadata, checkpoints) | Implemented |
 | **Access control (Art. 25)** | Per-document access tags, `X-Access-Tags` header filtering at retrieval time | Implemented |
-| **Audit trail (Art. 5(2))** | Search queries logged to `data/audit.jsonl` with user, query, results, timestamps | Implemented |
+| **Full data lifecycle audit (Art. 5(2))** | All events logged to `data/audit.jsonl`: ingest, search, delete, export, re-enrich, webhook — with user identity (`X-User-ID` header or bearer token) and timestamps | Implemented |
+| **Deletion proof (Art. 17)** | DELETE operations logged to audit trail with doc_id, user, and timestamp — verifiable evidence of erasure | Implemented |
 | **Data minimization (Art. 5(1)(c))** | Content-tier classification skips enrichment on verbatim content; selective re-enrichment only processes changed chunks | Implemented |
 | **Local processing** | Embeddings run locally with `[local]` extra. LLM enrichment is skippable (`--skip-enrichment`). Zero data leaves your infrastructure if configured this way. | Implemented |
 | **Authentication** | Bearer token auth with constant-time comparison (no timing attacks) | Implemented |
