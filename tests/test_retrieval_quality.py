@@ -256,7 +256,9 @@ class TestRetrievalQuality:
         # Thresholds: with topic-clustered embeddings, we expect decent retrieval
         assert report.hit_rate >= 0.5, f"Hit rate too low: {report.hit_rate:.2f}"
         assert report.mrr >= 0.3, f"MRR too low: {report.mrr:.4f}"
-        assert report.mean_ndcg_at_k >= 0.0, "NDCG should be non-negative"
+        assert report.mean_ndcg_at_k >= 0.3, (
+            f"NDCG@5 too low: {report.mean_ndcg_at_k:.4f} (minimum 0.30)"
+        )
 
     def test_eval_report_fields_populated(self, tmp_path):
         """Verify evaluate_document returns fully populated EvalReport."""

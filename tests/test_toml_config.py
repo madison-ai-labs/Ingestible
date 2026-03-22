@@ -95,7 +95,7 @@ class TestTomlConfigSource:
         settings = Settings()
 
         assert settings.vector_weight == 0.9
-        assert settings.bm25_weight == 0.3  # default unchanged
+        assert settings.bm25_weight == 0.6  # default unchanged
 
 
 class TestConfigCLI:

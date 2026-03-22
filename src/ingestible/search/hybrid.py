@@ -116,6 +116,24 @@ class HybridSearcher:
             scores[cid] = scores.get(cid, 0.0) + concept_boost
             sources.setdefault(cid, []).append("concept")
 
+        # Exact-match term boost: reward chunks containing query terms verbatim.
+        # Helps with proper nouns, acronyms, and entity-specific queries where
+        # vector embeddings underweight surface-level matches.
+        exact_boost = self._settings.exact_match_boost
+        query_terms = [t.lower() for t in query.split() if len(t) >= 3]
+        if query_terms and exact_boost > 0:
+            for cid in list(scores.keys()):
+                chunk = self._chunk_map.get(cid)
+                if chunk is None:
+                    continue
+                content_lower = chunk.content.lower()
+                matches = sum(1 for t in query_terms if t in content_lower)
+                if matches >= 2:
+                    bonus = exact_boost * matches
+                    scores[cid] += bonus
+                    if "exact" not in sources.get(cid, []):
+                        sources.setdefault(cid, []).append("exact")
+
         # Version-aware weighting: superseded chunks get 0.3x score
         for cid in superseded_cids:
             if cid in scores:

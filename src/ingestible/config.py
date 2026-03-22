@@ -149,8 +149,9 @@ class Settings(BaseSettings):
 
     # Search
     searcher_cache_size: int = 50  # max cached document searchers in memory
-    vector_weight: float = 0.7
-    bm25_weight: float = 0.3
+    vector_weight: float = 0.4
+    bm25_weight: float = 0.6
+    exact_match_boost: float = 0.003  # per-term bonus for verbatim query term matches
     default_search_results: int = 5
     reranker_model: str = ""
     reranker_top_k: int = 50
