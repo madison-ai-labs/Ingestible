@@ -83,6 +83,37 @@ def main(argv: list[str] | None = None) -> None:
         help="Comma-separated category tags for filtering (e.g. compliance,coding,style)",
     )
 
+    # --- parse (parse-only, no storage) ---
+    p_parse = sub.add_parser(
+        "parse",
+        help="Parse and chunk a document without storing. Outputs JSONL to stdout.",
+    )
+    p_parse.add_argument("file_path", help="Path to document or directory")
+    p_parse.add_argument(
+        "--format",
+        choices=["jsonl", "json"],
+        default="jsonl",
+        help="Output format (default: jsonl)",
+    )
+    p_parse.add_argument(
+        "-o", "--output",
+        default=None,
+        help="Output file (default: stdout)",
+    )
+    p_parse.add_argument(
+        "--chunking",
+        choices=["paragraph", "semantic", "recursive", "docling", "code"],
+        default=None,
+        help="Chunking strategy (default: from config)",
+    )
+    p_parse.add_argument(
+        "--profile",
+        choices=["auto", "paper", "article", "documentation", "general", "code"],
+        default=None,
+        help="Extraction profile (default: auto-detect)",
+    )
+    p_parse.add_argument("-v", "--verbose", action="store_true")
+
     # --- list ---
     sub.add_parser("list", help="List all ingested documents")
 
@@ -233,6 +264,8 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "ingest":
         _cmd_ingest(args)
+    elif args.command == "parse":
+        _cmd_parse(args)
     elif args.command == "list":
         _cmd_list()
     elif args.command == "search":
@@ -423,6 +456,128 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
             tags=parsed_tags,
         )
         print(f"Ingested → {doc_dir}")
+
+
+def _cmd_parse(args: argparse.Namespace) -> None:
+    """Parse and chunk document(s) without storing. Output JSONL to stdout or file."""
+    import json
+    import logging
+    import tempfile
+    from pathlib import Path
+
+    from ingestible.config import get_settings
+    from ingestible.models.document import ParsedDocument
+    from ingestible.pipeline.orchestrator import generate_doc_id
+    from ingestible.pipeline.stage1_parsing import parse_document
+    from ingestible.pipeline.stage1b_clean import clean_document
+    from ingestible.pipeline.stage2_structure import detect_structure
+    from ingestible.pipeline.stage3_chunking import chunk_document
+    from ingestible.pipeline.stage3b_validation import validate_chunks
+    from ingestible.profiles import PROFILES, detect_profile
+
+    if args.verbose:
+        logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    overrides = {}
+    if args.chunking:
+        overrides["chunking_strategy"] = args.chunking
+    if args.profile:
+        overrides["extraction_profile"] = args.profile
+    # Use a temp data dir — nothing is persisted
+    overrides["data_dir"] = Path(tempfile.mkdtemp(prefix="ingest-parse-"))
+    settings = get_settings(**overrides)
+
+    file_path = Path(args.file_path).resolve()
+
+    # Collect files
+    if file_path.is_dir():
+        supported = {'.pdf', '.docx', '.doc', '.txt', '.md', '.rst', '.html',
+                     '.epub', '.pptx', '.xlsx', '.csv', '.json', '.jsonl', '.xml'}
+        files = sorted(f for f in file_path.iterdir()
+                       if f.suffix.lower() in supported and not f.name.startswith('.'))
+    else:
+        files = [file_path]
+
+    # Output target
+    out = sys.stdout
+    output_path = None
+    if args.output:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        out = open(output_path, "w", encoding="utf-8")
+
+    total_chunks = 0
+
+    for fp in files:
+        try:
+            # Stage 1: Parse
+            parsed = parse_document(fp, timeout=settings.parse_timeout)
+
+            # Stage 1b: Clean
+            if settings.cleaning_enabled:
+                parsed = clean_document(parsed)
+
+            # Profile detection
+            if settings.extraction_profile == "auto":
+                profile_name = detect_profile(parsed)
+            else:
+                profile_name = settings.extraction_profile
+            profile = PROFILES.get(profile_name, PROFILES["general"])
+
+            # Apply profile overrides
+            chunk_settings = settings
+            profile_overrides = {}
+            if profile.max_chunk_tokens is not None:
+                profile_overrides["max_chunk_tokens"] = profile.max_chunk_tokens
+            if profile.min_chunk_tokens is not None:
+                profile_overrides["min_chunk_tokens"] = profile.min_chunk_tokens
+            if profile.chunking_strategy is not None:
+                profile_overrides["chunking_strategy"] = profile.chunking_strategy
+            if profile_overrides:
+                chunk_settings = settings.model_copy(update=profile_overrides)
+
+            # Stage 2: Structure
+            doc_id = generate_doc_id(fp)
+            structure = detect_structure(parsed, doc_id)
+
+            # Stage 3: Chunk + validate
+            chunks = chunk_document(structure, chunk_settings)
+            chunks, _ = validate_chunks(chunks)
+
+            # Output JSONL
+            for chunk in chunks.l3_chunks:
+                record = {
+                    "id": chunk.chunk_id,
+                    "doc_id": doc_id,
+                    "doc_title": chunks.l0.title or fp.stem,
+                    "content": chunk.content,
+                    "summary": chunk.summary,
+                    "chapter": chunk.position.chapter,
+                    "section": chunk.position.section,
+                    "page_start": chunk.page_start,
+                    "page_end": chunk.page_end,
+                    "concepts": chunk.concepts,
+                    "keywords": chunk.keywords,
+                    "profile": profile_name,
+                }
+                out.write(json.dumps(record, ensure_ascii=False) + "\n")
+                total_chunks += 1
+
+            if args.verbose:
+                print(f"  {fp.name}: {len(chunks.l3_chunks)} chunks ({profile_name})", file=sys.stderr)
+
+        except Exception as e:
+            print(f"  {fp.name}: FAILED — {e}", file=sys.stderr)
+
+    if output_path:
+        out.close()
+        print(f"{total_chunks} chunks → {output_path}", file=sys.stderr)
+    elif args.verbose:
+        print(f"{total_chunks} chunks", file=sys.stderr)
+
+    # Cleanup temp dir
+    import shutil
+    shutil.rmtree(str(overrides["data_dir"]), ignore_errors=True)
 
 
 def _cmd_list() -> None:
