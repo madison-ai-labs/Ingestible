@@ -96,7 +96,8 @@ def main(argv: list[str] | None = None) -> None:
         help="Output format (default: jsonl)",
     )
     p_parse.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         default=None,
         help="Output file (default: stdout)",
     )
@@ -124,6 +125,17 @@ def main(argv: list[str] | None = None) -> None:
     p_search.add_argument(
         "-n", "--results", type=int, default=5, help="Number of results (default: 5)"
     )
+    p_search.add_argument(
+        "--hyde",
+        action="store_true",
+        help="Use HyDE (Hypothetical Document Embeddings) query expansion",
+    )
+    p_search.add_argument(
+        "--auto-merge", action="store_true", help="Auto-merge L3 results into parent L2/L1 chunks"
+    )
+    p_search.add_argument(
+        "--kg", action="store_true", help="Boost results using knowledge graph relationships"
+    )
 
     # --- corpus-search ---
     p_csearch = sub.add_parser("corpus-search", help="Search across all ingested documents")
@@ -138,6 +150,13 @@ def main(argv: list[str] | None = None) -> None:
         "--tags",
         default=None,
         help="Comma-separated tags to filter documents (e.g. compliance,style)",
+    )
+    p_csearch.add_argument("--hyde", action="store_true", help="Use HyDE query expansion")
+    p_csearch.add_argument(
+        "--auto-merge", action="store_true", help="Auto-merge L3 results into parent L2/L1 chunks"
+    )
+    p_csearch.add_argument(
+        "--kg", action="store_true", help="Boost results using knowledge graph relationships"
     )
 
     # --- enrich ---
@@ -212,6 +231,11 @@ def main(argv: list[str] | None = None) -> None:
         "--compare", action="store_true", help="Compare hybrid vs vector-only vs BM25-only"
     )
     eval_parser.add_argument("--output", "-o", help="Save detailed results to JSON file")
+    eval_parser.add_argument(
+        "--judge",
+        action="store_true",
+        help="Use LLM-as-judge scoring (faithfulness, relevance, completeness)",
+    )
 
     # --- audit ---
     audit_parser = sub.add_parser("audit", help="View search audit trail")
@@ -304,7 +328,28 @@ def main(argv: list[str] | None = None) -> None:
             queries = load_eval_queries(Path(args.queries))
             print(f"Loaded {len(queries)} eval queries from {args.queries}")
 
-        if args.compare:
+        if args.judge:
+            import asyncio
+
+            from ingestible.eval_llm_judge import evaluate_with_judge
+
+            report = asyncio.run(
+                evaluate_with_judge(
+                    args.doc_id,
+                    settings,
+                    queries,
+                    k=args.k,
+                    concurrency=settings.llm_judge_concurrency,
+                )
+            )
+            print(report.summary())
+
+            if args.output:
+                import json
+
+                Path(args.output).write_text(json.dumps(report.to_dict(), indent=2))
+                print(f"\nDetailed results saved to {args.output}")
+        elif args.compare:
             reports = compare_strategies(args.doc_id, settings, queries, k=args.k)
             for name, report in reports.items():
                 print(f"\n--- {name} ---")
@@ -466,7 +511,6 @@ def _cmd_parse(args: argparse.Namespace) -> None:
     from pathlib import Path
 
     from ingestible.config import get_settings
-    from ingestible.models.document import ParsedDocument
     from ingestible.pipeline.orchestrator import generate_doc_id
     from ingestible.pipeline.stage1_parsing import parse_document
     from ingestible.pipeline.stage1b_clean import clean_document
@@ -491,10 +535,27 @@ def _cmd_parse(args: argparse.Namespace) -> None:
 
     # Collect files
     if file_path.is_dir():
-        supported = {'.pdf', '.docx', '.doc', '.txt', '.md', '.rst', '.html',
-                     '.epub', '.pptx', '.xlsx', '.csv', '.json', '.jsonl', '.xml'}
-        files = sorted(f for f in file_path.iterdir()
-                       if f.suffix.lower() in supported and not f.name.startswith('.'))
+        supported = {
+            ".pdf",
+            ".docx",
+            ".doc",
+            ".txt",
+            ".md",
+            ".rst",
+            ".html",
+            ".epub",
+            ".pptx",
+            ".xlsx",
+            ".csv",
+            ".json",
+            ".jsonl",
+            ".xml",
+        }
+        files = sorted(
+            f
+            for f in file_path.iterdir()
+            if f.suffix.lower() in supported and not f.name.startswith(".")
+        )
     else:
         files = [file_path]
 
@@ -564,7 +625,9 @@ def _cmd_parse(args: argparse.Namespace) -> None:
                 total_chunks += 1
 
             if args.verbose:
-                print(f"  {fp.name}: {len(chunks.l3_chunks)} chunks ({profile_name})", file=sys.stderr)
+                print(
+                    f"  {fp.name}: {len(chunks.l3_chunks)} chunks ({profile_name})", file=sys.stderr
+                )
 
         except Exception as e:
             print(f"  {fp.name}: FAILED — {e}", file=sys.stderr)
@@ -577,6 +640,7 @@ def _cmd_parse(args: argparse.Namespace) -> None:
 
     # Cleanup temp dir
     import shutil
+
     shutil.rmtree(str(overrides["data_dir"]), ignore_errors=True)
 
 
@@ -606,7 +670,15 @@ def _cmd_search(args: argparse.Namespace) -> None:
     from ingestible.pipeline.stage6_storage import load_chunks
     from ingestible.search.hybrid import load_searcher
 
-    settings = get_settings()
+    overrides = {}
+    if getattr(args, "hyde", False):
+        overrides["hyde_enabled"] = True
+    if getattr(args, "auto_merge", False):
+        overrides["auto_merge_enabled"] = True
+    if getattr(args, "kg", False):
+        overrides["kg_retrieval_enabled"] = True
+
+    settings = get_settings(**overrides)
     doc_dir = settings.documents_dir / args.doc_id
 
     if not doc_dir.exists():
@@ -618,7 +690,50 @@ def _cmd_search(args: argparse.Namespace) -> None:
     embedder = Embedder(settings)
     searcher = load_searcher(doc_dir, chunks, embedder, settings)
 
-    response = searcher.search(args.query, n_results=args.results)
+    # HyDE query expansion — only affects vector embedding, not BM25/concept/exact
+    query = args.query
+    hyde_query = None
+    if settings.hyde_enabled:
+        import asyncio
+
+        from ingestible.search.query_expansion import QueryExpansionConfig, expand_query
+
+        config = QueryExpansionConfig(hyde_enabled=True)
+        expanded = asyncio.run(expand_query(query, config, settings))
+        if expanded and expanded[0] != query:
+            hyde_query = expanded[0]
+            print(f"HyDE expanded query: {hyde_query[:100]}...")
+
+    # Sub-question decomposition — search each independently, merge results
+    if settings.sub_questions_enabled:
+        import asyncio as _asyncio
+
+        from ingestible.models.search import SearchResponse, SearchResult
+        from ingestible.search.query_expansion import QueryExpansionConfig as _SQConfig
+        from ingestible.search.query_expansion import expand_query as _sq_expand
+
+        sq_config = _SQConfig(
+            sub_questions_enabled=True, max_sub_questions=settings.max_sub_questions
+        )
+        sub_queries = _asyncio.run(_sq_expand(query, sq_config, settings))
+        if len(sub_queries) > 1:
+            merged: dict[str, SearchResult] = {}
+            for sq in sub_queries:
+                resp = searcher.search(sq, n_results=args.results, hyde_query=hyde_query)
+                for r in resp.results:
+                    if r.chunk_id not in merged or r.score > merged[r.chunk_id].score:
+                        merged[r.chunk_id] = r
+            results = sorted(merged.values(), key=lambda r: r.score, reverse=True)[: args.results]
+            response = SearchResponse(
+                doc_id=resp.doc_id,
+                query=query,
+                results=results,
+                total_candidates=len(merged),
+            )
+        else:
+            response = searcher.search(query, n_results=args.results, hyde_query=hyde_query)
+    else:
+        response = searcher.search(query, n_results=args.results, hyde_query=hyde_query)
 
     if not response.results:
         print("No results found.")
@@ -647,13 +762,39 @@ def _cmd_corpus_search(args: argparse.Namespace) -> None:
     from ingestible.config import get_settings
     from ingestible.search.corpus import CorpusSearcher
 
-    settings = get_settings()
+    overrides = {}
+    if getattr(args, "auto_merge", False):
+        overrides["auto_merge_enabled"] = True
+    if getattr(args, "kg", False):
+        overrides["kg_retrieval_enabled"] = True
+
+    settings = get_settings(**overrides)
+
+    # HyDE: expand once at corpus level, pass to all per-doc searchers
+    hyde_query = None
+    if getattr(args, "hyde", False):
+        import asyncio
+
+        from ingestible.search.query_expansion import HyDEExpander
+
+        try:
+            expander = HyDEExpander(settings)
+            hyde_query = asyncio.run(expander.expand(args.query))
+            if hyde_query:
+                print(f"HyDE expanded query: {hyde_query[:100]}...")
+        except Exception:
+            pass
+
     filter_tags = None
     if args.tags:
         filter_tags = [t.strip() for t in args.tags.split(",") if t.strip()]
     searcher = CorpusSearcher(settings)
     response = searcher.search(
-        args.query, n_results=args.results, doc_ids=args.doc_ids, tags=filter_tags
+        args.query,
+        n_results=args.results,
+        doc_ids=args.doc_ids,
+        tags=filter_tags,
+        hyde_query=hyde_query,
     )
 
     if not response.results:

@@ -160,6 +160,32 @@ class Settings(BaseSettings):
     reranker_weight: float = 0.5
     pinned_top_n: int = 3  # chunks per pinned document to always include in corpus search
 
+    # Auto-merge retrieval
+    auto_merge_enabled: bool = False
+    auto_merge_threshold: int = 3  # min L3 chunks from same L2 to trigger merge
+    auto_merge_prefer_l1: bool = False  # also try merging L2s up to L1
+
+    # Query expansion (HyDE + sub-question decomposition)
+    hyde_enabled: bool = False  # use HyDE (Hypothetical Document Embeddings) for queries
+    sub_questions_enabled: bool = False  # decompose complex queries into sub-questions
+    max_sub_questions: int = 3
+
+    # Knowledge graph retrieval
+    kg_retrieval_enabled: bool = False  # boost search with KG entity relationships
+    kg_boost_weight: float = 0.01  # max boost from KG traversal
+    kg_max_hops: int = 1  # relationship traversal depth
+    kg_min_confidence: float = 0.5  # min triple confidence to follow
+    kg_seed_top_n: int = 10  # top results to use as KG expansion seeds
+
+    # LLM-as-judge evaluation
+    llm_judge_enabled: bool = False
+    llm_judge_concurrency: int = 5
+
+    # Vector backend
+    vector_backend: Literal["chroma", "pgvector", "qdrant"] = "chroma"
+    pgvector_url: str = ""
+    qdrant_url: str = "http://localhost:6333"
+
     @property
     def documents_dir(self) -> Path:
         return self.data_dir / "documents"
