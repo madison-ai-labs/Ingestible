@@ -104,6 +104,9 @@ ingest list
 
 # Search
 ingest search <doc_id> "your query here"
+
+# Parse only — get structured chunks as JSONL, no storage
+ingest parse /path/to/document.pdf
 ```
 
 First run downloads the E5-large-v2 embedding model (~1.3 GB). Runs locally on CPU / Apple Silicon MPS / CUDA.
@@ -187,6 +190,7 @@ Passages found by multiple indexes rank higher. No score normalization needed.
 
 - **MCP server** — AI agents (Claude, GPT) can ingest and search directly via Model Context Protocol
 - **Cloud storage** — ingest from S3, GCS, Azure Blob (`s3://`, `gs://`, `az://`)
+- **Parse mode** — `ingest parse` outputs structured chunks as JSONL without storing. Feed directly to external systems.
 - **Export** — JSONL, Parquet, LlamaIndex, LangChain formats
 - **File watcher** — `ingest watch` monitors a directory and auto-ingests on changes
 - **Retrieval evaluation** — Hit Rate, MRR, Precision@K with synthetic or manual queries
@@ -279,6 +283,7 @@ See the [Usage Guide](docs/usage.md) for the full list.
 
 ```bash
 ingest ingest <path>           # Ingest a file or directory
+ingest parse <path>            # Parse only — JSONL to stdout, no storage
 ingest list                    # List all ingested documents
 ingest search <doc_id> <query> # Search within a document
 ingest corpus-search <query>   # Search across all documents
@@ -310,6 +315,58 @@ ingest ingest /path/to/docs/ \
 ```
 
 </details>
+
+<details>
+<summary>Parse options</summary>
+
+```bash
+ingest parse /path/to/docs/ \
+  --profile auto \              # auto | paper | article | documentation | general
+  --chunking paragraph \        # paragraph | semantic | recursive | docling
+  -o chunks.jsonl \             # output file (default: stdout)
+  -v                            # verbose logging to stderr
+```
+
+</details>
+
+## Parse Mode
+
+`ingest parse` runs the parsing and chunking pipeline without storing anything. It outputs structured JSONL chunks to stdout or a file — designed for feeding external systems like training pipelines, knowledge graphs, or RAG backends.
+
+```bash
+# Single document → stdout
+ingest parse paper.pdf
+
+# Directory → file
+ingest parse ~/Documents/Papers/ -o chunks.jsonl
+
+# With options
+ingest parse paper.pdf --profile paper --chunking semantic -v
+```
+
+**What it runs:** Parse → Clean → Structure detection → Chunk → Validate. No embeddings, no search indexes, no enrichment, no storage. Uses a temp directory that's cleaned up after.
+
+**Output format (JSONL):**
+```json
+{"id": "doc-chunk-001", "doc_id": "paper-a1b2c3", "doc_title": "Paper Title", "content": "The chunk text...", "summary": null, "chapter": "Introduction", "section": "Background", "page_start": 3, "page_end": 3, "concepts": [], "keywords": [], "profile": "paper"}
+```
+
+**Use cases:**
+- Feeding training data to ML pipelines (e.g., ANCS VBC model training)
+- Populating external vector databases
+- Building custom RAG systems that handle their own storage
+- Batch extraction scripts that need structured text from PDFs
+
+**Compared to `ingest ingest` + `ingest export`:**
+
+| | `ingest ingest` + `export` | `ingest parse` |
+|---|---|---|
+| Storage | Writes to `data/documents/` | Nothing persisted |
+| Indexes | Builds BM25 + vector + concept | None |
+| Embeddings | Computed and stored | Skipped |
+| Output | Export per doc_id | Single JSONL stream |
+| Speed | Slower (indexing overhead) | Faster (parse + chunk only) |
+| Use case | Search and retrieval | External consumption |
 
 ## Compliance & Data Governance
 
