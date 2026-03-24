@@ -130,31 +130,99 @@ class AnthropicClient:
         return output_type.model_validate(tool_block.input)
 
 
+class GeminiClient:
+    """Google Gemini via the google-genai SDK with structured output."""
+
+    def __init__(self, api_key: str, model: str, timeout: int = 120):
+        from google import genai
+
+        self._client = genai.Client(api_key=api_key, http_options={"timeout": timeout * 1000})
+        self._model = model
+
+    async def generate_json(self, prompt: str, output_type: type[T]) -> T:
+        from google.genai import types
+
+        response = await self._client.aio.models.generate_content(
+            model=self._model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=output_type,
+                temperature=0.3,
+            ),
+        )
+        return output_type.model_validate_json(response.text)
+
+
+class OllamaClient:
+    """Ollama via its OpenAI-compatible API with JSON output."""
+
+    def __init__(self, base_url: str, model: str, timeout: int = 120):
+        import openai
+
+        self._client = openai.AsyncOpenAI(
+            base_url=f"{base_url.rstrip('/')}/v1",
+            api_key="ollama",
+            timeout=timeout,
+        )
+        self._model = model
+
+    async def generate_json(self, prompt: str, output_type: type[T]) -> T:
+        import json
+
+        schema = output_type.model_json_schema()
+        response = await self._client.chat.completions.create(
+            model=self._model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Respond with valid JSON matching this schema:\n"
+                        f"{json.dumps(schema, indent=2)}"
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.3,
+        )
+        return output_type.model_validate_json(response.choices[0].message.content)
+
+
 def _make_client(settings: Settings) -> LLMClient:
     timeout = settings.llm_timeout
+
+    if settings.llm_provider == "gemini":
+        if settings.gemini_api_key:
+            return GeminiClient(settings.gemini_api_key, settings.gemini_model, timeout=timeout)
+        raise ValueError("INGEST_GEMINI_API_KEY is required when llm_provider is 'gemini'")
+
+    if settings.llm_provider == "ollama":
+        return OllamaClient(settings.ollama_base_url, settings.ollama_model, timeout=timeout)
+
     if settings.llm_provider == "anthropic":
         if settings.anthropic_api_key:
             return AnthropicClient(
                 settings.anthropic_api_key, settings.anthropic_model, timeout=timeout
             )
-        # Graceful fallback: if no Anthropic key but OpenAI key exists, use OpenAI
         if settings.openai_api_key:
             logger.info("No INGEST_ANTHROPIC_API_KEY set, falling back to OpenAI")
             return OpenAIClient(settings.openai_api_key, settings.openai_model, timeout=timeout)
         raise ValueError(
             "INGEST_ANTHROPIC_API_KEY is required (or set INGEST_OPENAI_API_KEY as fallback)"
         )
-    else:
-        if settings.openai_api_key:
-            return OpenAIClient(settings.openai_api_key, settings.openai_model, timeout=timeout)
-        if settings.anthropic_api_key:
-            logger.info("No INGEST_OPENAI_API_KEY set, falling back to Anthropic")
-            return AnthropicClient(
-                settings.anthropic_api_key, settings.anthropic_model, timeout=timeout
-            )
-        raise ValueError(
-            "INGEST_OPENAI_API_KEY is required (or set INGEST_ANTHROPIC_API_KEY as fallback)"
+
+    # openai
+    if settings.openai_api_key:
+        return OpenAIClient(settings.openai_api_key, settings.openai_model, timeout=timeout)
+    if settings.anthropic_api_key:
+        logger.info("No INGEST_OPENAI_API_KEY set, falling back to Anthropic")
+        return AnthropicClient(
+            settings.anthropic_api_key, settings.anthropic_model, timeout=timeout
         )
+    raise ValueError(
+        "INGEST_OPENAI_API_KEY is required (or set INGEST_ANTHROPIC_API_KEY as fallback)"
+    )
 
 
 async def enrich_chunks(
