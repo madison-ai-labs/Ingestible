@@ -62,11 +62,15 @@ class Settings(BaseSettings):
         )
 
     # LLM provider
-    llm_provider: Literal["openai", "anthropic"] = "anthropic"
+    llm_provider: Literal["openai", "anthropic", "gemini", "ollama"] = "anthropic"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-haiku-4-5-20251001"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash"
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.1"
     llm_concurrency: int = 10
 
     # LLM resilience

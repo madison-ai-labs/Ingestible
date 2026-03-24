@@ -129,5 +129,23 @@ jobs:
           tags: |
             ghcr.io/${{ steps.repo.outputs.name }}:${{ github.ref_name }}
             ghcr.io/${{ steps.repo.outputs.name }}:latest
+          build-args: |
+            EXTRAS=local,pgvector,gemini
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy-railway:
+    name: Deploy to Railway
+    needs: docker
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --detach

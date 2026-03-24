@@ -54,6 +54,10 @@ class HyDEExpander:
         """Generate a hypothetical document passage that would answer the query."""
         if self._settings.llm_provider == "anthropic":
             return await self._expand_anthropic(query)
+        if self._settings.llm_provider == "gemini":
+            return await self._expand_gemini(query)
+        if self._settings.llm_provider == "ollama":
+            return await self._expand_ollama(query)
         return await self._expand_openai(query)
 
     def expand_sync(self, query: str) -> str:
@@ -117,6 +121,62 @@ class HyDEExpander:
         )
         return result.strip()
 
+    async def _expand_gemini(self, query: str) -> str:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(
+            api_key=self._settings.gemini_api_key,
+            http_options={"timeout": self._settings.llm_timeout * 1000},
+        )
+
+        async def _call() -> str:
+            response = await client.aio.models.generate_content(
+                model=self._settings.gemini_model,
+                contents=query,
+                config=types.GenerateContentConfig(
+                    system_instruction=_HYDE_SYSTEM,
+                    temperature=0.7,
+                    max_output_tokens=256,
+                ),
+            )
+            return response.text or ""
+
+        result = await retry_llm_call(
+            _call,
+            max_retries=self._settings.llm_max_retries,
+            base_delay=self._settings.llm_retry_base_delay,
+        )
+        return result.strip()
+
+    async def _expand_ollama(self, query: str) -> str:
+        import openai
+
+        client = openai.AsyncOpenAI(
+            base_url=f"{self._settings.ollama_base_url.rstrip('/')}/v1",
+            api_key="ollama",
+            timeout=self._settings.llm_timeout,
+        )
+
+        async def _call() -> str:
+            response = await client.chat.completions.create(
+                model=self._settings.ollama_model,
+                messages=[
+                    {"role": "system", "content": _HYDE_SYSTEM},
+                    {"role": "user", "content": query},
+                ],
+                temperature=0.7,
+                max_tokens=256,
+            )
+            return response.choices[0].message.content or ""
+
+        result = await retry_llm_call(
+            _call,
+            max_retries=self._settings.llm_max_retries,
+            base_delay=self._settings.llm_retry_base_delay,
+        )
+        return result.strip()
+
 
 class SubQuestionDecomposer:
     """Break a complex query into simpler sub-questions for independent retrieval."""
@@ -132,6 +192,10 @@ class SubQuestionDecomposer:
         """
         if self._settings.llm_provider == "anthropic":
             return await self._decompose_anthropic(query, max_sub_questions)
+        if self._settings.llm_provider == "gemini":
+            return await self._decompose_gemini(query, max_sub_questions)
+        if self._settings.llm_provider == "ollama":
+            return await self._decompose_ollama(query, max_sub_questions)
         return await self._decompose_openai(query, max_sub_questions)
 
     async def _decompose_openai(self, query: str, max_sub_questions: int) -> list[str]:
@@ -179,6 +243,62 @@ class SubQuestionDecomposer:
             )
             text_block = next((b for b in response.content if b.type == "text"), None)
             return text_block.text if text_block else ""
+
+        raw = await retry_llm_call(
+            _call,
+            max_retries=self._settings.llm_max_retries,
+            base_delay=self._settings.llm_retry_base_delay,
+        )
+        return self._parse_sub_questions(raw, query, max_sub_questions)
+
+    async def _decompose_gemini(self, query: str, max_sub_questions: int) -> list[str]:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(
+            api_key=self._settings.gemini_api_key,
+            http_options={"timeout": self._settings.llm_timeout * 1000},
+        )
+
+        async def _call() -> str:
+            response = await client.aio.models.generate_content(
+                model=self._settings.gemini_model,
+                contents=query,
+                config=types.GenerateContentConfig(
+                    system_instruction=_DECOMPOSE_SYSTEM,
+                    temperature=0.3,
+                    max_output_tokens=512,
+                ),
+            )
+            return response.text or ""
+
+        raw = await retry_llm_call(
+            _call,
+            max_retries=self._settings.llm_max_retries,
+            base_delay=self._settings.llm_retry_base_delay,
+        )
+        return self._parse_sub_questions(raw, query, max_sub_questions)
+
+    async def _decompose_ollama(self, query: str, max_sub_questions: int) -> list[str]:
+        import openai
+
+        client = openai.AsyncOpenAI(
+            base_url=f"{self._settings.ollama_base_url.rstrip('/')}/v1",
+            api_key="ollama",
+            timeout=self._settings.llm_timeout,
+        )
+
+        async def _call() -> str:
+            response = await client.chat.completions.create(
+                model=self._settings.ollama_model,
+                messages=[
+                    {"role": "system", "content": _DECOMPOSE_SYSTEM},
+                    {"role": "user", "content": query},
+                ],
+                temperature=0.3,
+                max_tokens=512,
+            )
+            return response.choices[0].message.content or ""
 
         raw = await retry_llm_call(
             _call,
