@@ -190,7 +190,20 @@ def build_indexes(
 
     if not l3:
         logger.warning("No L3 chunks to index")
-        vector_store = VectorStore(doc_dir / "chroma")
+        _backend = getattr(embedder._settings, "vector_backend", "chroma")
+        if _backend in ("pgvector", "qdrant"):
+            from ingestible.search.vector_backend import create_vector_backend
+
+            vector_store = create_vector_backend(
+                _backend,
+                connection_url=embedder._settings.pgvector_url
+                if _backend == "pgvector"
+                else embedder._settings.qdrant_url,
+                collection_name=chunks.doc_id,
+                dimensions=embedder._settings.embedding_dimensions or 1024,
+            )
+        else:
+            vector_store = VectorStore(doc_dir / "chroma")
         bm25_store = BM25Store()
         concept_index = ConceptIndex()
         return vector_store, bm25_store, concept_index
@@ -254,7 +267,20 @@ def build_indexes(
     embeddings = embedder.embed_passages(embed_texts)
 
     # --- Vector store ---
-    vector_store = VectorStore(doc_dir / "chroma")
+    _backend = getattr(embedder._settings, "vector_backend", "chroma")
+    if _backend in ("pgvector", "qdrant"):
+        from ingestible.search.vector_backend import create_vector_backend
+
+        vector_store = create_vector_backend(
+            _backend,
+            connection_url=embedder._settings.pgvector_url
+            if _backend == "pgvector"
+            else embedder._settings.qdrant_url,
+            collection_name=chunks.doc_id,
+            dimensions=embedder._settings.embedding_dimensions or 1024,
+        )
+    else:
+        vector_store = VectorStore(doc_dir / "chroma")
     vector_store.add_embeddings(
         ids=embed_ids,
         embeddings=embeddings,
@@ -353,5 +379,13 @@ def build_indexes(
         concept_index.add_many(c.keywords, c.chunk_id)
     concept_index.save(doc_dir / "concept_index.json")
     logger.info("Concept index: %d concepts indexed", concept_index.count)
+
+    # --- KG index (if triples exist) ---
+    if chunks.knowledge_graph or any(c.kg_triples for c in l3):
+        from ingestible.search.kg_retrieval import KGIndex
+
+        kg_index = KGIndex.from_chunks(chunks)
+        kg_index.save(doc_dir / "kg_index.json")
+        logger.info("KG index: %d entities indexed", len(kg_index._entity_chunks))
 
     return vector_store, bm25_store, concept_index

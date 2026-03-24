@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ingestible.models.chunks import ChunkSet
 
-EXPORT_FORMATS = {"jsonl", "parquet", "llamaindex", "langchain"}
+EXPORT_FORMATS = {"jsonl", "parquet", "llamaindex", "langchain", "complete"}
 
 
 def export_document(
@@ -35,5 +35,9 @@ def export_document(
         from ingestible.export.langchain import export_langchain
 
         return export_langchain(chunks, output_path, doc_title=doc_title)
+    elif format == "complete":
+        from ingestible.export.complete import export_complete
+
+        return export_complete(chunks, output_path, doc_title=doc_title)
 
     raise ValueError(f"Unsupported format: {format}")  # unreachable

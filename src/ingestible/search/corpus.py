@@ -119,6 +119,7 @@ class CorpusSearcher:
         user_tags: list[str] | None = None,
         user: str = "",
         tags: list[str] | None = None,
+        hyde_query: str | None = None,
     ) -> CorpusSearchResponse:
         """Search across all (or selected) documents, merging via RRF."""
         doc_dirs = self._discover_doc_dirs(doc_ids, tags=tags)
@@ -158,7 +159,11 @@ class CorpusSearcher:
                 doc_tags = meta.get("tags", [])
                 searcher = self._get_searcher(doc_dir, doc_weight=doc_weight)
                 response = searcher.search(
-                    query, n_results=n_results, user_tags=user_tags, user=user
+                    query,
+                    n_results=n_results,
+                    user_tags=user_tags,
+                    user=user,
+                    hyde_query=hyde_query,
                 )
                 per_doc_results.append((doc_id, doc_title, response.results, doc_tags))
             except Exception as e:
@@ -182,7 +187,11 @@ class CorpusSearcher:
                 doc_tags = meta.get("tags", [])
                 searcher = self._get_searcher(doc_dir, doc_weight=doc_weight)
                 response = searcher.search(
-                    query, n_results=pinned_top_n, user_tags=user_tags, user=user
+                    query,
+                    n_results=pinned_top_n,
+                    user_tags=user_tags,
+                    user=user,
+                    hyde_query=hyde_query,
                 )
                 for r in response.results[:pinned_top_n]:
                     pinned_results.append(

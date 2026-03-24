@@ -34,7 +34,7 @@ def _check_access(tags_str: str, user_tags: list[str]) -> bool:
 class HybridSearcher:
     def __init__(
         self,
-        vector_store: VectorStore,
+        vector_store,  # VectorStore or VectorBackend
         bm25_store: BM25Store,
         concept_index: ConceptIndex,
         chunks: ChunkSet,
@@ -51,6 +51,9 @@ class HybridSearcher:
         self._doc_weight = doc_weight
         # Build chunk lookup
         self._chunk_map: dict[str, L3Chunk] = {c.chunk_id: c for c in chunks.l3_chunks}
+        # KG index (populated by load_searcher when KG data exists)
+        self._kg_index = None
+        self._kg_triples: list = []
         # Lazy-load cross-encoder reranker
         self._reranker = None
         if settings.reranker_model:
@@ -70,12 +73,14 @@ class HybridSearcher:
         n_results: int | None = None,
         user_tags: list[str] | None = None,
         user: str = "",
+        hyde_query: str | None = None,
     ) -> SearchResponse:
         _start = time.monotonic()
         n = n_results or self._settings.default_search_results
 
-        # 1) Vector search
-        query_embedding = self._embedder.embed_query(query)
+        # 1) Vector search — use HyDE passage for embedding if available
+        vector_query = hyde_query or query
+        query_embedding = self._embedder.embed_query(vector_query)
         vector_results = self._vector.query(query_embedding, n_results=n * 3)
 
         # Access control filtering
@@ -146,7 +151,29 @@ class HybridSearcher:
             for cid in scores:
                 scores[cid] += self._doc_weight
 
-        # Sort by score
+        # Knowledge graph boost (if enabled and KG index is loaded)
+        if self._kg_index is not None and self._settings.kg_retrieval_enabled:
+            seed_n = self._settings.kg_seed_top_n
+            top_seeds = [
+                cid for cid, _ in sorted(scores.items(), key=lambda x: x[1], reverse=True)[:seed_n]
+            ]
+            from ingestible.search.kg_retrieval import kg_boost_scores
+
+            scores = kg_boost_scores(
+                scores,
+                top_seeds,
+                self._kg_index,
+                self._kg_triples,
+                boost_weight=self._settings.kg_boost_weight,
+                max_hops=self._settings.kg_max_hops,
+                min_confidence=self._settings.kg_min_confidence,
+            )
+            for cid in scores:
+                if cid not in sources:
+                    sources[cid] = ["kg"]
+                elif "kg" not in sources[cid]:
+                    sources[cid].append("kg")
+
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
         # Cross-encoder reranking
@@ -164,7 +191,6 @@ class HybridSearcher:
 
             if pairs:
                 ce_scores = self._reranker.predict(pairs)
-                # Normalize CE scores to [0, 1]
                 ce_min = float(min(ce_scores))
                 ce_max = float(max(ce_scores))
                 ce_range = ce_max - ce_min if ce_max > ce_min else 1.0
@@ -176,11 +202,13 @@ class HybridSearcher:
                     rrf_score = scores.get(cid, 0.0)
                     blended[cid] = (1 - w) * rrf_score + w * ce_normalized[i]
 
-                # Re-sort by blended score
                 ranked = sorted(blended.items(), key=lambda x: x[1], reverse=True)
                 logger.info("Reranked %d candidates with cross-encoder", len(pairs))
 
-        ranked = ranked[:n]
+        # When auto-merge is enabled, keep a wider candidate pool so merging
+        # can trigger even when a section's L3 chunks are split across the cutoff
+        merge_limit = n * 3 if self._settings.auto_merge_enabled else n
+        ranked = ranked[:merge_limit]
 
         results = []
         for cid, score in ranked:
@@ -201,6 +229,20 @@ class HybridSearcher:
                     version_status="superseded" if cid in superseded_cids else "current",
                 )
             )
+
+        # Auto-merge: promote L3 clusters to L2/L1
+        if self._settings.auto_merge_enabled:
+            from ingestible.search.auto_merge import AutoMergeConfig, auto_merge_results
+
+            merge_config = AutoMergeConfig(
+                enabled=True,
+                merge_threshold=self._settings.auto_merge_threshold,
+                prefer_l1=self._settings.auto_merge_prefer_l1,
+            )
+            results = auto_merge_results(results, self._chunks, merge_config)
+
+        # Final truncation to requested size
+        results = results[:n]
 
         # Audit trail
         if self._settings.audit_enabled:
@@ -234,7 +276,18 @@ def load_searcher(
     doc_weight: float = 0.0,
 ) -> HybridSearcher:
     """Load persisted indexes and create a HybridSearcher."""
-    vector_store = VectorStore(doc_dir / "chroma")
+    _backend = getattr(settings, "vector_backend", "chroma")
+    if _backend in ("pgvector", "qdrant"):
+        from ingestible.search.vector_backend import create_vector_backend
+
+        vector_store = create_vector_backend(
+            _backend,
+            connection_url=settings.pgvector_url if _backend == "pgvector" else settings.qdrant_url,
+            collection_name=doc_dir.name,
+            dimensions=settings.embedding_dimensions or 1024,
+        )
+    else:
+        vector_store = VectorStore(doc_dir / "chroma")
 
     # Load sparse retrieval backend (SPLADE if available, else BM25)
     splade_path = doc_dir / "splade_index.json"
@@ -281,5 +334,24 @@ def load_searcher(
                     )
         except (json.JSONDecodeError, OSError):
             pass
+
+    # Load KG index for entity-based retrieval boost
+    if settings.kg_retrieval_enabled:
+        kg_path = doc_dir / "kg_index.json"
+        if kg_path.exists():
+            try:
+                from ingestible.search.kg_retrieval import KGIndex
+
+                searcher._kg_index = KGIndex.load(kg_path)
+                searcher._kg_triples = chunks.knowledge_graph
+                logger.info("Loaded KG index: %d entities", len(searcher._kg_index._entity_chunks))
+            except Exception as e:
+                logger.warning("Failed to load KG index: %s", e)
+        elif chunks.knowledge_graph:
+            # Build from in-memory triples if no persisted index
+            from ingestible.search.kg_retrieval import KGIndex
+
+            searcher._kg_index = KGIndex.from_chunks(chunks)
+            searcher._kg_triples = chunks.knowledge_graph
 
     return searcher

@@ -303,6 +303,11 @@ class TokenEconomics(BaseModel):
 class SearchRequest(BaseModel):
     query: str
     n_results: int = Field(default=5, ge=1, le=20)
+    hyde: bool = Field(default=False, description="Use HyDE query expansion for vector search")
+    auto_merge: bool = Field(default=False, description="Auto-merge L3 results into parent L2/L1")
+    kg_boost: bool = Field(
+        default=False, description="Boost results using knowledge graph relationships"
+    )
 
 
 class HealthResponse(BaseModel):
@@ -769,7 +774,18 @@ async def search_document(doc_id: str, body: SearchRequest, request: Request):
 
     chunks = load_chunks(doc_dir)
     embedder = get_cached_embedder()
-    searcher = load_searcher(doc_dir, chunks, embedder, settings)
+
+    # Apply search overrides
+    search_settings = settings
+    overrides = {}
+    if body.auto_merge:
+        overrides["auto_merge_enabled"] = True
+    if body.kg_boost:
+        overrides["kg_retrieval_enabled"] = True
+    if overrides:
+        search_settings = settings.model_copy(update=overrides)
+
+    searcher = load_searcher(doc_dir, chunks, embedder, search_settings)
 
     # Access control
     user_tags = None
@@ -782,7 +798,20 @@ async def search_document(doc_id: str, body: SearchRequest, request: Request):
     # Audit: identify user from bearer token
     user = _get_user(request) if settings.audit_enabled else ""
 
-    response = searcher.search(body.query, n_results=body.n_results, user_tags=user_tags, user=user)
+    # HyDE query expansion
+    hyde_query = None
+    if body.hyde:
+        try:
+            from ingestible.search.query_expansion import HyDEExpander
+
+            expander = HyDEExpander(search_settings)
+            hyde_query = await expander.expand(body.query)
+        except Exception:
+            pass  # fall back to normal search
+
+    response = searcher.search(
+        body.query, n_results=body.n_results, user_tags=user_tags, user=user, hyde_query=hyde_query
+    )
     return response
 
 
@@ -870,6 +899,11 @@ class CorpusSearchRequest(BaseModel):
     n_results: int = Field(default=10, ge=1, le=50)
     doc_ids: list[str] | None = None
     tags: list[str] | None = None
+    hyde: bool = Field(default=False, description="Use HyDE query expansion")
+    auto_merge: bool = Field(default=False, description="Auto-merge L3 results into parent L2/L1")
+    kg_boost: bool = Field(
+        default=False, description="Boost results using knowledge graph relationships"
+    )
 
 
 @app.post("/search")
@@ -879,6 +913,15 @@ async def corpus_search(body: CorpusSearchRequest, request: Request):
     from ingestible.search.corpus import CorpusSearcher
 
     settings = get_cached_settings()
+
+    # Apply search overrides (hyde handled separately at corpus level)
+    overrides = {}
+    if body.auto_merge:
+        overrides["auto_merge_enabled"] = True
+    if body.kg_boost:
+        overrides["kg_retrieval_enabled"] = True
+    if overrides:
+        settings = settings.model_copy(update=overrides)
 
     # Access control
     user_tags = None
@@ -890,6 +933,17 @@ async def corpus_search(body: CorpusSearchRequest, request: Request):
 
     user = _get_user(request) if settings.audit_enabled else ""
 
+    # HyDE: expand once at corpus level
+    hyde_query = None
+    if body.hyde:
+        try:
+            from ingestible.search.query_expansion import HyDEExpander
+
+            expander = HyDEExpander(settings)
+            hyde_query = await expander.expand(body.query)
+        except Exception:
+            pass
+
     searcher = CorpusSearcher(settings, embedder=get_cached_embedder())
     return searcher.search(
         body.query,
@@ -898,6 +952,7 @@ async def corpus_search(body: CorpusSearchRequest, request: Request):
         user_tags=user_tags,
         user=user,
         tags=body.tags,
+        hyde_query=hyde_query,
     )
 
 
@@ -968,6 +1023,31 @@ async def eval_document(doc_id: str, request: Request, k: int = Query(default=5,
     return report.to_dict()
 
 
+@app.post("/documents/{doc_id}/eval/judge")
+@limiter.limit(_RATE_DEFAULT)
+async def eval_document_judge(
+    doc_id: str, request: Request, k: int = Query(default=5, ge=1, le=50)
+):
+    """Evaluate retrieval quality using LLM-as-judge scoring.
+
+    Returns faithfulness, relevance, and completeness scores (0-1 scale)
+    assessed by the configured LLM provider.
+    """
+    doc_id = _validate_doc_id(doc_id)
+    settings = get_cached_settings()
+    doc_dir = settings.documents_dir / doc_id
+
+    if not doc_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
+
+    from ingestible.eval_llm_judge import evaluate_with_judge
+
+    report = await evaluate_with_judge(
+        doc_id, settings, k=k, concurrency=settings.llm_judge_concurrency
+    )
+    return report.to_dict()
+
+
 # ---------------------------------------------------------------------------
 # Export (WP 2.3)
 # ---------------------------------------------------------------------------
@@ -978,7 +1058,9 @@ async def eval_document(doc_id: str, request: Request, k: int = Query(default=5,
 async def export_document_endpoint(
     doc_id: str,
     request: Request,
-    format: str = Query(..., description="Export format: jsonl, parquet, llamaindex, langchain"),
+    format: str = Query(
+        ..., description="Export format: jsonl, parquet, llamaindex, langchain, complete"
+    ),
 ):
     """Export a document to a portable format. Returns the file as a download."""
     doc_id = _validate_doc_id(doc_id)
@@ -1006,6 +1088,7 @@ async def export_document_endpoint(
         "parquet": ".parquet",
         "llamaindex": ".json",
         "langchain": ".json",
+        "complete": ".json",
     }
     ext = ext_map.get(format, ".json")
     output_path = doc_dir / f"export{ext}"
@@ -1027,6 +1110,7 @@ async def export_document_endpoint(
         "parquet": "application/octet-stream",
         "llamaindex": "application/json",
         "langchain": "application/json",
+        "complete": "application/json",
     }
 
     return FileResponse(

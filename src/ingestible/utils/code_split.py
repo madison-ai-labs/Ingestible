@@ -331,9 +331,37 @@ def _ts_split(source: str, language: str, parser) -> list[CodeDeclaration]:
     preamble_start = 0
     preamble_end = -1
 
-    for child in root.children:
+    # Node types that should attach to the following declaration.
+    # Covers Java annotations (marker_annotation, annotation), Python decorators,
+    # and modifiers blocks that may contain annotations in some tree-sitter versions.
+    _ANNOTATION_TYPES = {"marker_annotation", "annotation", "decorator", "modifiers"}
+
+    children = list(root.children)
+    for i, child in enumerate(children):
         if child.type in decl_types:
-            # Flush accumulated preamble
+            # Collect preceding annotations that belong to this declaration.
+            # Walk backwards through sibling nodes to find annotations/modifiers that
+            # immediately precede this declaration (Java @Entity, Python @decorator).
+            # Some tree-sitter grammar versions put annotations inside the class node,
+            # others keep them as siblings — this handles the sibling case.
+            attached_annotations: list[str] = []
+            ann_start = child.start_point[0]
+            j = i - 1
+            while j >= 0 and children[j].type in _ANNOTATION_TYPES:
+                ann_text = source_bytes[children[j].start_byte : children[j].end_byte].decode(
+                    "utf-8", errors="replace"
+                )
+                attached_annotations.insert(0, ann_text)
+                ann_start = children[j].start_point[0]
+                j -= 1
+
+            # Remove attached annotations from preamble (they were accumulated there)
+            if attached_annotations:
+                for _ in attached_annotations:
+                    if preamble_parts:
+                        preamble_parts.pop()
+
+            # Flush remaining preamble
             if preamble_parts:
                 text = "\n".join(preamble_parts).strip()
                 if text:
@@ -349,8 +377,13 @@ def _ts_split(source: str, language: str, parser) -> list[CodeDeclaration]:
                     )
                 preamble_parts = []
 
-            content = source_bytes[child.start_byte : child.end_byte].decode(
+            decl_content = source_bytes[child.start_byte : child.end_byte].decode(
                 "utf-8", errors="replace"
+            )
+            content = (
+                "\n".join(attached_annotations + [decl_content])
+                if attached_annotations
+                else decl_content
             )
             name = _extract_name(child, source_bytes)
             kind = _NODE_KIND_MAP.get(child.type, child.type)
@@ -377,7 +410,7 @@ def _ts_split(source: str, language: str, parser) -> list[CodeDeclaration]:
                     name=name,
                     signature=first_line,
                     content=content,
-                    line_start=child.start_point[0],
+                    line_start=ann_start,
                     line_end=child.end_point[0],
                 )
             )
@@ -586,18 +619,25 @@ def _split_braces_regex(lines: list[str], pattern: re.Pattern) -> list[CodeDecla
                 )
             )
 
+    _ANNOTATION_RE = re.compile(r"^@\w+")
+
     for i, line in enumerate(lines):
         if not in_body and line and not line[0].isspace():
             m = pattern.match(line)
             if m:
+                # Pull preceding annotation lines (e.g., @Entity, @Table(...))
+                # from preamble into this declaration.
+                attached: list[str] = []
+                while current_lines and _ANNOTATION_RE.match(current_lines[-1]):
+                    attached.insert(0, current_lines.pop())
                 if current_lines:
-                    _flush(i - 1)
-                current_lines = [line]
+                    _flush(i - 1 - len(attached))
+                current_lines = attached + [line]
                 kw, name = _extract_regex_groups(m)
                 current_kind = _REGEX_KIND_MAP.get(kw, kw)
                 current_name = name
                 current_sig = line.rstrip()
-                current_start = i
+                current_start = i - len(attached)
                 brace_depth = _count_braces(line)
                 in_body = brace_depth > 0
                 continue
