@@ -1058,7 +1058,9 @@ async def eval_document_judge(
 async def export_document_endpoint(
     doc_id: str,
     request: Request,
-    format: str = Query(..., description="Export format: jsonl, parquet, llamaindex, langchain"),
+    format: str = Query(
+        ..., description="Export format: jsonl, parquet, llamaindex, langchain, complete"
+    ),
 ):
     """Export a document to a portable format. Returns the file as a download."""
     doc_id = _validate_doc_id(doc_id)
@@ -1086,6 +1088,7 @@ async def export_document_endpoint(
         "parquet": ".parquet",
         "llamaindex": ".json",
         "langchain": ".json",
+        "complete": ".json",
     }
     ext = ext_map.get(format, ".json")
     output_path = doc_dir / f"export{ext}"
@@ -1107,6 +1110,7 @@ async def export_document_endpoint(
         "parquet": "application/octet-stream",
         "llamaindex": "application/json",
         "langchain": "application/json",
+        "complete": "application/json",
     }
 
     return FileResponse(

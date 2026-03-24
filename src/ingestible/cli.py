@@ -173,11 +173,24 @@ def main(argv: list[str] | None = None) -> None:
     p_exp.add_argument("doc_id", help="Document ID to export")
     p_exp.add_argument(
         "--format",
-        choices=["jsonl", "parquet", "llamaindex", "langchain"],
+        choices=["jsonl", "parquet", "llamaindex", "langchain", "complete"],
         required=True,
         help="Export format",
     )
     p_exp.add_argument("-o", "--output", required=True, help="Output file path")
+
+    # --- corpus-export ---
+    p_cexp = sub.add_parser(
+        "corpus-export",
+        help="Export all documents (or a subset) to a single complete JSON",
+    )
+    p_cexp.add_argument(
+        "--doc-ids", default=None, help="Comma-separated document IDs (default: all)"
+    )
+    p_cexp.add_argument(
+        "--tags", default=None, help="Comma-separated tags to filter by"
+    )
+    p_cexp.add_argument("-o", "--output", required=True, help="Output file path")
 
     # --- config ---
     sub.add_parser("config", help="Show effective configuration (all sources merged)")
@@ -302,6 +315,8 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_versions(args)
     elif args.command == "export":
         _cmd_export(args)
+    elif args.command == "corpus-export":
+        _cmd_corpus_export(args)
     elif args.command == "config":
         _cmd_config()
     elif args.command == "serve":
@@ -891,6 +906,60 @@ def _cmd_export(args: argparse.Namespace) -> None:
 
     export_document(chunks, args.format, output_path, doc_title=meta.get("title", ""))
     print(f"Exported {args.doc_id} to {output_path} ({args.format})")
+
+
+def _cmd_corpus_export(args: argparse.Namespace) -> None:
+    from pathlib import Path
+
+    from ingestible.config import get_settings
+    from ingestible.export.complete import export_complete_corpus
+    from ingestible.pipeline.stage6_storage import load_chunks, load_document_meta
+
+    settings = get_settings()
+    docs_dir = settings.documents_dir
+
+    if not docs_dir.exists():
+        print("No documents directory found.")
+        sys.exit(1)
+
+    # Determine which doc_ids to export
+    if args.doc_ids:
+        doc_ids = [d.strip() for d in args.doc_ids.split(",")]
+    else:
+        doc_ids = sorted(
+            d.name for d in docs_dir.iterdir() if d.is_dir() and (d / "meta.json").exists()
+        )
+
+    # Filter by tags if specified
+    if args.tags:
+        requested_tags = {t.strip().lower() for t in args.tags.split(",")}
+        filtered = []
+        for did in doc_ids:
+            meta = load_document_meta(docs_dir / did)
+            doc_tags = {t.lower() for t in meta.get("tags", [])}
+            if doc_tags & requested_tags:
+                filtered.append(did)
+        doc_ids = filtered
+
+    if not doc_ids:
+        print("No matching documents found.")
+        sys.exit(1)
+
+    print(f"Exporting {len(doc_ids)} document(s)...")
+    documents = []
+    for did in doc_ids:
+        doc_dir = docs_dir / did
+        if not doc_dir.exists():
+            print(f"  Skipping {did} (not found)")
+            continue
+        chunks = load_chunks(doc_dir)
+        meta = load_document_meta(doc_dir)
+        documents.append((chunks, meta.get("title", "")))
+        print(f"  Loaded {did}")
+
+    output_path = Path(args.output)
+    export_complete_corpus(documents, output_path)
+    print(f"Exported {len(documents)} document(s) to {output_path}")
 
 
 def _cmd_config() -> None:

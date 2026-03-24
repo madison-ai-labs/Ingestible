@@ -41,6 +41,34 @@ class LLMClient(Protocol):
     async def generate_json(self, prompt: str, output_type: type[T]) -> T: ...
 
 
+def _make_strict_schema(schema: dict) -> dict:
+    """Make a Pydantic JSON schema compatible with OpenAI strict mode.
+
+    OpenAI strict mode requires:
+    1. additionalProperties: false on all object types
+    2. required must list ALL properties (even those with defaults)
+    """
+    schema = schema.copy()
+    if schema.get("type") == "object" or "properties" in schema:
+        schema["additionalProperties"] = False
+        if "properties" in schema:
+            schema["required"] = sorted(schema["properties"].keys())
+    for key in ("properties", "$defs"):
+        if key in schema:
+            new = {}
+            for k, v in schema[key].items():
+                new[k] = _make_strict_schema(v) if isinstance(v, dict) else v
+            schema[key] = new
+    if "items" in schema and isinstance(schema["items"], dict):
+        schema["items"] = _make_strict_schema(schema["items"])
+    for key in ("anyOf", "oneOf", "allOf"):
+        if key in schema and isinstance(schema[key], list):
+            schema[key] = [
+                _make_strict_schema(v) if isinstance(v, dict) else v for v in schema[key]
+            ]
+    return schema
+
+
 class OpenAIClient:
     """Default LLM client. Uses openai.AsyncOpenAI with structured output."""
 
@@ -51,7 +79,7 @@ class OpenAIClient:
         self._model = model
 
     async def generate_json(self, prompt: str, output_type: type[T]) -> T:
-        schema = output_type.model_json_schema()
+        schema = _make_strict_schema(output_type.model_json_schema())
         response = await self._client.chat.completions.create(
             model=self._model,
             messages=[{"role": "user", "content": prompt}],
