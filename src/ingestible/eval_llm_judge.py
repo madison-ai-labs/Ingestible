@@ -186,10 +186,44 @@ class LLMJudge:
         )
         return response.content[0].text
 
+    async def _call_gemini(self, prompt: str) -> str:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(
+            api_key=self._settings.gemini_api_key,
+            http_options={"timeout": self._settings.llm_timeout * 1000},
+        )
+        response = await client.aio.models.generate_content(
+            model=self._settings.gemini_model,
+            contents=prompt,
+            config=types.GenerateContentConfig(temperature=0.1),
+        )
+        return response.text
+
+    async def _call_ollama(self, prompt: str) -> str:
+        import openai
+
+        client = openai.AsyncOpenAI(
+            base_url=f"{self._settings.ollama_base_url.rstrip('/')}/v1",
+            api_key="ollama",
+            timeout=self._settings.llm_timeout,
+        )
+        response = await client.chat.completions.create(
+            model=self._settings.ollama_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+        )
+        return response.choices[0].message.content
+
     async def _call_llm(self, prompt: str) -> str:
         """Dispatch to the configured LLM provider."""
         if self._settings.llm_provider == "anthropic":
             return await self._call_anthropic(prompt)
+        if self._settings.llm_provider == "gemini":
+            return await self._call_gemini(prompt)
+        if self._settings.llm_provider == "ollama":
+            return await self._call_ollama(prompt)
         return await self._call_openai(prompt)
 
     async def score(
