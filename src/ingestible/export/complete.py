@@ -80,9 +80,7 @@ def _build_document(chunks: ChunkSet, doc_title: str) -> dict:
         chapters.append(_serialize_l1(l1, sections))
 
     # Orphan passages (not under any section)
-    orphan_passages = [
-        _serialize_l3(l3) for l3 in l3_by_section.get("", [])
-    ]
+    orphan_passages = [_serialize_l3(l3) for l3 in l3_by_section.get("", [])]
 
     # Collect all concepts across all levels
     all_concepts = _collect_concepts(chunks)
@@ -292,9 +290,7 @@ def _build_corpus_graph(documents: list[tuple[ChunkSet, str]]) -> dict:
             entity_docs.setdefault(obj_key, set()).add(chunks.doc_id)
 
     # Find entities that appear in multiple documents (cross-document links)
-    shared_entities = {
-        name: sorted(docs) for name, docs in entity_docs.items() if len(docs) > 1
-    }
+    shared_entities = {name: sorted(docs) for name, docs in entity_docs.items() if len(docs) > 1}
 
     return {
         "shared_entities": shared_entities,

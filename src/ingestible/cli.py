@@ -187,9 +187,7 @@ def main(argv: list[str] | None = None) -> None:
     p_cexp.add_argument(
         "--doc-ids", default=None, help="Comma-separated document IDs (default: all)"
     )
-    p_cexp.add_argument(
-        "--tags", default=None, help="Comma-separated tags to filter by"
-    )
+    p_cexp.add_argument("--tags", default=None, help="Comma-separated tags to filter by")
     p_cexp.add_argument("-o", "--output", required=True, help="Output file path")
 
     # --- config ---
