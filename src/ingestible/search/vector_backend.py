@@ -300,7 +300,7 @@ class QdrantBackend(VectorBackend):
 
         def _str_to_int_id(s: str) -> int:
             """Deterministic string-to-int mapping for Qdrant point IDs."""
-            return int(hashlib.md5(s.encode()).hexdigest()[:16], 16)
+            return int(hashlib.md5(s.encode(), usedforsecurity=False).hexdigest()[:16], 16)
 
         points = [
             PointStruct(

@@ -331,9 +331,33 @@ def _ts_split(source: str, language: str, parser) -> list[CodeDeclaration]:
     preamble_start = 0
     preamble_end = -1
 
-    for child in root.children:
+    # Annotation types that should attach to the following declaration
+    _ANNOTATION_TYPES = {"marker_annotation", "annotation", "decorator"}
+
+    children = list(root.children)
+    for i, child in enumerate(children):
         if child.type in decl_types:
-            # Flush accumulated preamble
+            # Collect preceding annotations that belong to this declaration.
+            # Walk backwards through preamble_parts to find annotations that
+            # immediately precede this declaration (Java @Entity, Python @decorator).
+            attached_annotations: list[str] = []
+            ann_start = child.start_point[0]
+            j = i - 1
+            while j >= 0 and children[j].type in _ANNOTATION_TYPES:
+                ann_text = source_bytes[children[j].start_byte : children[j].end_byte].decode(
+                    "utf-8", errors="replace"
+                )
+                attached_annotations.insert(0, ann_text)
+                ann_start = children[j].start_point[0]
+                j -= 1
+
+            # Remove attached annotations from preamble (they were accumulated there)
+            if attached_annotations:
+                for _ in attached_annotations:
+                    if preamble_parts:
+                        preamble_parts.pop()
+
+            # Flush remaining preamble
             if preamble_parts:
                 text = "\n".join(preamble_parts).strip()
                 if text:
@@ -349,8 +373,13 @@ def _ts_split(source: str, language: str, parser) -> list[CodeDeclaration]:
                     )
                 preamble_parts = []
 
-            content = source_bytes[child.start_byte : child.end_byte].decode(
+            decl_content = source_bytes[child.start_byte : child.end_byte].decode(
                 "utf-8", errors="replace"
+            )
+            content = (
+                "\n".join(attached_annotations + [decl_content])
+                if attached_annotations
+                else decl_content
             )
             name = _extract_name(child, source_bytes)
             kind = _NODE_KIND_MAP.get(child.type, child.type)
@@ -377,7 +406,7 @@ def _ts_split(source: str, language: str, parser) -> list[CodeDeclaration]:
                     name=name,
                     signature=first_line,
                     content=content,
-                    line_start=child.start_point[0],
+                    line_start=ann_start,
                     line_end=child.end_point[0],
                 )
             )
