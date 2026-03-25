@@ -11,7 +11,7 @@ primary_region = "fra"
 [build]
   dockerfile = "Dockerfile"
   [build.args]
-    EXTRAS = "pgvector,gemini"
+    EXTRAS = "local,pgvector,gemini"
 
 [env]
   PORT = "8081"
@@ -46,7 +46,7 @@ primary_region = "fra"
 
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "1gb"
+  memory = "2gb"
 
 [mounts]
   source = "ingestible_data"
