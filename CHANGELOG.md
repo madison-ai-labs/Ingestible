@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.1.0 (2026-03-25)
 
 ### Added
 - **Gemini LLM + embedding provider** — `INGEST_LLM_PROVIDER=gemini` and `INGEST_EMBEDDING_PROVIDER=gemini` with batch support
