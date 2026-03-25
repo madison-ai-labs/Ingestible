@@ -1,12 +1,13 @@
 """Gunicorn configuration for production deployment."""
 
 import multiprocessing
+import os
 
 # Server socket
 bind = "0.0.0.0:8081"
 
-# Worker processes
-workers = min(multiprocessing.cpu_count() * 2 + 1, 8)  # cap at 8
+# Worker processes — override with WEB_CONCURRENCY env var
+workers = int(os.environ.get("WEB_CONCURRENCY", min(multiprocessing.cpu_count() * 2 + 1, 8)))
 worker_class = "uvicorn.workers.UvicornWorker"
 
 # Timeouts
@@ -14,8 +15,9 @@ timeout = 600  # 10 min — ingestion can be slow
 graceful_timeout = 30
 keepalive = 5
 
-# Preload for faster worker startup (shares model memory)
-preload_app = True
+# Preload shares model memory across workers but needs enough RAM for the initial load.
+# Disable with GUNICORN_PRELOAD=false for memory-constrained environments.
+preload_app = os.environ.get("GUNICORN_PRELOAD", "true").lower() != "false"
 
 # Logging (handled by structlog, so keep gunicorn minimal)
 accesslog = "-"
