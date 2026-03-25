@@ -109,9 +109,18 @@ jobs:
           body_path: /tmp/release-notes.md
 
   docker:
-    name: Build & push Docker image
+    name: Build & push Docker images
     needs: build
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - variant: full
+            extras: "local,pgvector,gemini"
+            suffix: ""
+          - variant: slim
+            extras: "pgvector,gemini"
+            suffix: "-slim"
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -127,12 +136,12 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ steps.repo.outputs.name }}:${{ github.ref_name }}
-            ghcr.io/${{ steps.repo.outputs.name }}:latest
+            ghcr.io/${{ steps.repo.outputs.name }}:${{ github.ref_name }}${{ matrix.suffix }}
+            ghcr.io/${{ steps.repo.outputs.name }}:latest${{ matrix.suffix }}
           build-args: |
-            EXTRAS=local,pgvector,gemini
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            EXTRAS=${{ matrix.extras }}
+          cache-from: type=gha,scope=${{ matrix.variant }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.variant }}
 
   deploy-fly:
     name: Deploy to Fly.io
