@@ -9,8 +9,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import chromadb
-
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 500
@@ -23,6 +21,12 @@ class VectorStore:
         collection_name: str = "chunks",
         distance_metric: str = "cosine",
     ):
+        try:
+            import chromadb
+        except ImportError:
+            raise ImportError(
+                "Vector search requires chromadb. Install with: pip install ingestible[local]"
+            )
         self._client = chromadb.PersistentClient(path=str(persist_dir))
         self._collection = self._client.get_or_create_collection(
             name=collection_name,

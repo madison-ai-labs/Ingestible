@@ -68,10 +68,61 @@ SUPPORTED_FORMATS = {
     ".flv",
     # Archives (Notion / Confluence exports)
     ".zip",
+    # Source code
+    *{
+        ".py",
+        ".pyw",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".cjs",
+        ".go",
+        ".rs",
+        ".java",
+        ".kt",
+        ".kts",
+        ".c",
+        ".cpp",
+        ".cc",
+        ".cxx",
+        ".h",
+        ".hpp",
+        ".cs",
+        ".rb",
+        ".swift",
+        ".scala",
+    },
 }
 
 AUDIO_FORMATS = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".wma", ".aac", ".opus"}
 VIDEO_FORMATS = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".wmv", ".flv"}
+CODE_FORMATS = {
+    ".py",
+    ".pyw",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+    ".go",
+    ".rs",
+    ".java",
+    ".kt",
+    ".kts",
+    ".c",
+    ".cpp",
+    ".cc",
+    ".cxx",
+    ".h",
+    ".hpp",
+    ".cs",
+    ".rb",
+    ".swift",
+    ".scala",
+}
 
 
 def _with_timeout(func, *args, timeout: int = 300, **kwargs):
@@ -136,8 +187,28 @@ def parse_document(
         return _with_timeout(_parse_video, file_path, timeout=timeout)
     elif ext == ".zip":
         return _parse_zip_archive(file_path)
+    elif ext in CODE_FORMATS:
+        return _parse_code_file(file_path)
 
     raise ValueError(f"Unsupported format: {ext}")  # unreachable, but defensive
+
+
+def _parse_code_file(file_path: Path) -> ParsedDocument:
+    """Parse a source code file. Wraps entire content in a single page with code metadata."""
+    content = file_path.read_text(encoding="utf-8", errors="replace")
+    return ParsedDocument(
+        title=file_path.name,
+        source_path=str(file_path),
+        source_format="code",
+        total_pages=1,
+        pages=[
+            PageContent(
+                page_num=1,
+                markdown=content,
+                has_code_blocks=True,
+            )
+        ],
+    )
 
 
 def parse_pdf(pdf_path: str | Path, force_ocr: bool = False) -> ParsedDocument:

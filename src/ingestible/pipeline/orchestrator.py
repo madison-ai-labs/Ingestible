@@ -176,6 +176,9 @@ def ingest(
     resume: bool = True,
     progress_callback=None,
     access_tags: list[str] | None = None,
+    weight: float = 0.0,
+    pinned: bool = False,
+    tags: list[str] | None = None,
 ) -> Path:
     """Run the full ingestion pipeline on a document. Returns the document directory.
 
@@ -449,6 +452,9 @@ def ingest(
                 content_hash=content_hash,
                 extraction_profile=profile.name,
                 access_tags=access_tags,
+                weight=weight,
+                pinned=pinned,
+                tags=tags,
             )
 
             # Clean up checkpoints on success

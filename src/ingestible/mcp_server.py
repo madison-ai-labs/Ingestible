@@ -16,6 +16,7 @@ Or configure in Claude Desktop / claude_desktop_config.json:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -82,6 +83,10 @@ def search(
     query: str,
     doc_id: str | None = None,
     n_results: int = 5,
+    tags: list[str] | None = None,
+    hyde: bool = False,
+    auto_merge: bool = False,
+    kg_boost: bool = False,
 ) -> str:
     """Search across ingested documents.
 
@@ -92,6 +97,10 @@ def search(
         query: The search query
         doc_id: Optional document ID to search within (omit for corpus-wide search)
         n_results: Number of results to return (default: 5)
+        tags: Optional list of tags to filter documents by (corpus search only)
+        hyde: Use HyDE query expansion for vector search
+        auto_merge: Auto-merge L3 results into parent L2/L1 chunks
+        kg_boost: Boost results using knowledge graph relationships
 
     Returns:
         JSON with ranked search results including content, scores, and metadata
@@ -101,7 +110,27 @@ def search(
     from ingestible.search.hybrid import load_searcher
 
     settings = _get_settings()
+
+    # Build settings overrides from search enhancement flags
+    overrides: dict = {}
+    if hyde:
+        overrides["hyde_enabled"] = True
+    if auto_merge:
+        overrides["auto_merge_enabled"] = True
+    if kg_boost:
+        overrides["kg_retrieval_enabled"] = True
+    if overrides:
+        settings = settings.model_copy(update=overrides)
+
     embedder = Embedder(settings)
+
+    # HyDE query expansion — generate hypothetical passage for vector embedding
+    hyde_query: str | None = None
+    if hyde:
+        from ingestible.search.query_expansion import HyDEExpander
+
+        expander = HyDEExpander(settings)
+        hyde_query = expander.expand_sync(query)
 
     if doc_id:
         doc_dir = settings.documents_dir / doc_id
@@ -110,12 +139,12 @@ def search(
 
         chunks = load_chunks(doc_dir)
         searcher = load_searcher(doc_dir, chunks, embedder, settings)
-        response = searcher.search(query, n_results=n_results)
+        response = searcher.search(query, n_results=n_results, hyde_query=hyde_query)
     else:
         from ingestible.search.corpus import CorpusSearcher
 
         searcher = CorpusSearcher(settings, embedder=embedder)
-        response = searcher.search(query, n_results=n_results)
+        response = searcher.search(query, n_results=n_results, tags=tags, hyde_query=hyde_query)
 
     return response.model_dump_json()
 
@@ -298,6 +327,23 @@ def delete_document(doc_id: str) -> str:
 
     shutil.rmtree(doc_dir)
     return json.dumps({"deleted": doc_id})
+
+
+@mcp.tool()
+def eval_judge(doc_id: str, k: int = 5) -> str:
+    """Evaluate retrieval quality using LLM-as-judge scoring.
+
+    Returns faithfulness, relevance, and completeness scores.
+    """
+    from ingestible.eval_llm_judge import evaluate_with_judge
+
+    settings = _get_settings()
+    doc_dir = settings.documents_dir / doc_id
+    if not doc_dir.exists():
+        return json.dumps({"error": f"Document not found: {doc_id}"})
+
+    report = asyncio.run(evaluate_with_judge(doc_id, settings, k=k))
+    return json.dumps(report.to_dict(), indent=2)
 
 
 if __name__ == "__main__":

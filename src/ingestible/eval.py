@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -42,6 +43,7 @@ class EvalResult:
     reciprocal_rank: float  # 1/rank of first relevant result (0 if none)
     precision_at_k: float
     recall_at_k: float
+    ndcg_at_k: float  # Normalized Discounted Cumulative Gain
 
 
 @dataclass
@@ -55,6 +57,7 @@ class EvalReport:
     mrr: float  # mean reciprocal rank
     mean_precision_at_k: float
     mean_recall_at_k: float
+    mean_ndcg_at_k: float = 0.0  # mean NDCG@K
     results: list[EvalResult] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -66,6 +69,7 @@ class EvalReport:
             "mrr": round(self.mrr, 4),
             "mean_precision_at_k": round(self.mean_precision_at_k, 4),
             "mean_recall_at_k": round(self.mean_recall_at_k, 4),
+            "mean_ndcg_at_k": round(self.mean_ndcg_at_k, 4),
         }
 
     def summary(self) -> str:
@@ -75,8 +79,27 @@ class EvalReport:
             f"  MRR:                {self.mrr:.4f}",
             f"  Precision@{self.k}:    {self.mean_precision_at_k:.4f}",
             f"  Recall@{self.k}:       {self.mean_recall_at_k:.4f}",
+            f"  NDCG@{self.k}:         {self.mean_ndcg_at_k:.4f}",
         ]
         return "\n".join(lines)
+
+
+def _ndcg_at_k(retrieved_ids: list[str], expected_set: set[str], k: int) -> float:
+    """Compute NDCG@K for a single query.
+
+    Uses binary relevance: 1 if the chunk is in the expected set, 0 otherwise.
+    """
+    # DCG: sum of (relevance / log2(rank + 1)) for each position
+    dcg = 0.0
+    for i, cid in enumerate(retrieved_ids[:k]):
+        rel = 1.0 if cid in expected_set else 0.0
+        dcg += rel / math.log2(i + 2)  # i+2 because log2(1)=0
+
+    # Ideal DCG: all relevant docs at the top
+    n_relevant = min(len(expected_set), k)
+    idcg = sum(1.0 / math.log2(i + 2) for i in range(n_relevant))
+
+    return dcg / idcg if idcg > 0 else 0.0
 
 
 def evaluate_document(
@@ -142,6 +165,9 @@ def evaluate_document(
         # Recall@K: relevant retrieved / total relevant
         recall = len(hits_in_retrieved) / len(expected_set) if expected_set else 0.0
 
+        # NDCG@K
+        ndcg = _ndcg_at_k(retrieved_ids, expected_set, k)
+
         results.append(
             EvalResult(
                 query=eq.query,
@@ -151,6 +177,7 @@ def evaluate_document(
                 reciprocal_rank=rr,
                 precision_at_k=precision,
                 recall_at_k=recall,
+                ndcg_at_k=ndcg,
             )
         )
 
@@ -160,6 +187,7 @@ def evaluate_document(
     mrr = sum(r.reciprocal_rank for r in results) / n if n > 0 else 0.0
     mean_precision = sum(r.precision_at_k for r in results) / n if n > 0 else 0.0
     mean_recall = sum(r.recall_at_k for r in results) / n if n > 0 else 0.0
+    mean_ndcg = sum(r.ndcg_at_k for r in results) / n if n > 0 else 0.0
 
     return EvalReport(
         doc_id=doc_id,
@@ -169,6 +197,7 @@ def evaluate_document(
         mrr=mrr,
         mean_precision_at_k=mean_precision,
         mean_recall_at_k=mean_recall,
+        mean_ndcg_at_k=mean_ndcg,
         results=results,
     )
 

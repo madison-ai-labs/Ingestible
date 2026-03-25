@@ -1,0 +1,35 @@
+# Ingestible — Standalone Production Stack
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Required env vars in .env:
+#   INGEST_PGVECTOR_URL=postgresql://user:pass@host:5432/ingestible
+#   INGEST_API_KEY=<your-api-key>
+#   INGEST_ANTHROPIC_API_KEY=<key>  (or INGEST_OPENAI_API_KEY / INGEST_GEMINI_API_KEY)
+
+services:
+  api:
+    build:
+      context: .
+      args:
+        EXTRAS: "local,pgvector"
+    ports:
+      - "8081:8081"
+    volumes:
+      - ingestible-data:/app/data
+    env_file:
+      - .env
+    environment:
+      - INGEST_DATA_DIR=/app/data
+      - INGEST_VECTOR_BACKEND=pgvector
+      - INGEST_LOG_JSON=true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; r=httpx.get('http://localhost:8081/health'); r.raise_for_status()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  ingestible-data:

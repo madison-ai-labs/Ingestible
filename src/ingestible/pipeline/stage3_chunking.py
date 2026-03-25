@@ -70,13 +70,27 @@ def chunk_document(
                     # Deeper nesting — treat sub-sections as content blocks
                     for sub in sec_node.children:
                         sub_passages = _split_into_passages(
-                            sub.content, doc_id, ch_id, sub.id, settings, embedder
+                            sub.content,
+                            doc_id,
+                            ch_id,
+                            sub.id,
+                            settings,
+                            embedder,
+                            source_format=structure.source_format,
+                            source_path=structure.source_path,
                         )
                         l3_chunks.extend(sub_passages)
                         passage_ids.extend(p.chunk_id for p in sub_passages)
                 else:
                     passages = _split_into_passages(
-                        sec_node.content, doc_id, ch_id, sec_id, settings, embedder
+                        sec_node.content,
+                        doc_id,
+                        ch_id,
+                        sec_id,
+                        settings,
+                        embedder,
+                        source_format=structure.source_format,
+                        source_path=structure.source_path,
                     )
                     l3_chunks.extend(passages)
                     passage_ids.extend(p.chunk_id for p in passages)
@@ -95,7 +109,14 @@ def chunk_document(
         else:
             # No sub-sections — chunk chapter content directly
             passages = _split_into_passages(
-                ch_node.content, doc_id, ch_id, ch_id, settings, embedder
+                ch_node.content,
+                doc_id,
+                ch_id,
+                ch_id,
+                settings,
+                embedder,
+                source_format=structure.source_format,
+                source_path=structure.source_path,
             )
             l3_chunks.extend(passages)
             section_ids = [p.chunk_id for p in passages]
@@ -113,7 +134,16 @@ def chunk_document(
 
     # If the root itself has content and no children were generated
     if not l1_chunks and root.content:
-        passages = _split_into_passages(root.content, doc_id, root.id, root.id, settings, embedder)
+        passages = _split_into_passages(
+            root.content,
+            doc_id,
+            root.id,
+            root.id,
+            settings,
+            embedder,
+            source_format=structure.source_format,
+            source_path=structure.source_path,
+        )
         l3_chunks.extend(passages)
 
     # Build L0
@@ -155,10 +185,23 @@ def _split_into_passages(
     section_id: str,
     settings: Settings,
     embedder: Embedder | None = None,
+    source_format: str = "",
+    source_path: str = "",
 ) -> list[L3Chunk]:
     """Split section text into L3 passage chunks respecting semantic boundaries."""
     if not text or not text.strip():
         return []
+
+    if settings.chunking_strategy == "code":
+        return _split_into_passages_code(
+            text,
+            doc_id,
+            chapter_id,
+            section_id,
+            settings,
+            source_format=source_format,
+            source_path=source_path,
+        )
 
     if settings.chunking_strategy == "recursive":
         return _split_into_passages_recursive(text, doc_id, chapter_id, section_id, settings)
@@ -294,6 +337,107 @@ def _truncate_for_summary(text: str, max_tokens: int) -> str:
     # Rough char-based truncation (approx 4 chars/token)
     max_chars = max_tokens * 4
     return text[:max_chars] + "..."
+
+
+# ---------------------------------------------------------------------------
+# Code-aware chunking
+# ---------------------------------------------------------------------------
+
+
+def _split_into_passages_code(
+    text: str,
+    doc_id: str,
+    chapter_id: str,
+    section_id: str,
+    settings: Settings,
+    source_format: str = "",
+    source_path: str = "",
+) -> list[L3Chunk]:
+    """Split source code at top-level declaration boundaries.
+
+    Each function/class/struct becomes a chunk. Oversized declarations
+    are split recursively with the signature kept as context prefix.
+    """
+    from pathlib import Path as _Path
+
+    from ingestible.utils.code_split import detect_language, split_code_declarations
+
+    # Determine language from source path extension, or fall back to format
+    language = "unknown"
+    if source_path:
+        ext = _Path(source_path).suffix.lower()
+        language = detect_language(ext)
+    if language == "unknown" and source_format == "code":
+        # Try to detect from content heuristics
+        language = "python"  # safe default for code strategy
+
+    decls = split_code_declarations(text, language)
+
+    if not decls:
+        return []
+
+    max_tokens = settings.max_chunk_tokens
+    file_label = _Path(source_path).name if source_path else ""
+
+    chunks: list[L3Chunk] = []
+
+    for decl in decls:
+        tokens = count_tokens(decl.content)
+
+        # Build context heading: file.py :: class Foo
+        if decl.name and file_label:
+            heading = f"# {file_label} :: {decl.kind} {decl.name}"
+        elif file_label:
+            heading = f"# {file_label} :: {decl.kind}"
+        elif decl.name:
+            heading = f"# {decl.kind} {decl.name}"
+        else:
+            heading = ""
+
+        if tokens <= max_tokens:
+            # Single chunk for this declaration
+            content = f"{heading}\n{decl.content}" if heading else decl.content
+            chunks.append(
+                _make_l3(
+                    [content],
+                    doc_id,
+                    chapter_id,
+                    section_id,
+                    len(chunks),
+                    tier="T0",
+                )
+            )
+        else:
+            # Oversized declaration — split recursively but keep signature as prefix
+            sub_pieces = _recursive_split(decl.content, _RECURSIVE_SEPARATORS, max_tokens)
+            for piece in sub_pieces:
+                if not piece.strip():
+                    continue
+                # Prepend heading to each sub-chunk for context
+                content = f"{heading}\n{piece}" if heading else piece
+                chunks.append(
+                    _make_l3(
+                        [content],
+                        doc_id,
+                        chapter_id,
+                        section_id,
+                        len(chunks),
+                        tier="T0",
+                    )
+                )
+
+    # Label positions
+    for i, chunk in enumerate(chunks):
+        if len(chunks) == 1:
+            chunk.position_in_section = "only"
+        elif i == 0:
+            chunk.position_in_section = "first"
+        elif i == len(chunks) - 1:
+            chunk.position_in_section = "last"
+        else:
+            chunk.position_in_section = "middle"
+
+    return chunks
 
 
 # ---------------------------------------------------------------------------

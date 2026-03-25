@@ -14,6 +14,11 @@ RUN pip install --no-cache-dir build && \
 # ── Runtime stage ────────────────────────────────────────────
 FROM python:3.12-slim
 
+# Extras to install (override for different deployment targets)
+# local        = ChromaDB + sentence-transformers (local dev)
+# local,pgvector = ChromaDB + pgvector (production w/ Supabase)
+ARG EXTRAS="local,pgvector,gemini"
+
 # Install ffmpeg for audio/video support
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ffmpeg && \
@@ -24,9 +29,10 @@ RUN groupadd -r ingestible && useradd -r -g ingestible -m ingestible
 
 WORKDIR /app
 
-# Install the wheel + gunicorn
+# Install the wheel with selected extras
 COPY --from=builder /build/dist/*.whl /tmp/
-RUN pip install --no-cache-dir /tmp/*.whl gunicorn>=22.0 && \
+RUN WHL=$(ls /tmp/ingestible-*.whl) && \
+    pip install --no-cache-dir "${WHL}[${EXTRAS}]" && \
     rm /tmp/*.whl
 
 # Copy gunicorn config

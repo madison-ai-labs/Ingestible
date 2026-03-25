@@ -62,11 +62,15 @@ class Settings(BaseSettings):
         )
 
     # LLM provider
-    llm_provider: Literal["openai", "anthropic"] = "anthropic"
+    llm_provider: Literal["openai", "anthropic", "gemini", "ollama"] = "anthropic"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-haiku-4-5-20251001"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash"
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.1"
     llm_concurrency: int = 10
 
     # LLM resilience
@@ -110,7 +114,9 @@ class Settings(BaseSettings):
     max_chunk_tokens: int = 500
     min_chunk_tokens: int = 100
     chunk_overlap_fraction: float = 0.1
-    chunking_strategy: Literal["paragraph", "semantic", "recursive", "docling"] = "paragraph"
+    chunking_strategy: Literal["paragraph", "semantic", "recursive", "docling", "code"] = (
+        "paragraph"
+    )
     semantic_threshold_percentile: int = 10
     contextual_chunking: bool = False
 
@@ -149,12 +155,40 @@ class Settings(BaseSettings):
 
     # Search
     searcher_cache_size: int = 50  # max cached document searchers in memory
-    vector_weight: float = 0.7
-    bm25_weight: float = 0.3
+    vector_weight: float = 0.4
+    bm25_weight: float = 0.6
+    exact_match_boost: float = 0.003  # per-term bonus for verbatim query term matches
     default_search_results: int = 5
     reranker_model: str = ""
     reranker_top_k: int = 50
     reranker_weight: float = 0.5
+    pinned_top_n: int = 3  # chunks per pinned document to always include in corpus search
+
+    # Auto-merge retrieval
+    auto_merge_enabled: bool = False
+    auto_merge_threshold: int = 3  # min L3 chunks from same L2 to trigger merge
+    auto_merge_prefer_l1: bool = False  # also try merging L2s up to L1
+
+    # Query expansion (HyDE + sub-question decomposition)
+    hyde_enabled: bool = False  # use HyDE (Hypothetical Document Embeddings) for queries
+    sub_questions_enabled: bool = False  # decompose complex queries into sub-questions
+    max_sub_questions: int = 3
+
+    # Knowledge graph retrieval
+    kg_retrieval_enabled: bool = False  # boost search with KG entity relationships
+    kg_boost_weight: float = 0.01  # max boost from KG traversal
+    kg_max_hops: int = 1  # relationship traversal depth
+    kg_min_confidence: float = 0.5  # min triple confidence to follow
+    kg_seed_top_n: int = 10  # top results to use as KG expansion seeds
+
+    # LLM-as-judge evaluation
+    llm_judge_enabled: bool = False
+    llm_judge_concurrency: int = 5
+
+    # Vector backend
+    vector_backend: Literal["chroma", "pgvector", "qdrant"] = "chroma"
+    pgvector_url: str = ""
+    qdrant_url: str = "http://localhost:6333"
 
     @property
     def documents_dir(self) -> Path:

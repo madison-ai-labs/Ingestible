@@ -29,7 +29,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     p_ingest.add_argument(
         "--chunking",
-        choices=["paragraph", "semantic", "recursive"],
+        choices=["paragraph", "semantic", "recursive", "docling", "code"],
         default=None,
         help="Chunking strategy (default: from config)",
     )
@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     p_ingest.add_argument(
         "--profile",
-        choices=["auto", "paper", "article", "documentation", "general"],
+        choices=["auto", "paper", "article", "documentation", "general", "code"],
         default=None,
         help="Extraction profile (default: auto-detect from content)",
     )
@@ -66,6 +66,54 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help="Comma-separated access tags for the document (e.g. team-a,confidential)",
     )
+    p_ingest.add_argument(
+        "--weight",
+        type=float,
+        default=0.0,
+        help="Document weight/authority boost for search scoring (e.g. 0.3 for mandatory, 0.15 for guideline)",
+    )
+    p_ingest.add_argument(
+        "--pinned",
+        action="store_true",
+        help="Pin document: top chunks always included in corpus search results",
+    )
+    p_ingest.add_argument(
+        "--tags",
+        default=None,
+        help="Comma-separated category tags for filtering (e.g. compliance,coding,style)",
+    )
+
+    # --- parse (parse-only, no storage) ---
+    p_parse = sub.add_parser(
+        "parse",
+        help="Parse and chunk a document without storing. Outputs JSONL to stdout.",
+    )
+    p_parse.add_argument("file_path", help="Path to document or directory")
+    p_parse.add_argument(
+        "--format",
+        choices=["jsonl", "json"],
+        default="jsonl",
+        help="Output format (default: jsonl)",
+    )
+    p_parse.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Output file (default: stdout)",
+    )
+    p_parse.add_argument(
+        "--chunking",
+        choices=["paragraph", "semantic", "recursive", "docling", "code"],
+        default=None,
+        help="Chunking strategy (default: from config)",
+    )
+    p_parse.add_argument(
+        "--profile",
+        choices=["auto", "paper", "article", "documentation", "general", "code"],
+        default=None,
+        help="Extraction profile (default: auto-detect)",
+    )
+    p_parse.add_argument("-v", "--verbose", action="store_true")
 
     # --- list ---
     sub.add_parser("list", help="List all ingested documents")
@@ -77,6 +125,17 @@ def main(argv: list[str] | None = None) -> None:
     p_search.add_argument(
         "-n", "--results", type=int, default=5, help="Number of results (default: 5)"
     )
+    p_search.add_argument(
+        "--hyde",
+        action="store_true",
+        help="Use HyDE (Hypothetical Document Embeddings) query expansion",
+    )
+    p_search.add_argument(
+        "--auto-merge", action="store_true", help="Auto-merge L3 results into parent L2/L1 chunks"
+    )
+    p_search.add_argument(
+        "--kg", action="store_true", help="Boost results using knowledge graph relationships"
+    )
 
     # --- corpus-search ---
     p_csearch = sub.add_parser("corpus-search", help="Search across all ingested documents")
@@ -86,6 +145,18 @@ def main(argv: list[str] | None = None) -> None:
     )
     p_csearch.add_argument(
         "--doc-ids", nargs="*", default=None, help="Limit to specific document IDs"
+    )
+    p_csearch.add_argument(
+        "--tags",
+        default=None,
+        help="Comma-separated tags to filter documents (e.g. compliance,style)",
+    )
+    p_csearch.add_argument("--hyde", action="store_true", help="Use HyDE query expansion")
+    p_csearch.add_argument(
+        "--auto-merge", action="store_true", help="Auto-merge L3 results into parent L2/L1 chunks"
+    )
+    p_csearch.add_argument(
+        "--kg", action="store_true", help="Boost results using knowledge graph relationships"
     )
 
     # --- enrich ---
@@ -102,11 +173,22 @@ def main(argv: list[str] | None = None) -> None:
     p_exp.add_argument("doc_id", help="Document ID to export")
     p_exp.add_argument(
         "--format",
-        choices=["jsonl", "parquet", "llamaindex", "langchain"],
+        choices=["jsonl", "parquet", "llamaindex", "langchain", "complete"],
         required=True,
         help="Export format",
     )
     p_exp.add_argument("-o", "--output", required=True, help="Output file path")
+
+    # --- corpus-export ---
+    p_cexp = sub.add_parser(
+        "corpus-export",
+        help="Export all documents (or a subset) to a single complete JSON",
+    )
+    p_cexp.add_argument(
+        "--doc-ids", default=None, help="Comma-separated document IDs (default: all)"
+    )
+    p_cexp.add_argument("--tags", default=None, help="Comma-separated tags to filter by")
+    p_cexp.add_argument("-o", "--output", required=True, help="Output file path")
 
     # --- config ---
     sub.add_parser("config", help="Show effective configuration (all sources merged)")
@@ -160,6 +242,11 @@ def main(argv: list[str] | None = None) -> None:
         "--compare", action="store_true", help="Compare hybrid vs vector-only vs BM25-only"
     )
     eval_parser.add_argument("--output", "-o", help="Save detailed results to JSON file")
+    eval_parser.add_argument(
+        "--judge",
+        action="store_true",
+        help="Use LLM-as-judge scoring (faithfulness, relevance, completeness)",
+    )
 
     # --- audit ---
     audit_parser = sub.add_parser("audit", help="View search audit trail")
@@ -212,6 +299,8 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "ingest":
         _cmd_ingest(args)
+    elif args.command == "parse":
+        _cmd_parse(args)
     elif args.command == "list":
         _cmd_list()
     elif args.command == "search":
@@ -224,6 +313,8 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_versions(args)
     elif args.command == "export":
         _cmd_export(args)
+    elif args.command == "corpus-export":
+        _cmd_corpus_export(args)
     elif args.command == "config":
         _cmd_config()
     elif args.command == "serve":
@@ -250,7 +341,28 @@ def main(argv: list[str] | None = None) -> None:
             queries = load_eval_queries(Path(args.queries))
             print(f"Loaded {len(queries)} eval queries from {args.queries}")
 
-        if args.compare:
+        if args.judge:
+            import asyncio
+
+            from ingestible.eval_llm_judge import evaluate_with_judge
+
+            report = asyncio.run(
+                evaluate_with_judge(
+                    args.doc_id,
+                    settings,
+                    queries,
+                    k=args.k,
+                    concurrency=settings.llm_judge_concurrency,
+                )
+            )
+            print(report.summary())
+
+            if args.output:
+                import json
+
+                Path(args.output).write_text(json.dumps(report.to_dict(), indent=2))
+                print(f"\nDetailed results saved to {args.output}")
+        elif args.compare:
             reports = compare_strategies(args.doc_id, settings, queries, k=args.k)
             for name, report in reports.items():
                 print(f"\n--- {name} ---")
@@ -354,6 +466,10 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
     if args.access_tags:
         parsed_access_tags = [t.strip() for t in args.access_tags.split(",") if t.strip()]
 
+    parsed_tags = None
+    if args.tags:
+        parsed_tags = [t.strip() for t in args.tags.split(",") if t.strip()]
+
     if _is_batch_input(args.file_path):
         from ingestible.pipeline.batch import ingest_batch
 
@@ -393,8 +509,152 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
             force=args.force,
             progress_callback=callback,
             access_tags=parsed_access_tags,
+            weight=args.weight,
+            pinned=args.pinned,
+            tags=parsed_tags,
         )
         print(f"Ingested → {doc_dir}")
+
+
+def _cmd_parse(args: argparse.Namespace) -> None:
+    """Parse and chunk document(s) without storing. Output JSONL to stdout or file."""
+    import json
+    import logging
+    import tempfile
+    from pathlib import Path
+
+    from ingestible.config import get_settings
+    from ingestible.pipeline.orchestrator import generate_doc_id
+    from ingestible.pipeline.stage1_parsing import parse_document
+    from ingestible.pipeline.stage1b_clean import clean_document
+    from ingestible.pipeline.stage2_structure import detect_structure
+    from ingestible.pipeline.stage3_chunking import chunk_document
+    from ingestible.pipeline.stage3b_validation import validate_chunks
+    from ingestible.profiles import PROFILES, detect_profile
+
+    if args.verbose:
+        logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    overrides = {}
+    if args.chunking:
+        overrides["chunking_strategy"] = args.chunking
+    if args.profile:
+        overrides["extraction_profile"] = args.profile
+    # Use a temp data dir — nothing is persisted
+    overrides["data_dir"] = Path(tempfile.mkdtemp(prefix="ingest-parse-"))
+    settings = get_settings(**overrides)
+
+    file_path = Path(args.file_path).resolve()
+
+    # Collect files
+    if file_path.is_dir():
+        supported = {
+            ".pdf",
+            ".docx",
+            ".doc",
+            ".txt",
+            ".md",
+            ".rst",
+            ".html",
+            ".epub",
+            ".pptx",
+            ".xlsx",
+            ".csv",
+            ".json",
+            ".jsonl",
+            ".xml",
+        }
+        files = sorted(
+            f
+            for f in file_path.iterdir()
+            if f.suffix.lower() in supported and not f.name.startswith(".")
+        )
+    else:
+        files = [file_path]
+
+    # Output target
+    out = sys.stdout
+    output_path = None
+    if args.output:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        out = open(output_path, "w", encoding="utf-8")
+
+    total_chunks = 0
+
+    for fp in files:
+        try:
+            # Stage 1: Parse
+            parsed = parse_document(fp, timeout=settings.parse_timeout)
+
+            # Stage 1b: Clean
+            if settings.cleaning_enabled:
+                parsed = clean_document(parsed)
+
+            # Profile detection
+            if settings.extraction_profile == "auto":
+                profile_name = detect_profile(parsed)
+            else:
+                profile_name = settings.extraction_profile
+            profile = PROFILES.get(profile_name, PROFILES["general"])
+
+            # Apply profile overrides
+            chunk_settings = settings
+            profile_overrides = {}
+            if profile.max_chunk_tokens is not None:
+                profile_overrides["max_chunk_tokens"] = profile.max_chunk_tokens
+            if profile.min_chunk_tokens is not None:
+                profile_overrides["min_chunk_tokens"] = profile.min_chunk_tokens
+            if profile.chunking_strategy is not None:
+                profile_overrides["chunking_strategy"] = profile.chunking_strategy
+            if profile_overrides:
+                chunk_settings = settings.model_copy(update=profile_overrides)
+
+            # Stage 2: Structure
+            doc_id = generate_doc_id(fp)
+            structure = detect_structure(parsed, doc_id)
+
+            # Stage 3: Chunk + validate
+            chunks = chunk_document(structure, chunk_settings)
+            chunks, _ = validate_chunks(chunks)
+
+            # Output JSONL
+            for chunk in chunks.l3_chunks:
+                record = {
+                    "id": chunk.chunk_id,
+                    "doc_id": doc_id,
+                    "doc_title": chunks.l0.title or fp.stem,
+                    "content": chunk.content,
+                    "summary": chunk.summary,
+                    "chapter": chunk.position.chapter,
+                    "section": chunk.position.section,
+                    "page_start": chunk.page_start,
+                    "page_end": chunk.page_end,
+                    "concepts": chunk.concepts,
+                    "keywords": chunk.keywords,
+                    "profile": profile_name,
+                }
+                out.write(json.dumps(record, ensure_ascii=False) + "\n")
+                total_chunks += 1
+
+            if args.verbose:
+                print(
+                    f"  {fp.name}: {len(chunks.l3_chunks)} chunks ({profile_name})", file=sys.stderr
+                )
+
+        except Exception as e:
+            print(f"  {fp.name}: FAILED — {e}", file=sys.stderr)
+
+    if output_path:
+        out.close()
+        print(f"{total_chunks} chunks → {output_path}", file=sys.stderr)
+    elif args.verbose:
+        print(f"{total_chunks} chunks", file=sys.stderr)
+
+    # Cleanup temp dir
+    import shutil
+
+    shutil.rmtree(str(overrides["data_dir"]), ignore_errors=True)
 
 
 def _cmd_list() -> None:
@@ -423,7 +683,15 @@ def _cmd_search(args: argparse.Namespace) -> None:
     from ingestible.pipeline.stage6_storage import load_chunks
     from ingestible.search.hybrid import load_searcher
 
-    settings = get_settings()
+    overrides = {}
+    if getattr(args, "hyde", False):
+        overrides["hyde_enabled"] = True
+    if getattr(args, "auto_merge", False):
+        overrides["auto_merge_enabled"] = True
+    if getattr(args, "kg", False):
+        overrides["kg_retrieval_enabled"] = True
+
+    settings = get_settings(**overrides)
     doc_dir = settings.documents_dir / args.doc_id
 
     if not doc_dir.exists():
@@ -435,7 +703,50 @@ def _cmd_search(args: argparse.Namespace) -> None:
     embedder = Embedder(settings)
     searcher = load_searcher(doc_dir, chunks, embedder, settings)
 
-    response = searcher.search(args.query, n_results=args.results)
+    # HyDE query expansion — only affects vector embedding, not BM25/concept/exact
+    query = args.query
+    hyde_query = None
+    if settings.hyde_enabled:
+        import asyncio
+
+        from ingestible.search.query_expansion import QueryExpansionConfig, expand_query
+
+        config = QueryExpansionConfig(hyde_enabled=True)
+        expanded = asyncio.run(expand_query(query, config, settings))
+        if expanded and expanded[0] != query:
+            hyde_query = expanded[0]
+            print(f"HyDE expanded query: {hyde_query[:100]}...")
+
+    # Sub-question decomposition — search each independently, merge results
+    if settings.sub_questions_enabled:
+        import asyncio as _asyncio
+
+        from ingestible.models.search import SearchResponse, SearchResult
+        from ingestible.search.query_expansion import QueryExpansionConfig as _SQConfig
+        from ingestible.search.query_expansion import expand_query as _sq_expand
+
+        sq_config = _SQConfig(
+            sub_questions_enabled=True, max_sub_questions=settings.max_sub_questions
+        )
+        sub_queries = _asyncio.run(_sq_expand(query, sq_config, settings))
+        if len(sub_queries) > 1:
+            merged: dict[str, SearchResult] = {}
+            for sq in sub_queries:
+                resp = searcher.search(sq, n_results=args.results, hyde_query=hyde_query)
+                for r in resp.results:
+                    if r.chunk_id not in merged or r.score > merged[r.chunk_id].score:
+                        merged[r.chunk_id] = r
+            results = sorted(merged.values(), key=lambda r: r.score, reverse=True)[: args.results]
+            response = SearchResponse(
+                doc_id=resp.doc_id,
+                query=query,
+                results=results,
+                total_candidates=len(merged),
+            )
+        else:
+            response = searcher.search(query, n_results=args.results, hyde_query=hyde_query)
+    else:
+        response = searcher.search(query, n_results=args.results, hyde_query=hyde_query)
 
     if not response.results:
         print("No results found.")
@@ -464,9 +775,40 @@ def _cmd_corpus_search(args: argparse.Namespace) -> None:
     from ingestible.config import get_settings
     from ingestible.search.corpus import CorpusSearcher
 
-    settings = get_settings()
+    overrides = {}
+    if getattr(args, "auto_merge", False):
+        overrides["auto_merge_enabled"] = True
+    if getattr(args, "kg", False):
+        overrides["kg_retrieval_enabled"] = True
+
+    settings = get_settings(**overrides)
+
+    # HyDE: expand once at corpus level, pass to all per-doc searchers
+    hyde_query = None
+    if getattr(args, "hyde", False):
+        import asyncio
+
+        from ingestible.search.query_expansion import HyDEExpander
+
+        try:
+            expander = HyDEExpander(settings)
+            hyde_query = asyncio.run(expander.expand(args.query))
+            if hyde_query:
+                print(f"HyDE expanded query: {hyde_query[:100]}...")
+        except Exception:
+            pass
+
+    filter_tags = None
+    if args.tags:
+        filter_tags = [t.strip() for t in args.tags.split(",") if t.strip()]
     searcher = CorpusSearcher(settings)
-    response = searcher.search(args.query, n_results=args.results, doc_ids=args.doc_ids)
+    response = searcher.search(
+        args.query,
+        n_results=args.results,
+        doc_ids=args.doc_ids,
+        tags=filter_tags,
+        hyde_query=hyde_query,
+    )
 
     if not response.results:
         print("No results found.")
@@ -562,6 +904,60 @@ def _cmd_export(args: argparse.Namespace) -> None:
 
     export_document(chunks, args.format, output_path, doc_title=meta.get("title", ""))
     print(f"Exported {args.doc_id} to {output_path} ({args.format})")
+
+
+def _cmd_corpus_export(args: argparse.Namespace) -> None:
+    from pathlib import Path
+
+    from ingestible.config import get_settings
+    from ingestible.export.complete import export_complete_corpus
+    from ingestible.pipeline.stage6_storage import load_chunks, load_document_meta
+
+    settings = get_settings()
+    docs_dir = settings.documents_dir
+
+    if not docs_dir.exists():
+        print("No documents directory found.")
+        sys.exit(1)
+
+    # Determine which doc_ids to export
+    if args.doc_ids:
+        doc_ids = [d.strip() for d in args.doc_ids.split(",")]
+    else:
+        doc_ids = sorted(
+            d.name for d in docs_dir.iterdir() if d.is_dir() and (d / "meta.json").exists()
+        )
+
+    # Filter by tags if specified
+    if args.tags:
+        requested_tags = {t.strip().lower() for t in args.tags.split(",")}
+        filtered = []
+        for did in doc_ids:
+            meta = load_document_meta(docs_dir / did)
+            doc_tags = {t.lower() for t in meta.get("tags", [])}
+            if doc_tags & requested_tags:
+                filtered.append(did)
+        doc_ids = filtered
+
+    if not doc_ids:
+        print("No matching documents found.")
+        sys.exit(1)
+
+    print(f"Exporting {len(doc_ids)} document(s)...")
+    documents = []
+    for did in doc_ids:
+        doc_dir = docs_dir / did
+        if not doc_dir.exists():
+            print(f"  Skipping {did} (not found)")
+            continue
+        chunks = load_chunks(doc_dir)
+        meta = load_document_meta(doc_dir)
+        documents.append((chunks, meta.get("title", "")))
+        print(f"  Loaded {did}")
+
+    output_path = Path(args.output)
+    export_complete_corpus(documents, output_path)
+    print(f"Exported {len(documents)} document(s) to {output_path}")
 
 
 def _cmd_config() -> None:

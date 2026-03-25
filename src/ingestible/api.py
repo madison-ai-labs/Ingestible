@@ -36,6 +36,7 @@ from ingestible.pipeline.stage6_storage import (
     load_chunks,
     load_document_meta,
     load_structure,
+    update_document_meta,
 )
 from ingestible.pipeline.task_queue import get_task_queue
 from ingestible.search.hybrid import load_searcher
@@ -214,6 +215,20 @@ def _check_upload_size(content: bytes, settings) -> None:
         )
 
 
+def _get_user(request: Request) -> str:
+    """Extract user identity from request headers.
+
+    Priority: X-User-ID header (set by auth proxy) > bearer token prefix > 'anonymous'.
+    """
+    user_id = request.headers.get("X-User-ID", "")
+    if user_id:
+        return user_id.strip()
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer ") and len(auth) > 15:
+        return auth[7:15]
+    return "anonymous"
+
+
 def _l0_overview_text(l0: L0Chunk) -> str:
     """Compose readable overview text from L0's structured fields."""
     parts = [l0.title]
@@ -288,6 +303,11 @@ class TokenEconomics(BaseModel):
 class SearchRequest(BaseModel):
     query: str
     n_results: int = Field(default=5, ge=1, le=20)
+    hyde: bool = Field(default=False, description="Use HyDE query expansion for vector search")
+    auto_merge: bool = Field(default=False, description="Auto-merge L3 results into parent L2/L1")
+    kg_boost: bool = Field(
+        default=False, description="Boost results using knowledge graph relationships"
+    )
 
 
 class HealthResponse(BaseModel):
@@ -388,6 +408,9 @@ async def ingest_document(
     skip_enrichment: bool = Form(False),
     profile: str = Form("auto"),
     access_tags: str = Form(""),
+    weight: float = Form(0.0),
+    pinned: bool = Form(False),
+    tags: str = Form(""),
 ):
     """
     Ingest a PDF into the knowledge store.
@@ -410,16 +433,20 @@ async def ingest_document(
 
             settings = _gs(extraction_profile=profile)
 
-        parsed_tags = (
+        parsed_access_tags = (
             [t.strip() for t in access_tags.split(",") if t.strip()] if access_tags else None
         )
+        parsed_tags = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
 
         doc_dir = ingest(
             tmp_path,
             settings,
             skip_enrichment=skip_enrichment,
             verbose=False,
-            access_tags=parsed_tags,
+            access_tags=parsed_access_tags,
+            weight=weight,
+            pinned=pinned,
+            tags=parsed_tags,
         )
 
         meta = load_document_meta(doc_dir)
@@ -429,8 +456,23 @@ async def ingest_document(
 
         l0_tokens = count_tokens(_l0_overview_text(chunks.l0))
 
+        doc_id = meta.get("doc_id", doc_dir.name)
+
+        if settings.audit_enabled:
+            from ingestible.audit import log_ingest
+
+            log_ingest(
+                settings.data_dir / "audit.jsonl",
+                doc_id=doc_id,
+                user=_get_user(request),
+                title=meta.get("title", ""),
+                source_path=file.filename or "",
+                total_chunks=len(chunks.l3_chunks),
+                enriched=not skip_enrichment,
+            )
+
         return IngestResponse(
-            doc_id=meta.get("doc_id", doc_dir.name),
+            doc_id=doc_id,
             title=meta.get("title", "Untitled"),
             total_pages=meta.get("total_pages", 0),
             total_chunks=len(chunks.l3_chunks),
@@ -566,10 +608,12 @@ async def list_docs(
     request: Request,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=1000),
+    tags: str = Query(default="", description="Comma-separated tags to filter by"),
 ):
-    """List all ingested documents."""
+    """List all ingested documents, optionally filtered by tags."""
     settings = get_cached_settings()
-    docs = list_documents(settings)
+    filter_tags = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
+    docs = list_documents(settings, tags=filter_tags)
     paginated = docs[offset : offset + limit]
     return [
         DocumentSummary(
@@ -616,6 +660,32 @@ async def get_document(doc_id: str, request: Request):
     )
 
 
+class UpdateMetaRequest(BaseModel):
+    weight: float | None = None
+    pinned: bool | None = None
+    tags: list[str] | None = None
+
+
+@app.patch("/documents/{doc_id}/meta")
+@limiter.limit(_RATE_DEFAULT)
+async def patch_document_meta(doc_id: str, body: UpdateMetaRequest, request: Request):
+    """Update mutable metadata (weight, pinned, tags) without re-ingesting."""
+    doc_id = _validate_doc_id(doc_id)
+    settings = get_cached_settings()
+    doc_dir = settings.documents_dir / doc_id
+
+    if not doc_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
+
+    meta = update_document_meta(doc_dir, weight=body.weight, pinned=body.pinned, tags=body.tags)
+    return {
+        "doc_id": doc_id,
+        "weight": meta.get("weight", 0.0),
+        "pinned": meta.get("pinned", False),
+        "tags": meta.get("tags", []),
+    }
+
+
 class DeleteResponse(BaseModel):
     deleted: str
 
@@ -632,6 +702,15 @@ async def delete_document(doc_id: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
 
     shutil.rmtree(doc_dir)
+
+    if settings.audit_enabled:
+        from ingestible.audit import log_delete
+
+        log_delete(
+            settings.data_dir / "audit.jsonl",
+            doc_id=doc_id,
+            user=_get_user(request),
+        )
 
     return DeleteResponse(deleted=doc_id)
 
@@ -695,7 +774,18 @@ async def search_document(doc_id: str, body: SearchRequest, request: Request):
 
     chunks = load_chunks(doc_dir)
     embedder = get_cached_embedder()
-    searcher = load_searcher(doc_dir, chunks, embedder, settings)
+
+    # Apply search overrides
+    search_settings = settings
+    overrides = {}
+    if body.auto_merge:
+        overrides["auto_merge_enabled"] = True
+    if body.kg_boost:
+        overrides["kg_retrieval_enabled"] = True
+    if overrides:
+        search_settings = settings.model_copy(update=overrides)
+
+    searcher = load_searcher(doc_dir, chunks, embedder, search_settings)
 
     # Access control
     user_tags = None
@@ -706,12 +796,22 @@ async def search_document(doc_id: str, body: SearchRequest, request: Request):
         )
 
     # Audit: identify user from bearer token
-    user = ""
-    if settings.audit_enabled:
-        auth_header = request.headers.get("Authorization", "")
-        user = auth_header[7:15] if auth_header.startswith("Bearer ") else "anonymous"
+    user = _get_user(request) if settings.audit_enabled else ""
 
-    response = searcher.search(body.query, n_results=body.n_results, user_tags=user_tags, user=user)
+    # HyDE query expansion
+    hyde_query = None
+    if body.hyde:
+        try:
+            from ingestible.search.query_expansion import HyDEExpander
+
+            expander = HyDEExpander(search_settings)
+            hyde_query = await expander.expand(body.query)
+        except Exception:
+            pass  # fall back to normal search
+
+    response = searcher.search(
+        body.query, n_results=body.n_results, user_tags=user_tags, user=user, hyde_query=hyde_query
+    )
     return response
 
 
@@ -798,6 +898,12 @@ class CorpusSearchRequest(BaseModel):
     query: str
     n_results: int = Field(default=10, ge=1, le=50)
     doc_ids: list[str] | None = None
+    tags: list[str] | None = None
+    hyde: bool = Field(default=False, description="Use HyDE query expansion")
+    auto_merge: bool = Field(default=False, description="Auto-merge L3 results into parent L2/L1")
+    kg_boost: bool = Field(
+        default=False, description="Boost results using knowledge graph relationships"
+    )
 
 
 @app.post("/search")
@@ -808,6 +914,15 @@ async def corpus_search(body: CorpusSearchRequest, request: Request):
 
     settings = get_cached_settings()
 
+    # Apply search overrides (hyde handled separately at corpus level)
+    overrides = {}
+    if body.auto_merge:
+        overrides["auto_merge_enabled"] = True
+    if body.kg_boost:
+        overrides["kg_retrieval_enabled"] = True
+    if overrides:
+        settings = settings.model_copy(update=overrides)
+
     # Access control
     user_tags = None
     if settings.access_control_enabled:
@@ -816,15 +931,28 @@ async def corpus_search(body: CorpusSearchRequest, request: Request):
             [t.strip() for t in tags_header.split(",") if t.strip()] if tags_header else None
         )
 
-    # Audit: identify user from bearer token
-    user = ""
-    if settings.audit_enabled:
-        auth_header = request.headers.get("Authorization", "")
-        user = auth_header[7:15] if auth_header.startswith("Bearer ") else "anonymous"
+    user = _get_user(request) if settings.audit_enabled else ""
+
+    # HyDE: expand once at corpus level
+    hyde_query = None
+    if body.hyde:
+        try:
+            from ingestible.search.query_expansion import HyDEExpander
+
+            expander = HyDEExpander(settings)
+            hyde_query = await expander.expand(body.query)
+        except Exception:
+            pass
 
     searcher = CorpusSearcher(settings, embedder=get_cached_embedder())
     return searcher.search(
-        body.query, n_results=body.n_results, doc_ids=body.doc_ids, user_tags=user_tags, user=user
+        body.query,
+        n_results=body.n_results,
+        doc_ids=body.doc_ids,
+        user_tags=user_tags,
+        user=user,
+        tags=body.tags,
+        hyde_query=hyde_query,
     )
 
 
@@ -853,6 +981,15 @@ async def enrich_document(doc_id: str, request: Request):
     from ingestible.utils.tokens import count_tokens
 
     l0_tokens = count_tokens(_l0_overview_text(chunks.l0))
+
+    if settings.audit_enabled:
+        from ingestible.audit import log_re_enrich
+
+        log_re_enrich(
+            settings.data_dir / "audit.jsonl",
+            doc_id=doc_id,
+            user=_get_user(request),
+        )
 
     return IngestResponse(
         doc_id=meta.get("doc_id", doc_dir.name),
@@ -886,6 +1023,31 @@ async def eval_document(doc_id: str, request: Request, k: int = Query(default=5,
     return report.to_dict()
 
 
+@app.post("/documents/{doc_id}/eval/judge")
+@limiter.limit(_RATE_DEFAULT)
+async def eval_document_judge(
+    doc_id: str, request: Request, k: int = Query(default=5, ge=1, le=50)
+):
+    """Evaluate retrieval quality using LLM-as-judge scoring.
+
+    Returns faithfulness, relevance, and completeness scores (0-1 scale)
+    assessed by the configured LLM provider.
+    """
+    doc_id = _validate_doc_id(doc_id)
+    settings = get_cached_settings()
+    doc_dir = settings.documents_dir / doc_id
+
+    if not doc_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
+
+    from ingestible.eval_llm_judge import evaluate_with_judge
+
+    report = await evaluate_with_judge(
+        doc_id, settings, k=k, concurrency=settings.llm_judge_concurrency
+    )
+    return report.to_dict()
+
+
 # ---------------------------------------------------------------------------
 # Export (WP 2.3)
 # ---------------------------------------------------------------------------
@@ -896,7 +1058,9 @@ async def eval_document(doc_id: str, request: Request, k: int = Query(default=5,
 async def export_document_endpoint(
     doc_id: str,
     request: Request,
-    format: str = Query(..., description="Export format: jsonl, parquet, llamaindex, langchain"),
+    format: str = Query(
+        ..., description="Export format: jsonl, parquet, llamaindex, langchain, complete"
+    ),
 ):
     """Export a document to a portable format. Returns the file as a download."""
     doc_id = _validate_doc_id(doc_id)
@@ -924,17 +1088,29 @@ async def export_document_endpoint(
         "parquet": ".parquet",
         "llamaindex": ".json",
         "langchain": ".json",
+        "complete": ".json",
     }
     ext = ext_map.get(format, ".json")
     output_path = doc_dir / f"export{ext}"
 
     export_document(chunks, format, output_path, doc_title=meta.get("title", ""))
 
+    if settings.audit_enabled:
+        from ingestible.audit import log_export
+
+        log_export(
+            settings.data_dir / "audit.jsonl",
+            doc_id=doc_id,
+            user=_get_user(request),
+            format=format,
+        )
+
     media_types = {
         "jsonl": "application/x-ndjson",
         "parquet": "application/octet-stream",
         "llamaindex": "application/json",
         "langchain": "application/json",
+        "complete": "application/json",
     }
 
     return FileResponse(
@@ -1210,6 +1386,15 @@ async def cv_webhook(request: Request):
     from ingestible.pipeline.re_enrich import re_enrich
 
     re_enrich(doc_id, settings, changed_chunk_ids={chunk_id})
+
+    if settings.audit_enabled:
+        from ingestible.audit import log_webhook
+
+        log_webhook(
+            settings.data_dir / "audit.jsonl",
+            doc_id=doc_id,
+            chunk_id=chunk_id,
+        )
 
     return {
         "status": "ok",

@@ -639,7 +639,7 @@ Each is an independent PR. Ingestible stays standalone, just with better librari
 ## Deployment
 
 ```
-Docker container (Fly.io / Railway)
+Docker container (Fly.io)
 ├── FastAPI on port 8000
 ├── pg-boss worker (same process, background task)
 ├── /health endpoint

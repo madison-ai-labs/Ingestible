@@ -56,7 +56,7 @@ Stages in brackets are optional. The orchestrator (`pipeline/orchestrator.py`) r
 2. **Structure** (`stage2_structure.py`) — builds `DocumentStructure` tree from headings/TOC/page heuristics
 3. **Chunk** (`stage3_chunking.py`) — produces `ChunkSet` with 4-level hierarchy: L0 (document) → L1 (chapter) → L2 (section) → L3 (passage). Four strategies: paragraph, semantic, recursive, docling.
 4. **Enrich** (`stage4_enrichment.py`) — async LLM calls (Anthropic/OpenAI) with retry+backoff. Bottom-up: L3→L2→L1→L0. Adds summaries, concepts, hypothetical questions, KG triples.
-5. **Embed** (`stage5_embedding.py`) — E5-large-v2 via sentence-transformers. Builds ChromaDB vector index + BM25 + concept index. Multiple embeddings per chunk (content, summary, questions).
+5. **Embed** (`stage5_embedding.py`) — E5-large-v2 via sentence-transformers. Builds ChromaDB vector index + BM25 + concept index + KG index (when triples exist). Multiple embeddings per chunk (content, summary, questions).
 6. **Store** (`stage6_storage.py`) — JSON file hierarchy under `data/documents/{doc_id}/`
 
 ### Search
@@ -66,6 +66,13 @@ Stages in brackets are optional. The orchestrator (`pipeline/orchestrator.py`) r
 - Optional cross-encoder reranking
 - Version-aware: superseded chunks get 0.3x weight
 - Corpus search (`search/corpus.py`) merges results across documents
+
+**Search enhancements** (all opt-in via config or CLI flags):
+- **Auto-merge** (`search/auto_merge.py`) — when 3+ L3 chunks from same L2 section match, returns the parent L2 instead. `INGEST_AUTO_MERGE_ENABLED=true` or `--auto-merge`
+- **HyDE query expansion** (`search/query_expansion.py`) — generates a hypothetical answer passage via LLM, embeds that for better vector matching. `INGEST_HYDE_ENABLED=true` or `--hyde`
+- **KG retrieval boost** (`search/kg_retrieval.py`) — traverses knowledge graph entity relationships to find related chunks not matching by text. `INGEST_KG_RETRIEVAL_ENABLED=true` or `--kg`
+- **LLM-as-judge eval** (`eval_llm_judge.py`) — scores retrieval quality on faithfulness/relevance/completeness using LLM. `ingest eval <doc_id> --judge` or `POST /documents/{doc_id}/eval/judge`
+- **Pluggable vector backends** (`search/vector_backend.py`) — abstract `VectorBackend` ABC with ChromaDB (default), pgvector, and Qdrant implementations. `INGEST_VECTOR_BACKEND=pgvector`
 
 ### Three Entry Points
 
