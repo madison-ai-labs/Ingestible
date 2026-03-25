@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.1.0 (2026-03-25)
+
+### Added
+- **Gemini LLM + embedding provider** — `INGEST_LLM_PROVIDER=gemini` and `INGEST_EMBEDDING_PROVIDER=gemini` with batch support
+- **Ollama LLM provider** — `INGEST_LLM_PROVIDER=ollama` for fully local LLM enrichment, no API keys needed
+- **pgvector vector backend** — `INGEST_VECTOR_BACKEND=pgvector` as production alternative to ChromaDB
+- **Gemini and pgvector optional dependency groups** — `pip install ingestible[gemini,pgvector]`
+- **Code-aware chunking** — preserves code blocks, fenced regions, and inline code during chunk splitting
+- **Document weight, pinned, and tags** — per-document metadata for search filtering and prioritization
+- **Competitive search enhancements** — improved ranking, filtering, and complete export support
+- **Standalone production Docker Compose** (`docker-compose.prod.yml`)
+- **Configurable Docker extras** — thin API server (~500MB) vs full ingestion worker (~3GB)
+- **Configurable gunicorn workers** via `WEB_CONCURRENCY` env var
+- **Configurable preload** via `GUNICORN_PRELOAD` env var for memory-constrained environments
+
+### Changed
+- Production deployment moved from Railway to **Fly.io**
+- Default Docker image extras changed to `pgvector,gemini` (thin API server)
+
 ## v1.0.0 (2026-03-21)
 
 First stable release.
