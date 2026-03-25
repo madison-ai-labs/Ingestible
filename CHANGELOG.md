@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.1.1 (2026-03-25)
+
+### Changed
+- CI now publishes two Docker images: `latest` (full, ~3GB) and `latest-slim` (thin API, ~500MB)
+
 ## v1.1.0 (2026-03-25)
 
 ### Added
