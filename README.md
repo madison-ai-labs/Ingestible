@@ -42,6 +42,8 @@ Optional extras (combine with comma: `pip install ingestible[local,audio,cloud]`
 | Extra | What it adds |
 |-------|-------------|
 | `local` | Local embeddings — sentence-transformers, ChromaDB, torch |
+| `pgvector` | PostgreSQL pgvector backend — psycopg, pgvector |
+| `gemini` | Google Gemini LLM + embeddings — google-genai |
 | `audio` | Audio/video transcription — faster-whisper |
 | `cloud` | S3, GCS, Azure Blob connectors — boto3, google-cloud-storage, azure-storage-blob |
 | `mcp` | MCP server for AI agent integration |
@@ -196,8 +198,10 @@ Passages found by multiple indexes rank higher. No score normalization needed.
 - **Retrieval evaluation** — Hit Rate, MRR, Precision@K with synthetic or manual queries
 - **Document access control** — per-document access tags, filtered at retrieval time
 - **Full data lifecycle audit trail** — ingest, search, delete, export, re-enrich, webhook events logged to JSONL with user identity and timestamps
-- **Embedding providers** — local (sentence-transformers), OpenAI, Cohere, Voyage
-- **Zero cloud dependencies** — embeddings run locally. LLM enrichment is optional.
+- **LLM providers** — Anthropic, OpenAI, Gemini, Ollama (local)
+- **Embedding providers** — local (sentence-transformers), OpenAI, Cohere, Voyage, Gemini
+- **Vector backends** — ChromaDB (default), pgvector, Qdrant
+- **Zero cloud dependencies** — with `[local]` extra and `--skip-enrichment`, everything runs offline
 
 ### Supported Formats
 
@@ -239,14 +243,15 @@ All settings via environment variables (`INGEST_*` prefix), `.env` file, or `ing
 
 ```bash
 # LLM provider (default: anthropic)
-INGEST_LLM_PROVIDER=anthropic            # anthropic | openai
+INGEST_LLM_PROVIDER=anthropic            # anthropic | openai | gemini | ollama
 INGEST_ANTHROPIC_API_KEY=sk-ant-...
 INGEST_ANTHROPIC_MODEL=claude-haiku-4-5-20251001
 # INGEST_OPENAI_API_KEY=sk-...           # if using openai provider
-# INGEST_OPENAI_MODEL=gpt-4o-mini
+# INGEST_GEMINI_API_KEY=AIza...          # if using gemini provider
+# INGEST_OLLAMA_BASE_URL=http://localhost:11434  # if using ollama (no key needed)
 
 # Embeddings
-INGEST_EMBEDDING_PROVIDER=local           # local | openai | cohere | voyage
+INGEST_EMBEDDING_PROVIDER=local           # local | openai | cohere | voyage | gemini
 INGEST_EMBEDDING_MODEL=intfloat/e5-large-v2
 INGEST_EMBEDDING_DEVICE=auto              # auto | cuda | mps | cpu
 INGEST_EMBEDDING_DIMENSIONS=              # Matryoshka truncation (empty = full)
