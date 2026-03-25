@@ -98,7 +98,7 @@ class Embedder:
         if self._settings.embedding_dimensions:
             kwargs["dimensions"] = self._settings.embedding_dimensions
         response = client.embeddings.create(**kwargs)
-        vectors = [item.embedding for item in sorted(response.data, key=lambda x: x.index)]
+        vectors = [item.embedding for item in sorted(response.data, key=lambda x: x.index if x.index is not None else 0)]
         return [self._post_process(v) for v in vectors]
 
     def _embed_cohere(

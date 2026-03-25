@@ -1,0 +1,53 @@
+# Ingestible — Document ingestion service for CognitiveVault
+# Fly.io deployment configuration
+#
+# Deploy: fly deploy
+# Logs:   fly logs
+# SSH:    fly ssh console
+
+app = "ingestible"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+  [build.args]
+    EXTRAS = "pgvector,gemini"
+
+[env]
+  PORT = "8081"
+  INGEST_DATA_DIR = "/app/data"
+  INGEST_LOG_JSON = "true"
+  WEB_CONCURRENCY = "2"
+  GUNICORN_PRELOAD = "false"
+
+# Secrets (set via: fly secrets set KEY=VALUE)
+# Required:
+#   GEMINI_API_KEY        — for LLM enrichment + embeddings
+#   INGEST_API_KEYS       — comma-separated bearer tokens for auth
+
+[http_service]
+  internal_port = 8081
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 25
+    soft_limit = 20
+
+[[http_service.checks]]
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "30s"
+  method = "GET"
+  path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"
+
+[mounts]
+  source = "ingestible_data"
+  destination = "/app/data"
