@@ -7,7 +7,7 @@ export function Footer() {
   return (
     <footer className="border-t border-zinc-800/60 bg-zinc-950 py-12">
       <div className="max-w-6xl mx-auto px-6">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-8 mb-10">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-8 mb-10">
           <div>
             <h4 className="text-sm font-semibold text-zinc-200 mb-3">
               Documentation
@@ -30,6 +30,17 @@ export function Footer() {
               <FooterLink href="/docs/Search">How Search Works</FooterLink>
               <FooterLink href="/docs/Token-Economics">Token Economics</FooterLink>
               <FooterLink href="/docs/Features">Features</FooterLink>
+            </ul>
+          </div>
+          <div>
+            <h4 className="text-sm font-semibold text-zinc-200 mb-3">
+              Product
+            </h4>
+            <ul className="space-y-2">
+              <FooterLink href="/pricing">Pricing</FooterLink>
+              <FooterLink href="/pricing#enterprise">Enterprise</FooterLink>
+              <FooterLink href="/security">Security &amp; Privacy</FooterLink>
+              <FooterLink href="/#features">Features</FooterLink>
             </ul>
           </div>
           <div>
