@@ -22,7 +22,7 @@ The pipeline runs once per document. Every query after that is cheap — no LLM 
 
 **What it does:** Converts your document into clean, structured markdown — regardless of what format it started as.
 
-Ingestible handles 25+ formats through format-specific parsers:
+Ingestible handles 25+ document formats through format-specific parsers, plus source code files via tree-sitter:
 
 | Format | How it's parsed |
 |--------|----------------|
@@ -35,6 +35,7 @@ Ingestible handles 25+ formats through format-specific parsers:
 | Images (PNG, JPG, TIFF, ...) | OCR + layout analysis via Docling |
 | Email (EML, MSG) | Headers, body, and inline attachments |
 | ZIP archives | Auto-detects Notion exports, Confluence exports, or generic file archives |
+| Source code (Python, TS, Go, Rust, Java, C/C++, Ruby, Swift, ...) | tree-sitter AST parsing with function/class boundaries (requires `ingestible[code]`) |
 
 **What it produces:** A `ParsedDocument` — title, page count, table of contents, and per-page markdown content with tables and figures preserved.
 
@@ -69,10 +70,12 @@ This is where the token savings come from. Instead of one giant blob of text, th
 | L2 | A section within a chapter | ~200-400 tokens |
 | L3 | A single passage | ~250-500 tokens |
 
-Three chunking strategies are available:
+Five chunking strategies are available:
 - **Paragraph** (default) — splits on natural paragraph boundaries
-- **Semantic** — splits where the meaning shifts between sentences
+- **Semantic** — splits where the meaning shifts between sentences (uses embedding cosine distance)
 - **Recursive** — recursive splitting with configurable overlap
+- **Docling** — uses IBM Docling's native document segmentation (PDF only)
+- **Code** — AST-based splitting via tree-sitter; chunks at function, class, and module boundaries. Requires `pip install ingestible[code]`. Auto-selected for source code files with the `code` profile.
 
 Key rules the chunker follows:
 - Never splits mid-sentence or mid-paragraph
@@ -189,9 +192,9 @@ Every query runs three search systems in parallel, then merges results into one 
 
 ### The Three Indexes
 
-**Vector search (weight: 0.7)** finds passages by meaning. "How do I handle sensory overload?" matches a passage about "nervous system overflow reactions" because the embedding model understands they mean the same thing. With enrichment, each passage has 5-6 embeddings (content, summary, hypothetical questions), so there are more chances to match.
+**Vector search (weight: 0.4)** finds passages by meaning. "How do I handle sensory overload?" matches a passage about "nervous system overflow reactions" because the embedding model understands they mean the same thing. With enrichment, each passage has 5-6 embeddings (content, summary, hypothetical questions), so there are more chances to match.
 
-**BM25 keyword search (weight: 0.3)** finds passages by exact terms. If you search for "hollandaise" and only 3 passages out of 700 mention that word, those 3 passages get a very strong signal. BM25 catches exact matches that vector search might rank lower.
+**BM25 keyword search (weight: 0.6)** finds passages by exact terms. If you search for "hollandaise" and only 3 passages out of 700 mention that word, those 3 passages get a very strong signal. BM25 catches exact matches that vector search might rank lower.
 
 **Concept index (small boost)** does a direct lookup. If the query mentions a known concept, every chunk tagged with that concept gets a small score bump.
 
@@ -200,7 +203,7 @@ Every query runs three search systems in parallel, then merges results into one 
 The three indexes return separate ranked lists. RRF merges them without needing to normalize scores across systems:
 
 ```
-score(chunk) = 0.7 / (60 + vector_rank) + 0.3 / (60 + bm25_rank) + concept_boost
+score(chunk) = 0.4 / (60 + vector_rank) + 0.6 / (60 + bm25_rank) + concept_boost
 ```
 
 The key property: **chunks that multiple systems agree on get naturally boosted**. A passage ranked #1 in vector search and #3 in BM25 scores higher than a passage ranked #1 in vector search alone. Cross-validation between systems is a strong relevance signal.

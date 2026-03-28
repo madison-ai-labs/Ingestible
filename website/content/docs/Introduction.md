@@ -84,12 +84,13 @@ ingest add /path/to/document.pdf -v
 |-------|-------------|
 | `local` | Local embeddings — sentence-transformers, ChromaDB, torch |
 | `pgvector` | PostgreSQL pgvector backend — psycopg, pgvector |
-| `gemini` | Google Gemini LLM + embeddings — google-genai |
+| `gemini` | Google Gemini LLM provider — google-genai |
 | `audio` | Audio/video transcription — faster-whisper |
 | `cloud` | S3, GCS, Azure Blob connectors — boto3, google-cloud-storage, azure-storage-blob |
 | `mcp` | MCP server for AI agent integration |
 | `watch` | File watcher — watchdog |
 | `cohere` | Cohere embedding provider |
 | `voyage` | Voyage embedding provider |
+| `code` | Code parsing — tree-sitter with Python, JS/TS, Go, Rust, Java, C/C++, Ruby, Swift, and more |
 
 Combine extras with commas: `pip install ingestible[local,audio,cloud]`

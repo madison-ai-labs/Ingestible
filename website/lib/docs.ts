@@ -40,7 +40,17 @@ const docStructure: DocSection[] = [
   },
   {
     title: "Reference",
-    items: [{ slug: "API-Reference", title: "REST API" }],
+    items: [
+      { slug: "API-Reference", title: "REST API" },
+      { slug: "MCP-Server", title: "MCP Server" },
+    ],
+  },
+  {
+    title: "Guides",
+    items: [
+      { slug: "Deployment", title: "Deployment" },
+      { slug: "CognitiveVault-Integration", title: "CognitiveVault Integration" },
+    ],
   },
   {
     title: "Resources",

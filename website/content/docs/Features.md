@@ -4,11 +4,11 @@
 
 - **25+ input formats** — PDF, DOCX, HTML, EPUB, PPTX, XLSX, CSV, Markdown, RST, AsciiDoc, plain text, audio, video, images, email, XML, JSON/JSONL, ZIP (Notion, Confluence, generic)
 - **4-level chunk hierarchy** — L0 overview, L1 chapters, L2 sections, L3 passages. No mid-paragraph splits
-- **Chunking strategies** — paragraph, semantic, recursive, docling
+- **Chunking strategies** — paragraph, semantic, recursive, docling, code (AST-based via tree-sitter)
 - **LLM enrichment** — summaries, concepts, hypothetical questions, entities, cross-references (one-time cost, skippable)
-- **Hybrid search** — vector + BM25 + concept index, fused with RRF. Optional cross-encoder reranking, SPLADE sparse retrieval
+- **Hybrid search** — vector + BM25 + concept index, fused with RRF. Optional cross-encoder reranking, SPLADE sparse retrieval, sub-question decomposition
 - **Cross-document corpus search** — query across all ingested documents at once
-- **Extraction profiles** — auto-detected (paper, article, documentation, general) with tailored enrichment
+- **Extraction profiles** — auto-detected (paper, article, documentation, code, general) with tailored enrichment
 - **Knowledge graph extraction** — entity-relationship triples from enrichment
 
 ## Production
@@ -27,8 +27,10 @@
 - **Parse mode** — `ingest parse` outputs structured chunks as JSONL without storing. Feed directly to external systems
 - **Export** — JSONL, Parquet, LlamaIndex, LangChain formats
 - **File watcher** — `ingest watch` monitors a directory and auto-ingests on changes
-- **Retrieval evaluation** — Hit Rate, MRR, Precision@K with synthetic or manual queries
+- **Retrieval evaluation** — Hit Rate, MRR, Precision@K with synthetic or manual queries. LLM-as-judge scoring for faithfulness/relevance/completeness.
 - **Document access control** — per-document access tags, filtered at retrieval time
+- **Embedding quantization** — optional binary quantization for reduced storage
+- **Sub-question decomposition** — splits complex queries into sub-questions for more targeted retrieval
 
 ## The 4-Level Chunk Hierarchy
 
@@ -65,9 +67,8 @@ Configure via `INGEST_VECTOR_BACKEND=pgvector` environment variable.
 - **OpenAI** — text-embedding-3-small/large
 - **Cohere** — embed-english-v3.0
 - **Voyage** — voyage-large-2
-- **Gemini** — text-embedding-004
 
-Configure via `INGEST_EMBEDDING_PROVIDER` and related environment variables.
+Configure via `INGEST_EMBEDDING_PROVIDER` (`local`, `openai`, `cohere`, `voyage`) and related API key environment variables.
 
 ## LLM Providers
 

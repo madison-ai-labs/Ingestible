@@ -55,19 +55,36 @@ INGEST_EMBEDDING_QUANTIZATION=none              # "none" or "binary"
 INGEST_MAX_CHUNK_TOKENS=500                     # max L3 passage size
 INGEST_MIN_CHUNK_TOKENS=100
 INGEST_CHUNK_OVERLAP_FRACTION=0.1
-INGEST_CHUNKING_STRATEGY=paragraph              # "paragraph", "semantic", or "recursive"
+INGEST_CHUNKING_STRATEGY=paragraph              # "paragraph", "semantic", "recursive", "docling", or "code"
 INGEST_SEMANTIC_THRESHOLD_PERCENTILE=10
 INGEST_CONTEXTUAL_CHUNKING=false
 ```
 
 **Search tuning:**
 ```
-INGEST_VECTOR_WEIGHT=0.7                        # vector vs BM25 balance
-INGEST_BM25_WEIGHT=0.3
+INGEST_VECTOR_WEIGHT=0.4                        # vector vs BM25 balance
+INGEST_BM25_WEIGHT=0.6
+INGEST_EXACT_MATCH_BOOST=0.003                  # bonus for exact term matches
 INGEST_DEFAULT_SEARCH_RESULTS=5
 INGEST_RERANKER_MODEL=                          # cross-encoder model (empty = disabled)
 INGEST_RERANKER_TOP_K=50
 INGEST_RERANKER_WEIGHT=0.5
+INGEST_PINNED_TOP_N=3                           # max pinned documents in corpus results
+```
+
+**Search enhancements:**
+```
+INGEST_AUTO_MERGE_ENABLED=false                 # merge child chunks into parent when 3+ match
+INGEST_AUTO_MERGE_THRESHOLD=3
+INGEST_AUTO_MERGE_PREFER_L1=false               # prefer L1 (chapter) over L2 (section) merges
+INGEST_HYDE_ENABLED=false                       # HyDE query expansion via LLM
+INGEST_SUB_QUESTIONS_ENABLED=false              # decompose complex queries into sub-questions
+INGEST_MAX_SUB_QUESTIONS=3
+INGEST_KG_RETRIEVAL_ENABLED=false               # boost results via knowledge graph
+INGEST_KG_BOOST_WEIGHT=0.01
+INGEST_KG_MAX_HOPS=1
+INGEST_KG_MIN_CONFIDENCE=0.5
+INGEST_KG_SEED_TOP_N=10
 ```
 
 **Audio/video transcription:**
@@ -140,6 +157,12 @@ Tag documents during ingestion with `--access-tags admin,engineering`. Filter at
 INGEST_AUDIT_ENABLED=false                     # log every search to data/audit.jsonl
 ```
 
+**LLM-as-judge evaluation:**
+```
+INGEST_LLM_JUDGE_ENABLED=false                 # enable LLM-as-judge eval endpoint
+INGEST_LLM_JUDGE_CONCURRENCY=5                 # parallel judge calls
+```
+
 **Sparse retrieval:**
 ```
 INGEST_SPARSE_RETRIEVAL=bm25                   # bm25 or splade
@@ -163,10 +186,16 @@ ingest add /path/to/document.pdf -v
 **Flags:**
 - `-v` / `--verbose` — show progress for each stage
 - `--skip-enrichment` — skip LLM enrichment (no API cost, still builds search indexes)
-- `--profile auto|paper|article|documentation|general` — extraction profile (default: `auto`)
-- `--chunking paragraph|semantic|recursive` — chunking strategy override
+- `--profile auto|paper|article|documentation|general|code` — extraction profile (default: `auto`)
+- `--chunking paragraph|semantic|recursive|docling|code` — chunking strategy override
 - `--force` — force re-ingestion even if document is unchanged
 - `--no-checkpoint` — disable pipeline checkpoint/resume
+- `--no-recursive` — don't recurse into subdirectories (when ingesting a directory)
+- `--parallel N` — process N files concurrently (batch ingestion)
+- `--access-tags admin,engineering` — access control tags for this document
+- `--weight 1.5` — corpus search weight boost (0.0 = neutral)
+- `--pinned` — pin document so it always appears in corpus search results
+- `--tags research,ml` — metadata tags for filtering
 - `--data-dir /custom/path` — override the data directory
 
 **What happens:**
@@ -215,6 +244,9 @@ ingest search <doc_id> "your query here"
 
 **Flags:**
 - `-n N` — number of results (default: 5)
+- `--hyde` — enable HyDE query expansion (requires LLM)
+- `--auto-merge` — auto-merge child chunks into parent when 3+ match
+- `--kg` — boost results using knowledge graph relationships
 
 **Example:**
 ```bash
@@ -234,6 +266,10 @@ Searches all ingested documents simultaneously with cross-document RRF fusion. R
 **Flags:**
 - `-n N` — number of results (default: 10)
 - `--doc-ids ID1 ID2 ...` — limit search to specific document IDs
+- `--tags research ml` — only search documents with these metadata tags
+- `--hyde` — enable HyDE query expansion
+- `--auto-merge` — auto-merge child chunks into parent
+- `--kg` — boost results using knowledge graph relationships
 
 ### Re-enrich a document
 
@@ -261,7 +297,7 @@ Requires `INGEST_AUDIT_ENABLED=true`. Logs are stored in `data/audit.jsonl`.
 ingest export <doc_id> --format jsonl -o output.jsonl
 ```
 
-**Supported formats:** `jsonl`, `parquet`, `llamaindex`, `langchain`
+**Supported formats:** `jsonl`, `parquet`, `llamaindex`, `langchain`, `complete`
 
 ### Watch a directory for changes
 
@@ -291,6 +327,16 @@ export CV_VAULT_ID=vault-abc
 ingest watch ./docs/ -v --cv-push
 ```
 
+### Export entire corpus
+
+```bash
+ingest corpus-export -o corpus.json
+ingest corpus-export --doc-ids doc1 doc2 -o subset.json
+ingest corpus-export --tags research -o research.json
+```
+
+Exports all documents (or a filtered subset) into a single JSON file.
+
 ### Export to CognitiveVault
 
 ```bash
@@ -298,7 +344,7 @@ ingest export-cv [doc_id] --cv-url https://cv.example.com \
   --cv-api-key cvk_... --cv-vault-id vault-abc
 ```
 
-See [CognitiveVault Integration](cv-integration.md) for details.
+See [CognitiveVault Integration](CognitiveVault-Integration) for details.
 
 ### Document versions
 
@@ -330,9 +376,12 @@ ingest eval <doc_id> --compare
 
 # Save detailed results
 ingest eval <doc_id> -k 10 --output results.json
+
+# LLM-as-judge evaluation (requires LLM API)
+ingest eval <doc_id> --judge
 ```
 
-Metrics: Hit Rate@K, MRR (Mean Reciprocal Rank), Precision@K, Recall@K.
+Metrics: Hit Rate@K, MRR (Mean Reciprocal Rank), Precision@K, Recall@K. With `--judge`, an LLM also scores faithfulness, relevance, and completeness (0-1 scale).
 
 Synthetic mode uses the hypothetical questions generated during enrichment as queries — each question should retrieve the chunk it came from (self-consistency check).
 
@@ -344,7 +393,7 @@ ingest mcp
 
 Exposes Ingestible as an MCP (Model Context Protocol) server. AI agents can ingest documents, search the corpus, and retrieve chunk details directly.
 
-**Tools:** `ingest_document`, `search`, `list_documents`, `get_document_overview`, `get_chunk`, `get_knowledge_graph`, `delete_document`.
+**Tools:** `ingest_document`, `search`, `list_documents`, `get_document_overview`, `get_chunk`, `get_knowledge_graph`, `delete_document`, `eval_judge`.
 
 **Requires:** `pip install ingestible[mcp]`
 
@@ -385,6 +434,7 @@ Ingestible auto-detects the document type and applies a tailored extraction prof
 | `paper` | Academic headings (Abstract, Methodology, References...) | Citation extraction, methodology, key findings |
 | `article` | HTML/Markdown without academic signals | Executive summary |
 | `documentation` | Code blocks, API/install headings, `.rst`/`.adoc` format | Code-aware chunking |
+| `code` | Source code file extensions (`.py`, `.ts`, `.go`, `.rs`, etc.) | AST-based chunking via tree-sitter, function/class boundaries |
 | `general` | Fallback | Standard enrichment |
 
 Override with `--profile <name>`. For ambiguous documents, enable LLM-based classification with `INGEST_PROFILE_LLM_FALLBACK=true`.
@@ -411,6 +461,7 @@ Override with `--profile <name>`. For ambiguous documents, enable LLM-based clas
 | XML | `.xml` | Structured to markdown |
 | JSON | `.json`, `.jsonl` | Object/array rendering |
 | ZIP | `.zip` | Auto-detects Notion, Confluence, or generic |
+| Source code | `.py`, `.ts`, `.js`, `.go`, `.rs`, `.java`, `.kt`, `.c`, `.cpp`, `.cs`, `.rb`, `.swift`, `.scala` | tree-sitter AST parsing (requires `pip install ingestible[code]`) |
 
 PDF figure extraction: figures are extracted with captions, labels, page numbers, and classifications when using the Docling parser.
 

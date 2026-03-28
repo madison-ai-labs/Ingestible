@@ -4,7 +4,7 @@
 
 Every query runs three search systems in parallel, then merges results into one ranked list.
 
-### 1. Vector Search (weight: 0.7)
+### 1. Vector Search (weight: 0.4)
 
 **What it does:** Finds passages that are _semantically similar_ to the query, even if they share no keywords.
 
@@ -36,7 +36,7 @@ All embeddings point back to the same `chunk_id`. At query time, the search runs
 - `normalize_embeddings=True` for unit-length vectors (cosine similarity)
 - Runs on MPS (Apple Silicon GPU) via sentence-transformers
 
-### 2. BM25 Search (weight: 0.3)
+### 2. BM25 Search (weight: 0.6)
 
 **What it does:** Classic keyword/term-frequency matching. Catches exact term matches that vector search might rank lower.
 
@@ -53,6 +53,10 @@ All embeddings point back to the same `chunk_id`. At query time, the search runs
 - Exact technical terms, names, acronyms
 - Rare domain-specific vocabulary
 - When the query uses the exact same phrasing as the source
+
+**Alternative: SPLADE sparse retrieval**
+
+SPLADE replaces BM25 with learned sparse vectors. Instead of raw term frequency, a transformer model learns which terms are important and expands the vocabulary with related terms. Configure with `INGEST_SPARSE_RETRIEVAL=splade` and `INGEST_SPLADE_MODEL` (default: `naver/splade-cocondenser-ensembledistil`). Requires `pip install transformers torch`.
 
 ### 3. Concept Index (small boost)
 
@@ -76,6 +80,17 @@ When configured (`INGEST_RERANKER_MODEL`), a cross-encoder reranker rescores the
 
 Cross-encoder models are more accurate than bi-encoders but slower — they process query and document together. This is why they're used as a second-pass reranker, not the primary retrieval.
 
+**Configuration:**
+- `INGEST_RERANKER_MODEL` — model name (e.g., `cross-encoder/ms-marco-MiniLM-L-6-v2`). Empty = disabled.
+- `INGEST_RERANKER_TOP_K` — candidates to rescore (default: 50)
+- `INGEST_RERANKER_WEIGHT` — blend weight between RRF and reranker scores (default: 0.5)
+
+## Optional: Sub-Question Decomposition
+
+When enabled (`INGEST_SUB_QUESTIONS_ENABLED=true`), complex queries are decomposed into simpler sub-questions via LLM. Each sub-question is searched independently, and results are merged. This helps with multi-part questions like "Compare the methodology and results of studies A and B" where a single query might miss one aspect.
+
+Configure with `INGEST_MAX_SUB_QUESTIONS` (default: 3).
+
 ## The Merge: Reciprocal Rank Fusion (RRF)
 
 Each system returns its own ranked list. RRF combines them without needing to normalize scores across systems (which would be comparing apples to oranges):
@@ -86,18 +101,18 @@ score(chunk) = vector_weight / (K + vector_rank)
              + concept_boost
 ```
 
-Where `K = 60` (standard RRF constant), `vector_weight = 0.7`, `bm25_weight = 0.3`.
+Where `K = 60` (standard RRF constant), `vector_weight = 0.4`, `bm25_weight = 0.6`.
 
 ### Example
 
 A chunk ranked #1 in vector search and #3 in BM25:
 ```
-0.7 / (60 + 1) + 0.3 / (60 + 3) = 0.01148 + 0.00476 = 0.01624
+0.4 / (60 + 1) + 0.6 / (60 + 3) = 0.00656 + 0.00952 = 0.01608
 ```
 
 A chunk ranked #10 in vector search only (not in BM25 top results):
 ```
-0.7 / (60 + 10) + 0 = 0.01000
+0.4 / (60 + 10) + 0 = 0.00571
 ```
 
 The first chunk wins — it appeared in both systems. This is the key property of RRF: **chunks that multiple systems agree on get naturally boosted**.

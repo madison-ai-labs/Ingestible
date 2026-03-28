@@ -393,7 +393,7 @@ Re-enrich a document without re-parsing. Re-runs LLM enrichment (stage 4) and em
 
 ### POST /documents/{doc_id}/search
 
-Hybrid search within a single document. Fuses vector search (ChromaDB, weight 0.7), BM25 (weight 0.3), and concept index using Reciprocal Rank Fusion.
+Hybrid search within a single document. Fuses vector search (ChromaDB, weight 0.4), BM25 (weight 0.6), and concept index using Reciprocal Rank Fusion.
 
 - **Content-Type:** `application/json`
 - **Body:**

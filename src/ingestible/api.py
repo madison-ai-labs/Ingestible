@@ -94,7 +94,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
     """Bearer token authentication — checks env-var keys first, then Supabase."""
 
     async def dispatch(self, request: Request, call_next):
-        from ingestible.auth import is_supabase_auth_enabled, validate_supabase_key, update_usage_stats
+        from ingestible.auth import (
+            update_usage_stats,
+            validate_supabase_key,
+        )
 
         env_keys = get_api_keys()
         supabase_client = getattr(request.app.state, "supabase_http", None)
@@ -163,7 +166,9 @@ Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 @app.on_event("startup")
 async def _startup():
     import logging
+
     import httpx
+
     from ingestible.auth import init_supabase_auth
 
     settings = get_cached_settings()
@@ -308,6 +313,10 @@ class IngestResponse(BaseModel):
     total_chunks: int = Field(description="Number of L3 (passage-level) chunks created")
     l0_tokens: int = Field(description="Token count of the L0 document overview")
     enriched: bool = Field(description="Whether LLM enrichment was applied")
+    enrichment_tokens: int = Field(default=0, description="Total LLM tokens used during enrichment")
+    estimated_cost_usd: float = Field(default=0.0, description="Estimated USD cost of ingestion")
+    duration_seconds: float = Field(default=0.0, description="Total pipeline duration in seconds")
+    storage_bytes: int = Field(default=0, description="Total storage bytes on disk")
 
 
 class DocumentSummary(BaseModel):
@@ -326,7 +335,9 @@ class DocumentOverview(BaseModel):
     title: str = Field(description="Document title")
     total_pages: int = Field(description="Number of pages")
     ingestion_date: str = Field(description="ISO 8601 ingestion timestamp")
-    l0_content: str = Field(description="Human-readable L0 overview (title, summary, key findings, TOC)")
+    l0_content: str = Field(
+        description="Human-readable L0 overview (title, summary, key findings, TOC)"
+    )
     l0_tokens: int = Field(description="Token count of the L0 overview")
     total_chunks: int = Field(description="Number of L3 (passage-level) chunks")
     chapters: list[str] = Field(default_factory=list, description="L1 chapter titles")
@@ -335,10 +346,16 @@ class DocumentOverview(BaseModel):
 class TokenEconomics(BaseModel):
     """Token cost comparison: full document vs. hierarchical retrieval."""
 
-    full_document_tokens: int = Field(description="Tokens if the entire document were placed in context")
-    l0_overview_tokens: int = Field(description="Tokens for the L0 overview (always included in queries)")
+    full_document_tokens: int = Field(
+        description="Tokens if the entire document were placed in context"
+    )
+    l0_overview_tokens: int = Field(
+        description="Tokens for the L0 overview (always included in queries)"
+    )
     avg_query_tokens: int = Field(description="Average tokens per query (L0 + top-3 passages)")
-    savings_percent: float = Field(description="Percentage token savings vs. full document in context")
+    savings_percent: float = Field(
+        description="Percentage token savings vs. full document in context"
+    )
 
 
 class SearchRequest(BaseModel):
@@ -346,9 +363,17 @@ class SearchRequest(BaseModel):
 
     query: str = Field(description="Natural language search query")
     n_results: int = Field(default=5, ge=1, le=20, description="Number of results to return (1-20)")
-    hyde: bool = Field(default=False, description="Use HyDE query expansion — generates a hypothetical answer passage via LLM for better vector matching")
-    auto_merge: bool = Field(default=False, description="Auto-merge L3 results into parent L2/L1 when 3+ passages from the same section match")
-    kg_boost: bool = Field(default=False, description="Boost results using knowledge graph entity relationships")
+    hyde: bool = Field(
+        default=False,
+        description="Use HyDE query expansion — generates a hypothetical answer passage via LLM for better vector matching",
+    )
+    auto_merge: bool = Field(
+        default=False,
+        description="Auto-merge L3 results into parent L2/L1 when 3+ passages from the same section match",
+    )
+    kg_boost: bool = Field(
+        default=False, description="Boost results using knowledge graph entity relationships"
+    )
 
 
 class HealthResponse(BaseModel):
@@ -376,7 +401,9 @@ class ReadinessCheck(BaseModel):
     """Deep readiness check result with per-dependency status."""
 
     status: str = Field(description="Overall status: 'ready' or 'degraded'")
-    checks: dict[str, dict] = Field(description="Per-dependency check results (data_dir, disk_space, embedding_model, llm_api, documents)")
+    checks: dict[str, dict] = Field(
+        description="Per-dependency check results (data_dir, disk_space, embedding_model, llm_api, documents)"
+    )
 
 
 @app.get("/health/ready", response_model=ReadinessCheck, tags=["Health"])
@@ -449,12 +476,22 @@ async def health_ready(request: Request):
 @limiter.limit(_RATE_INGEST)
 async def ingest_document(
     request: Request,
-    file: UploadFile = File(..., description="Document file to ingest (PDF, DOCX, HTML, Markdown, audio, video, etc.)"),
-    skip_enrichment: bool = Form(False, description="Skip LLM enrichment (faster, but no summaries/concepts/questions)"),
-    profile: str = Form("auto", description="Extraction profile: 'auto', 'fast', 'accurate', or 'economy'"),
-    access_tags: str = Form("", description="Comma-separated access control tags for this document"),
+    file: UploadFile = File(
+        ..., description="Document file to ingest (PDF, DOCX, HTML, Markdown, audio, video, etc.)"
+    ),
+    skip_enrichment: bool = Form(
+        False, description="Skip LLM enrichment (faster, but no summaries/concepts/questions)"
+    ),
+    profile: str = Form(
+        "auto", description="Extraction profile: 'auto', 'fast', 'accurate', or 'economy'"
+    ),
+    access_tags: str = Form(
+        "", description="Comma-separated access control tags for this document"
+    ),
     weight: float = Form(0.0, description="Corpus search weight boost (0.0 = neutral)"),
-    pinned: bool = Form(False, description="Pin document to always appear in corpus search results"),
+    pinned: bool = Form(
+        False, description="Pin document to always appear in corpus search results"
+    ),
     tags: str = Form("", description="Comma-separated metadata tags for filtering"),
 ):
     """Ingest a document into the knowledge store.
@@ -516,6 +553,22 @@ async def ingest_document(
                 enriched=not skip_enrichment,
             )
 
+        try:
+            from ingestible.models.costs import get_cost_tracker
+
+            _tracker = get_cost_tracker()
+            _enrichment_tokens = (
+                _tracker.enrichment_llm.input_tokens + _tracker.enrichment_llm.output_tokens
+            )
+            _estimated_cost = _tracker.estimated_cost_usd
+            _duration = _tracker.duration_seconds
+            _storage = _tracker.output_storage_bytes
+        except Exception:
+            _enrichment_tokens = 0
+            _estimated_cost = 0.0
+            _duration = 0.0
+            _storage = 0
+
         return IngestResponse(
             doc_id=doc_id,
             title=meta.get("title", "Untitled"),
@@ -523,6 +576,10 @@ async def ingest_document(
             total_chunks=len(chunks.l3_chunks),
             l0_tokens=l0_tokens,
             enriched=not skip_enrichment,
+            enrichment_tokens=_enrichment_tokens,
+            estimated_cost_usd=_estimated_cost,
+            duration_seconds=_duration,
+            storage_bytes=_storage,
         )
     finally:
         Path(tmp_path).unlink(missing_ok=True)
@@ -533,7 +590,9 @@ class URLIngestRequest(BaseModel):
 
     url: str = Field(description="URL of the document to ingest")
     skip_enrichment: bool = Field(default=False, description="Skip LLM enrichment")
-    profile: str = Field(default="auto", description="Extraction profile: 'auto', 'fast', 'accurate', or 'economy'")
+    profile: str = Field(
+        default="auto", description="Extraction profile: 'auto', 'fast', 'accurate', or 'economy'"
+    )
 
 
 @app.post("/ingest/url", response_model=IngestResponse, tags=["Ingestion"])
@@ -564,6 +623,22 @@ async def ingest_url(body: URLIngestRequest, request: Request):
 
     l0_tokens = count_tokens(_l0_overview_text(chunks.l0))
 
+    try:
+        from ingestible.models.costs import get_cost_tracker
+
+        _tracker = get_cost_tracker()
+        _enrichment_tokens = (
+            _tracker.enrichment_llm.input_tokens + _tracker.enrichment_llm.output_tokens
+        )
+        _estimated_cost = _tracker.estimated_cost_usd
+        _duration = _tracker.duration_seconds
+        _storage = _tracker.output_storage_bytes
+    except Exception:
+        _enrichment_tokens = 0
+        _estimated_cost = 0.0
+        _duration = 0.0
+        _storage = 0
+
     return IngestResponse(
         doc_id=meta.get("doc_id", doc_dir.name),
         title=meta.get("title", "Untitled"),
@@ -571,6 +646,10 @@ async def ingest_url(body: URLIngestRequest, request: Request):
         total_chunks=len(chunks.l3_chunks),
         l0_tokens=l0_tokens,
         enriched=not body.skip_enrichment,
+        enrichment_tokens=_enrichment_tokens,
+        estimated_cost_usd=_estimated_cost,
+        duration_seconds=_duration,
+        storage_bytes=_storage,
     )
 
 
@@ -656,7 +735,9 @@ async def ingest_batch_endpoint(
 async def list_docs(
     request: Request,
     offset: int = Query(default=0, ge=0, description="Pagination offset (0-based)"),
-    limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of documents to return (1-1000)"),
+    limit: int = Query(
+        default=100, ge=1, le=1000, description="Maximum number of documents to return (1-1000)"
+    ),
     tags: str = Query(default="", description="Comma-separated metadata tags to filter by"),
 ):
     """List all ingested documents with pagination and optional tag filtering."""
@@ -712,9 +793,16 @@ async def get_document(doc_id: str, request: Request):
 class UpdateMetaRequest(BaseModel):
     """Mutable metadata fields that can be updated without re-ingestion."""
 
-    weight: float | None = Field(default=None, description="Corpus search weight boost (0.0 = neutral). Higher values rank this document higher in cross-document search.")
-    pinned: bool | None = Field(default=None, description="Pin document so it always appears in corpus search results")
-    tags: list[str] | None = Field(default=None, description="Replace metadata tags (pass empty list to clear)")
+    weight: float | None = Field(
+        default=None,
+        description="Corpus search weight boost (0.0 = neutral). Higher values rank this document higher in cross-document search.",
+    )
+    pinned: bool | None = Field(
+        default=None, description="Pin document so it always appears in corpus search results"
+    )
+    tags: list[str] | None = Field(
+        default=None, description="Replace metadata tags (pass empty list to clear)"
+    )
 
 
 @app.patch("/documents/{doc_id}/meta", tags=["Documents"])
@@ -816,7 +904,7 @@ async def get_token_economics(doc_id: str, request: Request):
 async def search_document(doc_id: str, body: SearchRequest, request: Request):
     """Hybrid search within a single document.
 
-    Fuses vector search (ChromaDB, weight 0.7), BM25 (weight 0.3), and concept index
+    Fuses vector search (ChromaDB, weight 0.4), BM25 (weight 0.6), and concept index
     using Reciprocal Rank Fusion. Optionally enable HyDE query expansion, auto-merge,
     or knowledge graph boosting via request body flags.
     """
@@ -957,12 +1045,26 @@ class CorpusSearchRequest(BaseModel):
     """Cross-document search query with optional filters and enhancement flags."""
 
     query: str = Field(description="Natural language search query")
-    n_results: int = Field(default=10, ge=1, le=50, description="Number of results to return (1-50)")
-    doc_ids: list[str] | None = Field(default=None, description="Restrict search to these document IDs (null = all documents)")
-    tags: list[str] | None = Field(default=None, description="Only search documents with these metadata tags")
-    hyde: bool = Field(default=False, description="Use HyDE query expansion — generates a hypothetical answer passage via LLM for better vector matching")
-    auto_merge: bool = Field(default=False, description="Auto-merge L3 results into parent L2/L1 when 3+ passages from the same section match")
-    kg_boost: bool = Field(default=False, description="Boost results using knowledge graph entity relationships")
+    n_results: int = Field(
+        default=10, ge=1, le=50, description="Number of results to return (1-50)"
+    )
+    doc_ids: list[str] | None = Field(
+        default=None, description="Restrict search to these document IDs (null = all documents)"
+    )
+    tags: list[str] | None = Field(
+        default=None, description="Only search documents with these metadata tags"
+    )
+    hyde: bool = Field(
+        default=False,
+        description="Use HyDE query expansion — generates a hypothetical answer passage via LLM for better vector matching",
+    )
+    auto_merge: bool = Field(
+        default=False,
+        description="Auto-merge L3 results into parent L2/L1 when 3+ passages from the same section match",
+    )
+    kg_boost: bool = Field(
+        default=False, description="Boost results using knowledge graph entity relationships"
+    )
 
 
 @app.post("/search", tags=["Search"])
@@ -1058,6 +1160,22 @@ async def enrich_document(doc_id: str, request: Request):
             user=_get_user(request),
         )
 
+    try:
+        from ingestible.models.costs import get_cost_tracker
+
+        _tracker = get_cost_tracker()
+        _enrichment_tokens = (
+            _tracker.enrichment_llm.input_tokens + _tracker.enrichment_llm.output_tokens
+        )
+        _estimated_cost = _tracker.estimated_cost_usd
+        _duration = _tracker.duration_seconds
+        _storage = _tracker.output_storage_bytes
+    except Exception:
+        _enrichment_tokens = 0
+        _estimated_cost = 0.0
+        _duration = 0.0
+        _storage = 0
+
     return IngestResponse(
         doc_id=meta.get("doc_id", doc_dir.name),
         title=meta.get("title", "Untitled"),
@@ -1065,6 +1183,10 @@ async def enrich_document(doc_id: str, request: Request):
         total_chunks=len(chunks.l3_chunks),
         l0_tokens=l0_tokens,
         enriched=True,
+        enrichment_tokens=_enrichment_tokens,
+        estimated_cost_usd=_estimated_cost,
+        duration_seconds=_duration,
+        storage_bytes=_storage,
     )
 
 
@@ -1075,7 +1197,13 @@ async def enrich_document(doc_id: str, request: Request):
 
 @app.post("/documents/{doc_id}/eval", tags=["Evaluation"])
 @limiter.limit(_RATE_DEFAULT)
-async def eval_document(doc_id: str, request: Request, k: int = Query(default=5, ge=1, le=50, description="Number of results to retrieve per query (1-50)")):
+async def eval_document(
+    doc_id: str,
+    request: Request,
+    k: int = Query(
+        default=5, ge=1, le=50, description="Number of results to retrieve per query (1-50)"
+    ),
+):
     """Evaluate retrieval quality using synthetic queries generated during enrichment.
 
     Returns hit rate, MRR, precision@k, and recall@k metrics.
@@ -1096,7 +1224,11 @@ async def eval_document(doc_id: str, request: Request, k: int = Query(default=5,
 @app.post("/documents/{doc_id}/eval/judge", tags=["Evaluation"])
 @limiter.limit(_RATE_DEFAULT)
 async def eval_document_judge(
-    doc_id: str, request: Request, k: int = Query(default=5, ge=1, le=50, description="Number of results to retrieve per query (1-50)")
+    doc_id: str,
+    request: Request,
+    k: int = Query(
+        default=5, ge=1, le=50, description="Number of results to retrieve per query (1-50)"
+    ),
 ):
     """Evaluate retrieval quality using LLM-as-judge scoring.
 
@@ -1130,7 +1262,8 @@ async def export_document_endpoint(
     doc_id: str,
     request: Request,
     format: str = Query(
-        ..., description="Export format: 'jsonl', 'parquet', 'llamaindex', 'langchain', or 'complete'"
+        ...,
+        description="Export format: 'jsonl', 'parquet', 'llamaindex', 'langchain', or 'complete'",
     ),
 ):
     """Export a document's chunks to a portable format.
@@ -1296,11 +1429,17 @@ class JobDetailResponse(BaseModel):
 
     job_id: str = Field(description="Unique job identifier")
     status: str = Field(description="Job status: pending, running, complete, or failed")
-    doc_id: str | None = Field(default=None, description="Document ID (set once ingestion completes)")
+    doc_id: str | None = Field(
+        default=None, description="Document ID (set once ingestion completes)"
+    )
     error: str | None = Field(default=None, description="Error message if status is 'failed'")
     created_at: float = Field(description="Unix timestamp when job was submitted")
-    started_at: float | None = Field(default=None, description="Unix timestamp when processing began")
-    finished_at: float | None = Field(default=None, description="Unix timestamp when processing ended")
+    started_at: float | None = Field(
+        default=None, description="Unix timestamp when processing began"
+    )
+    finished_at: float | None = Field(
+        default=None, description="Unix timestamp when processing ended"
+    )
     progress_stage: str = Field(default="", description="Current pipeline stage name")
     progress_step: int = Field(default=0, description="Current step within the stage")
     progress_total: int = Field(default=0, description="Total steps in the current stage")
