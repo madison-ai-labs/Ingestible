@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" fill="none">
+  <!-- Dark background filling the full square -->
+  <rect width="180" height="180" fill="#09090b"/>
+  <!-- Capsule outline — centered and scaled up -->
+  <rect x="56" y="40" width="68" height="100" rx="34" ry="34" stroke="#fbbf24" stroke-width="6" fill="none"/>
+  <!-- Horizontal dividers — chunk layers -->
+  <line x1="73" y1="72" x2="107" y2="72" stroke="#fbbf24" stroke-width="4" stroke-linecap="round" opacity="0.5"/>
+  <line x1="73" y1="90" x2="107" y2="90" stroke="#fbbf24" stroke-width="4" stroke-linecap="round"/>
+  <line x1="73" y1="108" x2="107" y2="108" stroke="#fbbf24" stroke-width="4" stroke-linecap="round" opacity="0.5"/>
+  <!-- Knowledge core dot -->
+  <circle cx="90" cy="90" r="7" fill="#fbbf24"/>
+</svg>

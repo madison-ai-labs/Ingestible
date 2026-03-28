@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!-- Dark background for contrast in light browser tabs -->
+  <rect width="32" height="32" rx="6" fill="#09090b"/>
+  <!-- Capsule outline -->
+  <rect x="6" y="5" width="20" height="22" rx="10" ry="10" stroke="#fbbf24" stroke-width="2" fill="none"/>
+  <!-- Center divider line -->
+  <line x1="11" y1="16" x2="21" y2="16" stroke="#fbbf24" stroke-width="1.5" stroke-linecap="round"/>
+  <!-- Knowledge core dot -->
+  <circle cx="16" cy="16" r="2" fill="#fbbf24"/>
+</svg>
