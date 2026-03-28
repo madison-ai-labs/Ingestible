@@ -152,7 +152,7 @@ function Features() {
   return (
     <section id="features" className="py-24 sm:py-32">
       <div className="max-w-6xl mx-auto px-6">
-        <div className="text-center mb-16">
+        <div className="text-center mb-16 reveal">
           <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">
             Everything you need for RAG
           </h2>
@@ -162,7 +162,7 @@ function Features() {
           </p>
         </div>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 reveal-stagger">
           {FEATURES.map((f) => (
             <div
               key={f.title}
@@ -232,7 +232,7 @@ function SupportedFormats() {
   return (
     <section id="formats" className="py-24 sm:py-32 bg-zinc-900/30">
       <div className="max-w-6xl mx-auto px-6">
-        <div className="text-center mb-16">
+        <div className="text-center mb-16 reveal">
           <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">
             25+ formats supported
           </h2>
@@ -242,7 +242,7 @@ function SupportedFormats() {
           </p>
         </div>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 reveal-stagger">
           {FORMAT_CATEGORIES.map((cat) => (
             <div
               key={cat.name}
@@ -315,7 +315,7 @@ function HowItWorks() {
   return (
     <section id="how-it-works" className="py-24 sm:py-32 bg-zinc-900/30">
       <div className="max-w-4xl mx-auto px-6">
-        <div className="text-center mb-16">
+        <div className="text-center mb-16 reveal">
           <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">
             How it works
           </h2>
@@ -329,7 +329,7 @@ function HowItWorks() {
           {/* Connecting line */}
           <div className="absolute left-[19px] top-4 bottom-4 w-px bg-gradient-to-b from-amber-500/40 via-violet-500/40 to-sky-500/40 hidden sm:block" />
 
-          <div className="space-y-6">
+          <div className="space-y-6 reveal-stagger">
             {PIPELINE_STAGES.map((stage, i) => (
               <div key={stage.name} className="flex gap-5 items-start group">
                 <div className="relative flex-shrink-0 mt-1.5 hidden sm:block">
@@ -459,7 +459,7 @@ function ComparisonTable() {
   return (
     <section id="compare" className="py-24 sm:py-32">
       <div className="max-w-6xl mx-auto px-6">
-        <div className="text-center mb-16">
+        <div className="text-center mb-16 reveal">
           <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">
             How Ingestible Compares
           </h2>
@@ -468,7 +468,7 @@ function ComparisonTable() {
           </p>
         </div>
 
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 overflow-hidden reveal">
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[640px]">
               <thead>
@@ -518,7 +518,7 @@ function Install() {
   return (
     <section id="install" className="py-24 sm:py-32">
       <div className="max-w-4xl mx-auto px-6">
-        <div className="text-center mb-12">
+        <div className="text-center mb-12 reveal">
           <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">
             Start in 30 seconds
           </h2>
@@ -527,7 +527,7 @@ function Install() {
           </p>
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-6">
+        <div className="grid sm:grid-cols-2 gap-6 reveal-stagger">
           <CodeCard title="pip">
             {`# Base install (~50MB)
 pip install ingestible
@@ -604,7 +604,7 @@ function Examples() {
   return (
     <section id="examples" className="py-24 sm:py-32 bg-zinc-900/30">
       <div className="max-w-6xl mx-auto px-6">
-        <div className="text-center mb-12">
+        <div className="text-center mb-12 reveal">
           <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">
             See it in action
           </h2>
@@ -613,7 +613,7 @@ function Examples() {
           </p>
         </div>
 
-        <div className="grid sm:grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid sm:grid-cols-1 lg:grid-cols-3 gap-6 reveal-stagger">
           <CodeCard title="Python API">
             {`from ingestible import Ingestible
 
@@ -693,86 +693,21 @@ function CTA() {
   );
 }
 
-function FooterLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return (
-    <li>
-      <a href={href} className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
-        {children}
-      </a>
-    </li>
-  );
-}
-
-function Footer() {
-  return (
-    <footer className="border-t border-zinc-800/60 py-12">
-      <div className="max-w-6xl mx-auto px-6">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-8 mb-10">
-          <div>
-            <h4 className="text-sm font-semibold text-zinc-200 mb-3">Docs</h4>
-            <ul className="space-y-2">
-              <FooterLink href="/docs/Introduction">Getting Started</FooterLink>
-              <FooterLink href="/docs/How-It-Works">How It Works</FooterLink>
-              <FooterLink href="/docs/API-Reference">API Reference</FooterLink>
-              <FooterLink href="/docs/Usage">Usage Guide</FooterLink>
-            </ul>
-          </div>
-          <div>
-            <h4 className="text-sm font-semibold text-zinc-200 mb-3">Learn</h4>
-            <ul className="space-y-2">
-              <FooterLink href="/docs/Architecture">Architecture</FooterLink>
-              <FooterLink href="/docs/Search">How Search Works</FooterLink>
-              <FooterLink href="/docs/Token-Economics">Token Economics</FooterLink>
-              <FooterLink href="/docs/Features">Features</FooterLink>
-            </ul>
-          </div>
-          <div>
-            <h4 className="text-sm font-semibold text-zinc-200 mb-3">Install</h4>
-            <ul className="space-y-2">
-              <FooterLink href={PYPI_URL}>PyPI</FooterLink>
-              <FooterLink href={`${GITHUB_URL}/pkgs/container/ingestible`}>Docker</FooterLink>
-              <FooterLink href="/docs/Changelog">Changelog</FooterLink>
-            </ul>
-          </div>
-          <div>
-            <h4 className="text-sm font-semibold text-zinc-200 mb-3">Community</h4>
-            <ul className="space-y-2">
-              <FooterLink href={GITHUB_URL}>GitHub</FooterLink>
-              <FooterLink href={`${GITHUB_URL}/issues`}>Issues</FooterLink>
-              <FooterLink href={`${GITHUB_URL}/discussions`}>Discussions</FooterLink>
-            </ul>
-          </div>
-        </div>
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-8 border-t border-zinc-800/60">
-          <span className="text-sm text-zinc-500">
-            Ingestible &mdash; PolyForm Small Business 1.0.0
-          </span>
-          <div className="flex items-center gap-6">
-            <a href={GITHUB_URL} className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors">GitHub</a>
-            <a href={PYPI_URL} className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors">PyPI</a>
-            <a href={`${GITHUB_URL}/pkgs/container/ingestible`} className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors">Docker</a>
-          </div>
-        </div>
-      </div>
-    </footer>
-  );
-}
+import { ScrollReveal } from "@/components/scroll-reveal";
 
 export default function Home() {
   return (
-    <>
-      <main>
-        <Hero />
-        <Features />
-        <SupportedFormats />
-        <HowItWorks />
-        <ComparisonTable />
-        <Install />
-        <Examples />
-        <CTA />
-      </main>
-      <Footer />
-    </>
+    <main>
+      <Hero />
+      <Features />
+      <SupportedFormats />
+      <HowItWorks />
+      <ComparisonTable />
+      <Install />
+      <Examples />
+      <CTA />
+      <ScrollReveal />
+    </main>
   );
 }
 

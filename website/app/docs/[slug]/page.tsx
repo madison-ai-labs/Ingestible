@@ -9,6 +9,7 @@ import { markdownToHtml } from "@/lib/markdown";
 import { TableOfContents } from "@/components/docs/table-of-contents";
 import { SetToc } from "@/components/docs/set-toc";
 import { Breadcrumb } from "@/components/docs/breadcrumb";
+import { CodeCopyButtons } from "@/components/docs/code-copy";
 
 interface DocPageProps {
   params: Promise<{ slug: string }>;
@@ -54,6 +55,7 @@ export default async function DocPage({ params }: DocPageProps) {
           className="prose-docs"
           dangerouslySetInnerHTML={{ __html: content }}
         />
+        <CodeCopyButtons />
       </article>
 
       {/* Table of Contents */}
