@@ -157,7 +157,7 @@ See [.env.example](../.env.example) for the complete list with comments.
 ### Ingest a document
 
 ```bash
-ingest ingest /path/to/document.pdf -v
+ingest add /path/to/document.pdf -v
 ```
 
 **Flags:**
@@ -180,9 +180,9 @@ ingest ingest /path/to/document.pdf -v
 
 **Cloud storage:**
 ```bash
-ingest ingest s3://my-bucket/docs/report.pdf -v
-ingest ingest gs://my-bucket/docs/paper.pdf -v
-ingest ingest az://my-container/docs/spec.pdf -v
+ingest add s3://my-bucket/docs/report.pdf -v
+ingest add gs://my-bucket/docs/paper.pdf -v
+ingest add az://my-container/docs/spec.pdf -v
 ```
 
 Requires `pip install ingestible[cloud]`.
@@ -193,10 +193,10 @@ Requires `pip install ingestible[cloud]`.
 
 ```bash
 # Ingest all supported files in a directory
-ingest ingest /path/to/docs/ -v
+ingest add /path/to/docs/ -v
 
 # Process files concurrently
-ingest ingest /path/to/docs/ --parallel 4
+ingest add /path/to/docs/ --parallel 4
 ```
 
 ### List ingested documents
@@ -418,14 +418,14 @@ PDF figure extraction: figures are extracted with captions, labels, page numbers
 
 ```bash
 # 1. Validate the pipeline without API cost
-ingest ingest mybook.pdf -v --skip-enrichment
+ingest add mybook.pdf -v --skip-enrichment
 
 # 2. Check it worked
 ingest list
 ingest search <doc_id> "test query"
 
 # 3. Re-ingest with enrichment for better search quality
-ingest ingest mybook.pdf -v --force
+ingest add mybook.pdf -v --force
 
 # 4. Search across all documents
 ingest corpus-search "my query"

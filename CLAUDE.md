@@ -28,7 +28,7 @@ ingest serve                        # dev (uvicorn)
 gunicorn ingestible.api:app -c gunicorn.conf.py  # prod
 
 # CLI
-ingest ingest /path/to/doc.pdf -v
+ingest add /path/to/doc.pdf -v
 ingest list
 ingest search <doc_id> "query"
 ingest eval <doc_id>                # retrieval quality evaluation

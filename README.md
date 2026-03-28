@@ -99,7 +99,7 @@ pip install -e ".[dev]"
 
 ```bash
 # Ingest a document (no API keys needed — skips LLM enrichment, builds all search indexes)
-ingest ingest /path/to/document.pdf -v --skip-enrichment
+ingest add /path/to/document.pdf -v --skip-enrichment
 
 # List ingested documents
 ingest list
@@ -119,7 +119,7 @@ Enrichment adds summaries, hypothetical questions, and concept tags to each chun
 
 ```bash
 cp .env.example .env   # add your Anthropic or OpenAI API key
-ingest ingest /path/to/document.pdf -v
+ingest add /path/to/document.pdf -v
 ```
 
 | Document size | Estimated cost (gpt-4o-mini) | Time |
@@ -287,7 +287,7 @@ See the [Usage Guide](docs/usage.md) for the full list.
 ## CLI Reference
 
 ```bash
-ingest ingest <path>           # Ingest a file or directory
+ingest add <path>           # Ingest a file or directory
 ingest parse <path>            # Parse only — JSONL to stdout, no storage
 ingest list                    # List all ingested documents
 ingest search <doc_id> <query> # Search within a document
@@ -309,7 +309,7 @@ ingest mcp                     # Start MCP server for AI agents
 <summary>Ingest options</summary>
 
 ```bash
-ingest ingest /path/to/docs/ \
+ingest add /path/to/docs/ \
   --profile auto \              # auto | paper | article | documentation | general
   --chunking paragraph \        # paragraph | semantic | recursive | docling
   --parallel 4 \                # concurrent file processing
@@ -362,9 +362,9 @@ ingest parse paper.pdf --profile paper --chunking semantic -v
 - Building custom RAG systems that handle their own storage
 - Batch extraction scripts that need structured text from PDFs
 
-**Compared to `ingest ingest` + `ingest export`:**
+**Compared to `ingest add` + `ingest export`:**
 
-| | `ingest ingest` + `export` | `ingest parse` |
+| | `ingest add` + `export` | `ingest parse` |
 |---|---|---|
 | Storage | Writes to `data/documents/` | Nothing persisted |
 | Indexes | Builds BM25 + vector + concept | None |

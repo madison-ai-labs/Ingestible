@@ -13,9 +13,9 @@ def main(argv: list[str] | None = None) -> None:
     )
     sub = parser.add_subparsers(dest="command")
 
-    # --- ingest ---
+    # --- add (alias: ingest) ---
     p_ingest = sub.add_parser(
-        "ingest", help="Ingest a document or directory into the knowledge store"
+        "add", aliases=["ingest"], help="Ingest a document or directory into the knowledge store"
     )
     p_ingest.add_argument("file_path", help="Path to document, directory, or glob pattern")
     p_ingest.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
@@ -297,7 +297,7 @@ def main(argv: list[str] | None = None) -> None:
         parser.print_help()
         sys.exit(1)
 
-    if args.command == "ingest":
+    if args.command in ("add", "ingest"):
         _cmd_ingest(args)
     elif args.command == "parse":
         _cmd_parse(args)
