@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from ingestible.config import Settings
 from ingestible.models.chunks import ChunkSet, L0Chunk, L1Chunk, L2Chunk, L3Chunk
+from ingestible.models.costs import TokenBudgetExceeded, get_cost_tracker
 from ingestible.models.enrichment import (
     Citation,
     CitationList,
@@ -72,11 +73,26 @@ def _make_strict_schema(schema: dict) -> dict:
 class OpenAIClient:
     """Default LLM client. Uses openai.AsyncOpenAI with structured output."""
 
-    def __init__(self, api_key: str, model: str, timeout: int = 120):
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        timeout: int = 120,
+        max_tokens_budget: int = 0,
+        max_cost_budget: float = 0.0,
+    ):
         import openai
 
         self._client = openai.AsyncOpenAI(api_key=api_key, timeout=timeout)
         self._model = model
+        self._max_tokens_budget = max_tokens_budget
+        self._max_cost_budget = max_cost_budget
+
+    def _check_budget(self) -> None:
+        if self._max_tokens_budget > 0 or self._max_cost_budget > 0:
+            from ingestible.models.costs import check_budget
+
+            check_budget(self._max_tokens_budget, self._max_cost_budget)
 
     async def generate_json(self, prompt: str, output_type: type[T]) -> T:
         schema = _make_strict_schema(output_type.model_json_schema())
@@ -93,6 +109,18 @@ class OpenAIClient:
             },
             temperature=0.3,
         )
+        try:
+            if hasattr(response, "usage") and response.usage:
+                from ingestible.models.costs import record_llm_usage
+
+                record_llm_usage(
+                    response.usage.prompt_tokens or 0,
+                    response.usage.completion_tokens or 0,
+                    "openai",
+                )
+        except Exception:
+            pass
+        self._check_budget()
         raw = response.choices[0].message.content
         return output_type.model_validate_json(raw)
 
@@ -100,11 +128,26 @@ class OpenAIClient:
 class AnthropicClient:
     """Default LLM client using Anthropic API with tool_use for structured output."""
 
-    def __init__(self, api_key: str, model: str, timeout: int = 120):
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        timeout: int = 120,
+        max_tokens_budget: int = 0,
+        max_cost_budget: float = 0.0,
+    ):
         import anthropic
 
         self._client = anthropic.AsyncAnthropic(api_key=api_key, timeout=timeout)
         self._model = model
+        self._max_tokens_budget = max_tokens_budget
+        self._max_cost_budget = max_cost_budget
+
+    def _check_budget(self) -> None:
+        if self._max_tokens_budget > 0 or self._max_cost_budget > 0:
+            from ingestible.models.costs import check_budget
+
+            check_budget(self._max_tokens_budget, self._max_cost_budget)
 
     async def generate_json(self, prompt: str, output_type: type[T]) -> T:
         schema = output_type.model_json_schema()
@@ -121,6 +164,16 @@ class AnthropicClient:
             ],
             tool_choice={"type": "tool", "name": "output"},
         )
+        try:
+            if hasattr(response, "usage") and response.usage:
+                from ingestible.models.costs import record_llm_usage
+
+                record_llm_usage(
+                    response.usage.input_tokens or 0, response.usage.output_tokens or 0, "anthropic"
+                )
+        except Exception:
+            pass
+        self._check_budget()
         tool_block = next((b for b in response.content if b.type == "tool_use"), None)
         if tool_block is None:
             raise ValueError(
@@ -133,11 +186,26 @@ class AnthropicClient:
 class GeminiClient:
     """Google Gemini via the google-genai SDK with structured output."""
 
-    def __init__(self, api_key: str, model: str, timeout: int = 120):
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        timeout: int = 120,
+        max_tokens_budget: int = 0,
+        max_cost_budget: float = 0.0,
+    ):
         from google import genai
 
         self._client = genai.Client(api_key=api_key, http_options={"timeout": timeout * 1000})
         self._model = model
+        self._max_tokens_budget = max_tokens_budget
+        self._max_cost_budget = max_cost_budget
+
+    def _check_budget(self) -> None:
+        if self._max_tokens_budget > 0 or self._max_cost_budget > 0:
+            from ingestible.models.costs import check_budget
+
+            check_budget(self._max_tokens_budget, self._max_cost_budget)
 
     async def generate_json(self, prompt: str, output_type: type[T]) -> T:
         from google.genai import types
@@ -151,13 +219,32 @@ class GeminiClient:
                 temperature=0.3,
             ),
         )
+        try:
+            if hasattr(response, "usage_metadata") and response.usage_metadata:
+                from ingestible.models.costs import record_llm_usage
+
+                record_llm_usage(
+                    getattr(response.usage_metadata, "prompt_token_count", 0) or 0,
+                    getattr(response.usage_metadata, "candidates_token_count", 0) or 0,
+                    "gemini",
+                )
+        except Exception:
+            pass
+        self._check_budget()
         return output_type.model_validate_json(response.text)
 
 
 class OllamaClient:
     """Ollama via its OpenAI-compatible API with JSON output."""
 
-    def __init__(self, base_url: str, model: str, timeout: int = 120):
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        timeout: int = 120,
+        max_tokens_budget: int = 0,
+        max_cost_budget: float = 0.0,
+    ):
         import openai
 
         self._client = openai.AsyncOpenAI(
@@ -166,6 +253,14 @@ class OllamaClient:
             timeout=timeout,
         )
         self._model = model
+        self._max_tokens_budget = max_tokens_budget
+        self._max_cost_budget = max_cost_budget
+
+    def _check_budget(self) -> None:
+        if self._max_tokens_budget > 0 or self._max_cost_budget > 0:
+            from ingestible.models.costs import check_budget
+
+            check_budget(self._max_tokens_budget, self._max_cost_budget)
 
     async def generate_json(self, prompt: str, output_type: type[T]) -> T:
         import json
@@ -191,34 +286,47 @@ class OllamaClient:
 
 def _make_client(settings: Settings) -> LLMClient:
     timeout = settings.llm_timeout
+    budget_kwargs = {
+        "max_tokens_budget": settings.max_llm_tokens_per_document,
+        "max_cost_budget": settings.max_llm_cost_per_document,
+    }
 
     if settings.llm_provider == "gemini":
         if settings.gemini_api_key:
-            return GeminiClient(settings.gemini_api_key, settings.gemini_model, timeout=timeout)
+            return GeminiClient(
+                settings.gemini_api_key, settings.gemini_model, timeout=timeout, **budget_kwargs
+            )
         raise ValueError("INGEST_GEMINI_API_KEY is required when llm_provider is 'gemini'")
 
     if settings.llm_provider == "ollama":
-        return OllamaClient(settings.ollama_base_url, settings.ollama_model, timeout=timeout)
+        return OllamaClient(
+            settings.ollama_base_url, settings.ollama_model, timeout=timeout, **budget_kwargs
+        )
 
     if settings.llm_provider == "anthropic":
         if settings.anthropic_api_key:
             return AnthropicClient(
-                settings.anthropic_api_key, settings.anthropic_model, timeout=timeout
+                settings.anthropic_api_key, settings.anthropic_model,
+                timeout=timeout, **budget_kwargs,
             )
         if settings.openai_api_key:
             logger.info("No INGEST_ANTHROPIC_API_KEY set, falling back to OpenAI")
-            return OpenAIClient(settings.openai_api_key, settings.openai_model, timeout=timeout)
+            return OpenAIClient(
+                settings.openai_api_key, settings.openai_model, timeout=timeout, **budget_kwargs
+            )
         raise ValueError(
             "INGEST_ANTHROPIC_API_KEY is required (or set INGEST_OPENAI_API_KEY as fallback)"
         )
 
     # openai
     if settings.openai_api_key:
-        return OpenAIClient(settings.openai_api_key, settings.openai_model, timeout=timeout)
+        return OpenAIClient(
+            settings.openai_api_key, settings.openai_model, timeout=timeout, **budget_kwargs
+        )
     if settings.anthropic_api_key:
         logger.info("No INGEST_OPENAI_API_KEY set, falling back to Anthropic")
         return AnthropicClient(
-            settings.anthropic_api_key, settings.anthropic_model, timeout=timeout
+            settings.anthropic_api_key, settings.anthropic_model, timeout=timeout, **budget_kwargs
         )
     raise ValueError(
         "INGEST_OPENAI_API_KEY is required (or set INGEST_ANTHROPIC_API_KEY as fallback)"
@@ -291,6 +399,8 @@ async def enrich_chunks(
             len(chunks.l3_chunks),
         )
 
+    budget_exceeded = False
+
     if l3_to_enrich:
         l3_tasks = [
             _enrich_l3(
@@ -308,6 +418,19 @@ async def enrich_chunks(
 
         for j, result in enumerate(enriched_l3):
             idx, chunk = l3_to_enrich[j]
+            if isinstance(result, TokenBudgetExceeded):
+                tracker = get_cost_tracker()
+                total_tok = tracker.enrichment_llm.input_tokens + tracker.enrichment_llm.output_tokens
+                tracker.estimate_cost()
+                logger.warning(
+                    "Token budget exceeded for document — stopping enrichment "
+                    "at %s tokens ($%.4f)",
+                    f"{total_tok:,}",
+                    tracker.estimated_cost_usd,
+                )
+                budget_exceeded = True
+                chunk.summary = "[enrichment stopped: budget exceeded]"
+                continue
             if isinstance(result, Exception):
                 logger.warning("L3 enrichment failed for %s: %s", chunk.chunk_id, result)
                 chunk.summary = "[enrichment failed]"
@@ -320,6 +443,10 @@ async def enrich_chunks(
             chunk.depends_on = result.depends_on
             chunk.cross_references = result.cross_references
             chunk.cited_references = result.cited_references
+
+    if budget_exceeded:
+        logger.info("Returning partially enriched chunks due to budget limit")
+        return chunks
 
     # If ALL L3 chunks were unchanged, skip L2/L1/L0 enrichment entirely
     all_l3_skipped = skipped == len(chunks.l3_chunks) and len(chunks.l3_chunks) > 0
@@ -336,6 +463,10 @@ async def enrich_chunks(
         enriched_l2 = await asyncio.gather(*l2_tasks, return_exceptions=True)
 
         for i, result in enumerate(enriched_l2):
+            if isinstance(result, TokenBudgetExceeded):
+                budget_exceeded = True
+                chunks.l2_chunks[i].section_summary = "[enrichment stopped: budget exceeded]"
+                continue
             if isinstance(result, Exception):
                 logger.warning(
                     "L2 enrichment failed for %s: %s", chunks.l2_chunks[i].chunk_id, result
@@ -347,6 +478,12 @@ async def enrich_chunks(
             chunk.key_points = result.key_points
             chunk.concepts_introduced = result.concepts_introduced
 
+        if budget_exceeded:
+            logger.warning(
+                "Token budget exceeded for document — stopping enrichment after L2"
+            )
+            return chunks
+
         # --- L1 enrichment ---
         logger.info("Enriching %d L1 chunks...", len(chunks.l1_chunks))
         l1_tasks = [
@@ -356,6 +493,10 @@ async def enrich_chunks(
         enriched_l1 = await asyncio.gather(*l1_tasks, return_exceptions=True)
 
         for i, result in enumerate(enriched_l1):
+            if isinstance(result, TokenBudgetExceeded):
+                budget_exceeded = True
+                chunks.l1_chunks[i].chapter_summary = "[enrichment stopped: budget exceeded]"
+                continue
             if isinstance(result, Exception):
                 logger.warning(
                     "L1 enrichment failed for %s: %s", chunks.l1_chunks[i].chunk_id, result
@@ -368,6 +509,12 @@ async def enrich_chunks(
             chunk.learning_objectives = result.learning_objectives
             chunk.prerequisite_chapters = result.prerequisite_chapters
             chunk.key_takeaways = result.key_takeaways
+
+        if budget_exceeded:
+            logger.warning(
+                "Token budget exceeded for document — stopping enrichment after L1"
+            )
+            return chunks
 
         # --- L0 enrichment (now produces full digest) ---
         logger.info("Enriching L0 (document digest)...")
@@ -390,6 +537,17 @@ async def enrich_chunks(
             chunks.l0.limitations = l0_result.limitations
             chunks.l0.document_type = l0_result.document_type
             chunks.l0.target_audience = l0_result.target_audience
+        except TokenBudgetExceeded:
+            tracker = get_cost_tracker()
+            total_tok = tracker.enrichment_llm.input_tokens + tracker.enrichment_llm.output_tokens
+            tracker.estimate_cost()
+            logger.warning(
+                "Token budget exceeded for document — stopping enrichment "
+                "at %s tokens ($%.4f)",
+                f"{total_tok:,}",
+                tracker.estimated_cost_usd,
+            )
+            return chunks
         except Exception as e:
             logger.warning("L0 enrichment failed: %s", e)
 
@@ -408,6 +566,11 @@ async def enrich_chunks(
                     chunks, client, sem, max_retries=max_retries, base_delay=base_delay
                 )
                 chunks.knowledge_graph = kg_triples
+            except TokenBudgetExceeded:
+                logger.warning(
+                    "Token budget exceeded during KG extraction — skipping remaining enrichment"
+                )
+                return chunks
             except Exception as e:
                 logger.warning("Knowledge graph extraction failed: %s", e)
 
@@ -425,6 +588,12 @@ async def enrich_chunks(
                     chunks, client, sem, max_retries=max_retries, base_delay=base_delay
                 )
                 chunks.citations = citations
+            except TokenBudgetExceeded:
+                logger.warning(
+                    "Token budget exceeded during citation extraction — "
+                    "skipping remaining enrichment"
+                )
+                return chunks
             except Exception as e:
                 logger.warning("Citation extraction failed: %s", e)
 

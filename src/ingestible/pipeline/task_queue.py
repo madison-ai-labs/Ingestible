@@ -52,13 +52,20 @@ class Job:
         }
 
 
+class UserConcurrencyExceeded(Exception):
+    """Raised when a user exceeds their per-user concurrent ingestion limit."""
+
+
 class TaskQueue:
     """In-process task queue backed by a ThreadPoolExecutor."""
 
-    def __init__(self, max_workers: int = 2):
+    def __init__(self, max_workers: int = 2, max_jobs_per_user: int = 1):
         self._pool = ThreadPoolExecutor(max_workers=max_workers)
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
+        self._user_jobs: dict[str, int] = {}
+        self._user_lock = threading.Lock()
+        self._max_jobs_per_user = max_jobs_per_user
 
     def submit_ingestion(
         self,
@@ -67,12 +74,22 @@ class TaskQueue:
         *,
         skip_enrichment: bool = False,
         force: bool = False,
+        user: str = "anonymous",
     ) -> Job:
+        with self._user_lock:
+            if self._user_jobs.get(user, 0) >= self._max_jobs_per_user:
+                raise UserConcurrencyExceeded(
+                    "Too many concurrent ingestions. Please wait for current jobs to finish."
+                )
+            self._user_jobs[user] = self._user_jobs.get(user, 0) + 1
+
         job = Job(job_id=uuid.uuid4().hex[:16])
         with self._lock:
             self._jobs[job.job_id] = job
 
-        self._pool.submit(self._run_ingestion, job, file_path, settings, skip_enrichment, force)
+        self._pool.submit(
+            self._run_ingestion, job, file_path, settings, skip_enrichment, force, user
+        )
         return job
 
     def get_job(self, job_id: str) -> Job | None:
@@ -90,6 +107,7 @@ class TaskQueue:
         settings: Settings,
         skip_enrichment: bool,
         force: bool,
+        user: str = "anonymous",
     ) -> None:
         from ingestible.pipeline.orchestrator import ingest
         from ingestible.pipeline.stage6_storage import load_document_meta
@@ -120,6 +138,8 @@ class TaskQueue:
             job.error = str(e)
         finally:
             job.finished_at = time.time()
+            with self._user_lock:
+                self._user_jobs[user] = max(0, self._user_jobs.get(user, 0) - 1)
 
     def shutdown(self, wait: bool = True, timeout: float = 30.0) -> None:
         """Shut down the pool, optionally waiting for in-progress jobs."""
@@ -135,10 +155,12 @@ _queue: TaskQueue | None = None
 _queue_lock = threading.Lock()
 
 
-def get_task_queue(max_workers: int = 2) -> TaskQueue:
+def get_task_queue(max_workers: int = 2, max_jobs_per_user: int = 1) -> TaskQueue:
     global _queue
     if _queue is None:
         with _queue_lock:
             if _queue is None:
-                _queue = TaskQueue(max_workers=max_workers)
+                _queue = TaskQueue(
+                    max_workers=max_workers, max_jobs_per_user=max_jobs_per_user
+                )
     return _queue

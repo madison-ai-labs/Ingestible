@@ -4,12 +4,21 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { getSupabase } from "@/lib/supabase-browser";
 import type { User, Session } from "@supabase/supabase-js";
 
+interface QuotaOverrides {
+  requests_per_day?: number | null;
+  max_documents?: number | null;
+  max_api_keys?: number | null;
+  max_file_size_mb?: number | null;
+}
+
 interface UserProfile {
   id: string;
   email: string;
   name: string | null;
   avatar_url: string | null;
   role: "free" | "premium" | "admin";
+  suspended: boolean;
+  quota_overrides?: QuotaOverrides | null;
   created_at: string;
   usage: {
     total_keys: number;
@@ -33,6 +42,9 @@ interface GlobalMetrics {
     total_searches: number;
     total_errors: number;
     error_rate: string;
+    total_bytes_uploaded: number;
+    estimated_monthly_cost: string;
+    total_storage_bytes: number;
   };
   daily: { date: string; requests: number; errors: number; tokens: number; bytes: number }[];
   keys: unknown[];
@@ -157,19 +169,39 @@ function fmt(n: number): string {
   return n.toString();
 }
 
+function formatBytes(b: number): string {
+  if (b >= 1_073_741_824) return (b / 1_073_741_824).toFixed(1) + " GB";
+  if (b >= 1_048_576) return (b / 1_048_576).toFixed(1) + " MB";
+  if (b >= 1_024) return (b / 1_024).toFixed(1) + " KB";
+  return b + " B";
+}
+
+function formatCost(tokens: number): string {
+  // Rough estimate: $0.10/1M tokens (Gemini Flash)
+  const cost = (tokens / 1_000_000) * 0.10;
+  if (cost < 0.01) return "< $0.01";
+  return "$" + cost.toFixed(2);
+}
+
 /* ── Admin Dashboard ── */
 
 function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => void }) {
-  const [tab, setTab] = useState<"users" | "audit" | "settings">("users");
+  const [tab, setTab] = useState<"users" | "audit" | "metrics" | "settings">("users");
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [metrics, setMetrics] = useState<GlobalMetrics | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Users tab state
   const [search, setSearch] = useState("");
-  const [roleFilter, setRoleFilter] = useState<"all" | "free" | "premium" | "admin">("all");
+  const [roleFilter, setRoleFilter] = useState<"all" | "free" | "premium" | "admin" | "suspended">("all");
   const [sortBy, setSortBy] = useState<"signup" | "active" | "requests">("signup");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
+
+  // User detail / quota state
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+  const [quotaDraft, setQuotaDraft] = useState<QuotaOverrides>({});
+  const [quotaSaving, setQuotaSaving] = useState(false);
 
   // Audit tab state
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
@@ -193,9 +225,16 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
     } catch {}
   }, [headers]);
 
+  const loadMetrics = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/metrics?days=30", { headers });
+      if (res.ok) setMetrics(await res.json());
+    } catch {}
+  }, [headers]);
+
   useEffect(() => {
-    loadUsers().then(() => setLoading(false));
-  }, [loadUsers]);
+    Promise.all([loadUsers(), loadMetrics()]).then(() => setLoading(false));
+  }, [loadUsers, loadMetrics]);
 
   // Load audit events
   const loadAudit = useCallback(async (offset: number, append: boolean = false) => {
@@ -226,7 +265,7 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
     if (tab === "audit" && auditEvents.length === 0) {
       loadAudit(0);
     }
-    if (tab === "settings" && tiers.length === 0) {
+    if ((tab === "settings" || tab === "users") && tiers.length === 0) {
       loadTiers();
     }
   }, [tab, auditEvents.length, tiers.length, loadAudit, loadTiers]);
@@ -237,6 +276,26 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
       headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify({ role }),
     });
+    loadUsers();
+  }
+
+  async function setSuspended(userId: string, suspended: boolean) {
+    await fetch(`/api/admin/users/${userId}`, {
+      method: "PATCH",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, suspended }),
+    });
+    loadUsers();
+  }
+
+  async function saveQuotaOverrides(userId: string, overrides: QuotaOverrides) {
+    setQuotaSaving(true);
+    await fetch(`/api/admin/users/${userId}`, {
+      method: "PATCH",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, quota_overrides: overrides }),
+    });
+    setQuotaSaving(false);
     loadUsers();
   }
 
@@ -255,7 +314,9 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
     }
 
     // Role filter
-    if (roleFilter !== "all") {
+    if (roleFilter === "suspended") {
+      result = result.filter((u) => u.suspended);
+    } else if (roleFilter !== "all") {
       result = result.filter((u) => u.role === roleFilter);
     }
 
@@ -304,6 +365,21 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ role }),
+      })
+    );
+    await Promise.all(promises);
+    setSelectedIds(new Set());
+    setBulkLoading(false);
+    loadUsers();
+  }
+
+  async function bulkSetSuspended(suspended: boolean) {
+    setBulkLoading(true);
+    const promises = Array.from(selectedIds).map((id) =>
+      fetch(`/api/admin/users/${id}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: id, suspended }),
       })
     );
     await Promise.all(promises);
@@ -403,11 +479,18 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
           <StatCard label="Premium" value={premiumCount} accent="amber" />
           <StatCard label="Free" value={freeCount} />
           <StatCard label="Total Requests" value={users.reduce((s, u) => s + u.usage.total_requests, 0).toLocaleString()} />
+          {metrics && (
+            <>
+              <StatCard label="Tokens Used" value={fmt(metrics.summary.total_tokens)} />
+              <StatCard label="Est. Cost" value={formatCost(metrics.summary.total_tokens)} accent="amber" />
+              <StatCard label="Storage" value={formatBytes(metrics.summary.total_bytes_uploaded)} />
+            </>
+          )}
         </div>
 
         {/* Tabs */}
         <div className="flex gap-1 mb-6 border-b border-zinc-800">
-          {(["users", "audit", "settings"] as const).map((t) => (
+          {(["users", "audit", "metrics", "settings"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -446,6 +529,7 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
                 <option value="free">Free</option>
                 <option value="premium">Premium</option>
                 <option value="admin">Admin</option>
+                <option value="suspended">Suspended</option>
               </select>
               <select
                 value={sortBy}
@@ -484,6 +568,20 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
                   Downgrade to Free
                 </button>
                 <button
+                  onClick={() => bulkSetSuspended(true)}
+                  disabled={bulkLoading}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                >
+                  Suspend selected
+                </button>
+                <button
+                  onClick={() => bulkSetSuspended(false)}
+                  disabled={bulkLoading}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20 transition-colors disabled:opacity-50"
+                >
+                  Unsuspend selected
+                </button>
+                <button
                   onClick={exportSelected}
                   className="text-xs px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 transition-colors"
                 >
@@ -517,8 +615,29 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
                     key={u.id}
                     user={u}
                     onSetRole={setRole}
+                    onSetSuspended={setSuspended}
                     selected={selectedIds.has(u.id)}
                     onToggleSelect={() => toggleSelect(u.id)}
+                    expanded={expandedUserId === u.id}
+                    onToggleExpand={() => {
+                      if (expandedUserId === u.id) {
+                        setExpandedUserId(null);
+                      } else {
+                        setExpandedUserId(u.id);
+                        setQuotaDraft({
+                          requests_per_day: u.quota_overrides?.requests_per_day ?? null,
+                          max_documents: u.quota_overrides?.max_documents ?? null,
+                          max_api_keys: u.quota_overrides?.max_api_keys ?? null,
+                          max_file_size_mb: u.quota_overrides?.max_file_size_mb ?? null,
+                        });
+                      }
+                    }}
+                    quotaDraft={quotaDraft}
+                    onQuotaChange={(field, value) => setQuotaDraft((prev) => ({ ...prev, [field]: value }))}
+                    onQuotaReset={(field) => setQuotaDraft((prev) => ({ ...prev, [field]: null }))}
+                    onQuotaSave={() => saveQuotaOverrides(u.id, quotaDraft)}
+                    quotaSaving={quotaSaving}
+                    tiers={tiers}
                   />
                 ))}
               </div>
@@ -585,6 +704,109 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
           </div>
         )}
 
+        {/* ── Metrics Tab ── */}
+        {tab === "metrics" && (
+          <div className="space-y-6">
+            {!metrics ? (
+              <div className="text-center py-12 text-zinc-500">No metrics data available.</div>
+            ) : (
+              <>
+                {/* Summary cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <StatCard label="Total Requests" value={metrics.summary.total_requests.toLocaleString()} />
+                  <StatCard
+                    label="Error Rate"
+                    value={metrics.summary.error_rate}
+                    accent={parseFloat(metrics.summary.error_rate) > 5 ? "red" : undefined}
+                  />
+                  <StatCard label="Total Documents" value={metrics.summary.total_documents.toLocaleString()} />
+                  <StatCard label="Est. Monthly Cost" value={metrics.summary.estimated_monthly_cost} accent="amber" />
+                </div>
+
+                {/* Daily requests bar chart */}
+                <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5">
+                  <h3 className="text-sm font-semibold text-zinc-100 mb-4">Daily Requests (30 days)</h3>
+                  <div className="flex items-end gap-1 h-40">
+                    {metrics.daily.map((day) => {
+                      const maxRequests = Math.max(...metrics.daily.map((d) => d.requests), 1);
+                      const barHeight = (day.requests / maxRequests) * 100;
+                      const errorHeight = day.requests > 0 ? (day.errors / maxRequests) * 100 : 0;
+                      return (
+                        <div key={day.date} className="flex-1 flex flex-col items-center justify-end h-full group relative">
+                          {/* Tooltip */}
+                          <div className="absolute bottom-full mb-2 hidden group-hover:block z-10">
+                            <div className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-xs whitespace-nowrap shadow-lg">
+                              <p className="text-zinc-300 font-medium">{day.date}</p>
+                              <p className="text-zinc-400">{day.requests.toLocaleString()} requests</p>
+                              <p className="text-red-400">{day.errors.toLocaleString()} errors</p>
+                            </div>
+                          </div>
+                          {/* Request bar */}
+                          <div className="w-full relative" style={{ height: `${barHeight}%` }}>
+                            <div className="absolute inset-0 bg-amber-500/30 rounded-t" />
+                            {/* Error overlay at bottom of bar */}
+                            {errorHeight > 0 && (
+                              <div
+                                className="absolute bottom-0 left-0 right-0 bg-red-500/50 rounded-t"
+                                style={{ height: `${(day.errors / day.requests) * 100}%` }}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-between mt-2">
+                    <span className="text-[10px] text-zinc-600">{metrics.daily[0]?.date}</span>
+                    <span className="text-[10px] text-zinc-600">{metrics.daily[metrics.daily.length - 1]?.date}</span>
+                  </div>
+                  <div className="flex items-center gap-4 mt-3">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-3 h-3 rounded bg-amber-500/30" />
+                      <span className="text-[10px] text-zinc-500">Requests</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-3 h-3 rounded bg-red-500/50" />
+                      <span className="text-[10px] text-zinc-500">Errors</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Top Users table */}
+                <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5">
+                  <h3 className="text-sm font-semibold text-zinc-100 mb-4">Top Users by Requests</h3>
+                  <div className="space-y-1">
+                    <div className="grid grid-cols-[1fr_auto_auto_auto] gap-4 px-3 py-2 text-[10px] text-zinc-500 uppercase tracking-wide">
+                      <span>User</span>
+                      <span className="text-right">Requests</span>
+                      <span className="text-right">Documents</span>
+                      <span className="text-right">Errors</span>
+                    </div>
+                    {[...users]
+                      .sort((a, b) => b.usage.total_requests - a.usage.total_requests)
+                      .slice(0, 10)
+                      .map((u, i) => (
+                        <div
+                          key={u.id}
+                          className="grid grid-cols-[1fr_auto_auto_auto] gap-4 px-3 py-2.5 rounded-lg hover:bg-zinc-800/30 transition-colors"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-xs text-zinc-600 font-mono w-4">{i + 1}</span>
+                            <span className="text-sm text-zinc-200 truncate">{u.name || u.email}</span>
+                            <RoleBadge role={u.role} />
+                          </div>
+                          <span className="text-sm font-mono text-zinc-100 text-right">{u.usage.total_requests.toLocaleString()}</span>
+                          <span className="text-sm font-mono text-zinc-400 text-right">{u.usage.total_documents}</span>
+                          <span className="text-sm font-mono text-red-400/70 text-right">{u.usage.total_errors}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {/* ── Settings Tab ── */}
         {tab === "settings" && (
           <div className="space-y-4">
@@ -631,78 +853,177 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
 function UserRow({
   user,
   onSetRole,
+  onSetSuspended,
   selected,
   onToggleSelect,
+  expanded,
+  onToggleExpand,
+  quotaDraft,
+  onQuotaChange,
+  onQuotaReset,
+  onQuotaSave,
+  quotaSaving,
+  tiers,
 }: {
   user: UserProfile;
   onSetRole: (id: string, role: string) => void;
+  onSetSuspended: (id: string, suspended: boolean) => void;
   selected: boolean;
   onToggleSelect: () => void;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  quotaDraft: QuotaOverrides;
+  onQuotaChange: (field: keyof QuotaOverrides, value: number | null) => void;
+  onQuotaReset: (field: keyof QuotaOverrides) => void;
+  onQuotaSave: () => void;
+  quotaSaving: boolean;
+  tiers: TierConfig[];
 }) {
+  const hasOverrides = user.quota_overrides &&
+    Object.values(user.quota_overrides).some((v) => v !== null && v !== undefined);
+  const tierDefaults = tiers.find((t) => t.name === user.role);
+
   return (
-    <div className={`rounded-xl border bg-zinc-900/40 px-5 py-4 ${selected ? "border-amber-500/30" : "border-zinc-800"}`}>
-      <div className="flex items-start gap-4">
-        {/* Checkbox */}
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={onToggleSelect}
-          className="mt-1.5 w-4 h-4 rounded border-zinc-600 bg-zinc-800 text-amber-400 focus:ring-amber-400/50 flex-shrink-0"
-        />
+    <div className={`rounded-xl border bg-zinc-900/40 ${user.suspended ? "opacity-60" : ""} ${selected ? "border-amber-500/30" : "border-zinc-800"}`}>
+      <div className="px-5 py-4 cursor-pointer" onClick={onToggleExpand}>
+        <div className="flex items-start gap-4">
+          {/* Checkbox */}
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            onClick={(e) => e.stopPropagation()}
+            className="mt-1.5 w-4 h-4 rounded border-zinc-600 bg-zinc-800 text-amber-400 focus:ring-amber-400/50 flex-shrink-0"
+          />
 
-        {/* Avatar */}
-        {user.avatar_url ? (
-          <img src={user.avatar_url} alt="" className="w-9 h-9 rounded-full flex-shrink-0" />
-        ) : (
-          <div className="w-9 h-9 rounded-full bg-zinc-800 flex items-center justify-center flex-shrink-0">
-            <span className="text-xs font-medium text-zinc-400">{(user.email || "?")[0].toUpperCase()}</span>
-          </div>
-        )}
+          {/* Avatar */}
+          {user.avatar_url ? (
+            <img src={user.avatar_url} alt="" className="w-9 h-9 rounded-full flex-shrink-0" />
+          ) : (
+            <div className="w-9 h-9 rounded-full bg-zinc-800 flex items-center justify-center flex-shrink-0">
+              <span className="text-xs font-medium text-zinc-400">{(user.email || "?")[0].toUpperCase()}</span>
+            </div>
+          )}
 
-        {/* Info */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium text-zinc-100">{user.name || user.email}</span>
-            <RoleBadge role={user.role} />
+          {/* Info */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-medium text-zinc-100">{user.name || user.email}</span>
+              <RoleBadge role={user.role} />
+              {user.suspended && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded border bg-red-500/10 text-red-400 border-red-500/20 uppercase font-semibold">
+                  Suspended
+                </span>
+              )}
+              {hasOverrides && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded border bg-violet-500/10 text-violet-400 border-violet-500/20">
+                  custom
+                </span>
+              )}
+            </div>
+            {user.name && <p className="text-xs text-zinc-500 mt-0.5">{user.email}</p>}
+            <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+              <span className="text-xs text-zinc-500">{user.usage.active_keys} key{user.usage.active_keys !== 1 ? "s" : ""}</span>
+              <span className="text-xs text-zinc-600">&middot;</span>
+              <span className="text-xs text-zinc-500">{user.usage.total_requests.toLocaleString()} requests</span>
+              <span className="text-xs text-zinc-600">&middot;</span>
+              <span className="text-xs text-zinc-500">{user.usage.total_documents} docs</span>
+              <span className="text-xs text-zinc-600">&middot;</span>
+              <span className="text-xs text-zinc-500">{user.usage.total_searches.toLocaleString()} searches</span>
+              {user.usage.total_tokens > 0 && (
+                <>
+                  <span className="text-xs text-zinc-600">&middot;</span>
+                  <span className="text-xs text-zinc-500">{fmt(user.usage.total_tokens)} tokens</span>
+                  <span className="text-xs text-zinc-600">&middot;</span>
+                  <span className="text-xs text-zinc-500">{formatCost(user.usage.total_tokens)}</span>
+                </>
+              )}
+              <span className="text-xs text-zinc-600">&middot;</span>
+              <span className="text-xs text-zinc-500">joined {new Date(user.created_at).toLocaleDateString()}</span>
+              {user.usage.last_used_at && (
+                <>
+                  <span className="text-xs text-zinc-600">&middot;</span>
+                  <span className="text-xs text-zinc-500">active {timeAgo(user.usage.last_used_at)}</span>
+                </>
+              )}
+            </div>
           </div>
-          {user.name && <p className="text-xs text-zinc-500 mt-0.5">{user.email}</p>}
-          <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-            <span className="text-xs text-zinc-500">{user.usage.active_keys} key{user.usage.active_keys !== 1 ? "s" : ""}</span>
-            <span className="text-xs text-zinc-600">&middot;</span>
-            <span className="text-xs text-zinc-500">{user.usage.total_requests.toLocaleString()} requests</span>
-            <span className="text-xs text-zinc-600">&middot;</span>
-            <span className="text-xs text-zinc-500">{user.usage.total_documents} docs</span>
-            <span className="text-xs text-zinc-600">&middot;</span>
-            <span className="text-xs text-zinc-500">{user.usage.total_searches.toLocaleString()} searches</span>
-            <span className="text-xs text-zinc-600">&middot;</span>
-            <span className="text-xs text-zinc-500">joined {new Date(user.created_at).toLocaleDateString()}</span>
-            {user.usage.last_used_at && (
+
+          {/* Role actions + Suspend */}
+          <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+            {user.role !== "admin" && (
               <>
-                <span className="text-xs text-zinc-600">&middot;</span>
-                <span className="text-xs text-zinc-500">active {timeAgo(user.usage.last_used_at)}</span>
+                {user.role === "free" && (
+                  <button onClick={() => onSetRole(user.id, "premium")} className="text-xs text-amber-400/70 hover:text-amber-400 transition-colors px-2 py-1 rounded hover:bg-amber-400/5">
+                    Upgrade
+                  </button>
+                )}
+                {user.role === "premium" && (
+                  <button onClick={() => onSetRole(user.id, "free")} className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors px-2 py-1 rounded hover:bg-zinc-800">
+                    Downgrade
+                  </button>
+                )}
+                <button
+                  onClick={() => onSetSuspended(user.id, !user.suspended)}
+                  className={`text-xs px-2 py-1 rounded transition-colors ${
+                    user.suspended
+                      ? "text-green-400/70 hover:text-green-400 hover:bg-green-400/5"
+                      : "text-red-400/70 hover:text-red-400 hover:bg-red-400/5"
+                  }`}
+                >
+                  {user.suspended ? "Unsuspend" : "Suspend"}
+                </button>
               </>
             )}
           </div>
         </div>
-
-        {/* Role actions */}
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {user.role !== "admin" && (
-            <>
-              {user.role === "free" && (
-                <button onClick={() => onSetRole(user.id, "premium")} className="text-xs text-amber-400/70 hover:text-amber-400 transition-colors px-2 py-1 rounded hover:bg-amber-400/5">
-                  Upgrade
-                </button>
-              )}
-              {user.role === "premium" && (
-                <button onClick={() => onSetRole(user.id, "free")} className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors px-2 py-1 rounded hover:bg-zinc-800">
-                  Downgrade
-                </button>
-              )}
-            </>
-          )}
-        </div>
       </div>
+
+      {/* Expandable details panel */}
+      {expanded && (
+        <div className="border-t border-zinc-800 px-5 py-4">
+          <h4 className="text-xs font-semibold text-zinc-300 uppercase tracking-wide mb-3">Quota Overrides</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {(
+              [
+                { key: "requests_per_day" as const, label: "Requests / day" },
+                { key: "max_documents" as const, label: "Max documents" },
+                { key: "max_api_keys" as const, label: "Max API keys" },
+                { key: "max_file_size_mb" as const, label: "Max file size (MB)" },
+              ] as const
+            ).map(({ key, label }) => (
+              <div key={key} className="flex items-center gap-2">
+                <label className="text-xs text-zinc-500 w-32 flex-shrink-0">{label}</label>
+                <input
+                  type="number"
+                  value={quotaDraft[key] ?? ""}
+                  placeholder={tierDefaults ? String(tierDefaults[key]) : "default"}
+                  onChange={(e) => {
+                    const val = e.target.value === "" ? null : parseInt(e.target.value);
+                    onQuotaChange(key, val);
+                  }}
+                  className="w-28 px-2 py-1.5 rounded bg-zinc-800/50 border border-zinc-700/50 text-zinc-100 text-xs font-mono text-right focus:outline-none focus:ring-2 focus:ring-amber-400/50 placeholder:text-zinc-600"
+                />
+                <button
+                  onClick={() => onQuotaReset(key)}
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors px-1.5 py-1 rounded hover:bg-zinc-800 whitespace-nowrap"
+                >
+                  Reset to tier default
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-end mt-4">
+            <button
+              onClick={onQuotaSave}
+              disabled={quotaSaving}
+              className="text-xs px-4 py-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors disabled:opacity-50"
+            >
+              {quotaSaving ? "Saving..." : "Save Overrides"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -11,12 +11,27 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 
 from ingestible.config import Settings
 from ingestible.utils.retry import retry_llm_call
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# HyDE result cache — avoids redundant LLM calls for repeated queries
+# ---------------------------------------------------------------------------
+HYDE_CACHE_TTL = 300  # seconds (5 minutes)
+HYDE_CACHE_MAX_SIZE = 200
+
+# query → (result, expiry_timestamp)
+_hyde_cache: dict[str, tuple[str, float]] = {}
+
+
+def clear_hyde_cache() -> None:
+    """Clear the HyDE expansion cache (useful for testing)."""
+    _hyde_cache.clear()
 
 _HYDE_SYSTEM = (
     "You are a helpful assistant. Write a short passage (2-3 sentences) that would "
@@ -51,14 +66,38 @@ class HyDEExpander:
         self._settings = settings
 
     async def expand(self, query: str) -> str:
-        """Generate a hypothetical document passage that would answer the query."""
+        """Generate a hypothetical document passage that would answer the query.
+
+        Results are cached in a module-level LRU dict with TTL to avoid
+        redundant LLM calls for repeated queries.
+        """
+        # Check cache
+        cached = _hyde_cache.get(query)
+        if cached is not None:
+            result, expiry = cached
+            if time.time() < expiry:
+                logger.debug("HyDE cache hit for query: %s", query[:80])
+                return result
+            # Expired — remove stale entry
+            _hyde_cache.pop(query, None)
+
+        # Cache miss — call LLM
         if self._settings.llm_provider == "anthropic":
-            return await self._expand_anthropic(query)
-        if self._settings.llm_provider == "gemini":
-            return await self._expand_gemini(query)
-        if self._settings.llm_provider == "ollama":
-            return await self._expand_ollama(query)
-        return await self._expand_openai(query)
+            result = await self._expand_anthropic(query)
+        elif self._settings.llm_provider == "gemini":
+            result = await self._expand_gemini(query)
+        elif self._settings.llm_provider == "ollama":
+            result = await self._expand_ollama(query)
+        else:
+            result = await self._expand_openai(query)
+
+        # Store in cache, evicting oldest entry if at capacity
+        if len(_hyde_cache) >= HYDE_CACHE_MAX_SIZE:
+            oldest_key = next(iter(_hyde_cache))
+            del _hyde_cache[oldest_key]
+        _hyde_cache[query] = (result, time.time() + HYDE_CACHE_TTL)
+
+        return result
 
     def expand_sync(self, query: str) -> str:
         """Synchronous wrapper for expand()."""

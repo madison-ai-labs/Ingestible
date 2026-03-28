@@ -104,8 +104,11 @@ class Settings(BaseSettings):
     # Limits
     max_upload_bytes: int = 500_000_000  # 500 MB
     max_concurrent_ingestions: int = 2
+    max_jobs_per_user: int = 1  # max concurrent ingestion jobs per user
     max_total_llm_concurrency: int = 20  # hard ceiling across all parallel workers
     parse_timeout: int = 300  # seconds (5 min max for parsing)
+    max_llm_tokens_per_document: int = 1_000_000  # token budget per document enrichment
+    max_llm_cost_per_document: float = 5.0  # USD hard cap per document enrichment
 
     # Cleaning
     cleaning_enabled: bool = True

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { getSupabase } from "@/lib/supabase-browser";
 import Link from "next/link";
 
@@ -35,6 +35,17 @@ interface ResponseData {
   body: string;
   timeMs: number;
   sizeBytes: number;
+}
+
+interface HistoryItem {
+  id: string;
+  endpointId: string;
+  endpointLabel: string;
+  fields: Record<string, any>;
+  status: number;
+  statusText: string;
+  timeMs: number;
+  timestamp: number;
 }
 
 /* ── Endpoints ── */
@@ -202,6 +213,33 @@ function statusColor(status: number): string {
   return "bg-red-500/15 text-red-400 border-red-500/25";
 }
 
+const HISTORY_KEY = "ingestible_playground_history";
+const MAX_HISTORY = 20;
+
+function loadHistory(): HistoryItem[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(items: HistoryItem[]) {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, MAX_HISTORY)));
+}
+
+function timeAgo(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 /* ── Page component ── */
 
 export default function PlaygroundPage() {
@@ -225,8 +263,18 @@ export default function PlaygroundPage() {
   const [response, setResponse] = useState<ResponseData | null>(null);
   const [error, setError] = useState("");
 
+  // History state
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const topRef = useRef<HTMLDivElement>(null);
+
   const selectedEndpoint = ENDPOINTS.find((e) => e.id === selectedEndpointId)!;
   const selectedKey = apiKeys.find((k) => k.id === selectedKeyId);
+
+  // Load history from localStorage
+  useEffect(() => {
+    setHistory(loadHistory());
+  }, []);
 
   // Auth check
   useEffect(() => {
@@ -276,6 +324,44 @@ export default function PlaygroundPage() {
 
   function setField(name: string, value: any) {
     setFields((prev) => ({ ...prev, [name]: value }));
+  }
+
+  function addToHistory(res: ResponseData) {
+    const serializedFields: Record<string, any> = {};
+    for (const [key, value] of Object.entries(fields)) {
+      if (!(value instanceof File)) {
+        serializedFields[key] = value;
+      }
+    }
+    const item: HistoryItem = {
+      id: typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : String(Date.now()),
+      endpointId: selectedEndpointId,
+      endpointLabel: selectedEndpoint.label,
+      fields: serializedFields,
+      status: res.status,
+      statusText: res.statusText,
+      timeMs: res.timeMs,
+      timestamp: Date.now(),
+    };
+    const updated = [item, ...history].slice(0, MAX_HISTORY);
+    setHistory(updated);
+    saveHistory(updated);
+  }
+
+  function restoreHistoryItem(item: HistoryItem) {
+    setSelectedEndpointId(item.endpointId);
+    // Fields are set after endpoint change effect runs, so defer
+    setTimeout(() => {
+      setFields(item.fields);
+    }, 0);
+    topRef.current?.scrollIntoView({ behavior: "smooth" });
+  }
+
+  function clearHistory() {
+    setHistory([]);
+    localStorage.removeItem(HISTORY_KEY);
   }
 
   // Send request
@@ -338,13 +424,15 @@ export default function PlaygroundPage() {
         // not JSON, keep raw
       }
 
-      setResponse({
+      const responseData: ResponseData = {
         status: res.status,
         statusText: res.statusText,
         body: formatted,
         timeMs: elapsed,
         sizeBytes: new Blob([text]).size,
-      });
+      };
+      setResponse(responseData);
+      addToHistory(responseData);
     } catch (err: any) {
       const elapsed = performance.now() - startTime;
       setError(
@@ -390,7 +478,7 @@ export default function PlaygroundPage() {
   );
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div ref={topRef} className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Back link */}
       <Link
         href="/dashboard"
@@ -662,6 +750,67 @@ export default function PlaygroundPage() {
               <p className="text-sm text-zinc-500">
                 Configure your request and hit Send to see the response here.
               </p>
+            </div>
+          )}
+
+          {/* History panel */}
+          {history.length > 0 && (
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60">
+              <div className="flex items-center justify-between px-5 py-3">
+                <button
+                  onClick={() => setHistoryOpen(!historyOpen)}
+                  className="flex items-center gap-2 text-sm font-semibold text-zinc-200 hover:text-zinc-100 transition-colors"
+                >
+                  <svg
+                    className={`w-4 h-4 text-zinc-500 transition-transform ${historyOpen ? "rotate-90" : ""}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={2}
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M8.25 4.5l7.5 7.5-7.5 7.5"
+                    />
+                  </svg>
+                  History ({history.length})
+                </button>
+                {historyOpen && (
+                  <button
+                    onClick={clearHistory}
+                    className="text-xs text-zinc-500 hover:text-red-400 transition-colors"
+                  >
+                    Clear history
+                  </button>
+                )}
+              </div>
+              {historyOpen && (
+                <div className="border-t border-zinc-800 divide-y divide-zinc-800/50 max-h-[400px] overflow-y-auto">
+                  {history.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => restoreHistoryItem(item)}
+                      className="w-full px-5 py-3 flex items-center justify-between gap-3 hover:bg-zinc-800/40 transition-colors text-left"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="text-sm text-zinc-300 truncate">
+                          {item.endpointLabel}
+                        </span>
+                        <span
+                          className={`text-xs font-mono px-1.5 py-0.5 rounded border flex-shrink-0 ${statusColor(item.status)}`}
+                        >
+                          {item.status}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-zinc-500 flex-shrink-0">
+                        <span>{Math.round(item.timeMs)} ms</span>
+                        <span>{timeAgo(item.timestamp)}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

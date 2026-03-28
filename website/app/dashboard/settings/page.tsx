@@ -23,6 +23,16 @@ interface Webhook {
   created_at: string;
 }
 
+interface WebhookDelivery {
+  id: string;
+  event: string;
+  status_code: number;
+  response_time_ms: number;
+  success: boolean;
+  created_at: string;
+  error?: string;
+}
+
 const WEBHOOK_EVENTS = [
   { value: "ingestion.complete", label: "Ingestion complete" },
   { value: "key.revoked", label: "API key revoked" },
@@ -375,6 +385,11 @@ function WebhooksSection({ supabase }: { supabase: any }) {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState("");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [logs, setLogs] = useState<Record<string, WebhookDelivery[]>>({});
+  const [logsLoading, setLogsLoading] = useState<Record<string, boolean>>({});
+  const [testStatus, setTestStatus] = useState<Record<string, "loading" | "success" | "error">>({});
+  const [retrying, setRetrying] = useState<Record<string, boolean>>({});
 
   const getHeaders = useCallback(async () => {
     const {
@@ -431,6 +446,72 @@ function WebhooksSection({ supabase }: { supabase: any }) {
     }
   }
 
+  async function testWebhook(id: string) {
+    setTestStatus((prev) => ({ ...prev, [id]: "loading" }));
+    try {
+      const headers = await getHeaders();
+      const res = await fetch(`/api/user/webhooks/${id}/test`, {
+        method: "POST",
+        headers,
+      });
+      setTestStatus((prev) => ({ ...prev, [id]: res.ok ? "success" : "error" }));
+    } catch {
+      setTestStatus((prev) => ({ ...prev, [id]: "error" }));
+    }
+    setTimeout(() => {
+      setTestStatus((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }, 3000);
+  }
+
+  async function fetchLogs(id: string) {
+    setLogsLoading((prev) => ({ ...prev, [id]: true }));
+    try {
+      const headers = await getHeaders();
+      const res = await fetch(`/api/user/webhooks/${id}/logs`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setLogs((prev) => ({ ...prev, [id]: data.deliveries || data || [] }));
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLogsLoading((prev) => ({ ...prev, [id]: false }));
+    }
+  }
+
+  async function retryDelivery(webhookId: string, logId: string) {
+    setRetrying((prev) => ({ ...prev, [logId]: true }));
+    try {
+      const headers = await getHeaders();
+      const res = await fetch(`/api/user/webhooks/${webhookId}/retry/${logId}`, {
+        method: "POST",
+        headers,
+      });
+      if (res.ok) {
+        await fetchLogs(webhookId);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setRetrying((prev) => ({ ...prev, [logId]: false }));
+    }
+  }
+
+  function toggleExpand(id: string) {
+    if (expandedId === id) {
+      setExpandedId(null);
+    } else {
+      setExpandedId(id);
+      if (!logs[id]) {
+        fetchLogs(id);
+      }
+    }
+  }
+
   return (
     <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6">
       <div className="flex items-center justify-between mb-4">
@@ -469,7 +550,10 @@ function WebhooksSection({ supabase }: { supabase: any }) {
               key={w.id}
               className="rounded-xl border border-zinc-800 bg-zinc-900/40 px-5 py-3"
             >
-              <div className="flex items-center justify-between gap-4">
+              <div
+                className="flex items-center justify-between gap-4 cursor-pointer"
+                onClick={() => toggleExpand(w.id)}
+              >
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-mono text-zinc-200 truncate">
                     {w.url}
@@ -514,19 +598,127 @@ function WebhooksSection({ supabase }: { supabase: any }) {
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <button
-                    onClick={() => toggleWebhook(w.id, !w.active)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      testWebhook(w.id);
+                    }}
+                    disabled={testStatus[w.id] === "loading"}
+                    className="text-xs text-zinc-400 hover:text-amber-400 transition-colors px-2 py-1 flex items-center gap-1"
+                  >
+                    {testStatus[w.id] === "loading" ? (
+                      <span className="w-3 h-3 border border-zinc-400 border-t-transparent rounded-full animate-spin" />
+                    ) : testStatus[w.id] === "success" ? (
+                      <svg className="w-3 h-3 text-emerald-400" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                      </svg>
+                    ) : testStatus[w.id] === "error" ? (
+                      <svg className="w-3 h-3 text-red-400" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    ) : (
+                      "Test"
+                    )}
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleWebhook(w.id, !w.active);
+                    }}
                     className="text-xs text-zinc-400 hover:text-amber-400 transition-colors px-2 py-1"
                   >
                     {w.active ? "Disable" : "Enable"}
                   </button>
                   <button
-                    onClick={() => deleteWebhook(w.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteWebhook(w.id);
+                    }}
                     className="text-xs text-zinc-500 hover:text-red-400 transition-colors px-2 py-1"
                   >
                     Delete
                   </button>
+                  <svg
+                    className={`w-4 h-4 text-zinc-500 transition-transform ${expandedId === w.id ? "rotate-180" : ""}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={2}
+                    stroke="currentColor"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                  </svg>
                 </div>
               </div>
+
+              {/* Delivery logs */}
+              {expandedId === w.id && (
+                <div className="mt-3 pt-3 border-t border-zinc-800">
+                  <h4 className="text-xs font-medium text-zinc-400 mb-2">
+                    Delivery logs
+                  </h4>
+                  {logsLoading[w.id] ? (
+                    <div className="flex justify-center py-4">
+                      <div className="w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  ) : !logs[w.id] || logs[w.id].length === 0 ? (
+                    <p className="text-xs text-zinc-500 text-center py-4">
+                      No deliveries yet
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                      {logs[w.id].map((d) => (
+                        <div
+                          key={d.id}
+                          className="flex items-center justify-between gap-3 rounded-lg bg-zinc-800/40 px-3 py-2"
+                        >
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <span className="text-[10px] text-zinc-500 whitespace-nowrap">
+                              {new Date(d.created_at).toLocaleString()}
+                            </span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700">
+                              {d.event}
+                            </span>
+                            <span
+                              className={`text-xs font-mono ${
+                                d.status_code >= 200 && d.status_code < 300
+                                  ? "text-emerald-400"
+                                  : d.status_code >= 400 && d.status_code < 500
+                                  ? "text-amber-400"
+                                  : "text-red-400"
+                              }`}
+                            >
+                              {d.status_code}
+                            </span>
+                            <span className="text-[10px] text-zinc-500">
+                              {d.response_time_ms}ms
+                            </span>
+                            {d.error && (
+                              <span className="text-[10px] text-red-400 truncate">
+                                {d.error}
+                              </span>
+                            )}
+                          </div>
+                          {!d.success && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                retryDelivery(w.id, d.id);
+                              }}
+                              disabled={retrying[d.id]}
+                              className="text-xs text-zinc-400 hover:text-amber-400 transition-colors px-2 py-0.5 flex-shrink-0"
+                            >
+                              {retrying[d.id] ? (
+                                <span className="w-3 h-3 border border-zinc-400 border-t-transparent rounded-full animate-spin inline-block" />
+                              ) : (
+                                "Retry"
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>

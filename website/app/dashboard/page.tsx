@@ -45,6 +45,7 @@ interface ApiKey {
   searches_performed: number;
   errors_count: number;
   bytes_uploaded: number;
+  daily_activity?: number[];
 }
 
 export default function DashboardPage() {
@@ -248,6 +249,10 @@ interface UserSettings {
 interface UsageDay {
   date: string;
   requests: number;
+  tokens?: number;
+  documents?: number;
+  searches?: number;
+  errors?: number;
 }
 
 interface ActivityItem {
@@ -427,6 +432,23 @@ function buildRecentActivity(keys: ApiKey[]): ActivityItem[] {
 
   items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   return items.slice(0, 5);
+}
+
+function exportUsageCsv(usage: UsageDay[]) {
+  const header = "date,requests,tokens,documents,searches,errors";
+  const rows = usage.map((d) =>
+    `${d.date},${d.requests},${d.tokens ?? 0},${d.documents ?? 0},${d.searches ?? 0},${d.errors ?? 0}`
+  );
+  const csv = [header, ...rows].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `ingestible-usage-${new Date().toISOString().split("T")[0]}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 /* ── Sub-components ── */
@@ -675,17 +697,33 @@ function ActivityFeed({ items }: { items: ActivityItem[] }) {
 }
 
 function KeyActivityBars({ apiKey }: { apiKey: ApiKey }) {
-  // Simulate 7-day activity from the key's aggregate stats
-  // In production this would come from a per-day breakdown API
   const total = apiKey.requests_count;
   if (total === 0) return null;
 
-  const bars = Array.from({ length: 7 }, (_, i) => {
-    // Distribute requests somewhat randomly but deterministically based on key id
-    const seed = apiKey.id.charCodeAt(i % apiKey.id.length) || 1;
-    return (seed % 5) + 1;
-  });
-  const barMax = Math.max(...bars);
+  let bars: number[];
+
+  if (apiKey.daily_activity && apiKey.daily_activity.length === 7) {
+    // Use real per-day data when available from the API
+    bars = apiKey.daily_activity;
+  } else {
+    // Distribute total requests across 7 days weighted by recency of last_used_at.
+    // Keys used recently get activity concentrated toward the end; older keys toward the start.
+    const lastUsed = apiKey.last_used_at ? new Date(apiKey.last_used_at).getTime() : 0;
+    const daysSinceUsed = lastUsed > 0
+      ? Math.min(Math.floor((Date.now() - lastUsed) / (1000 * 60 * 60 * 24)), 7)
+      : 7;
+    // Peak day index (0 = oldest, 6 = most recent)
+    const peakIdx = Math.max(0, 6 - daysSinceUsed);
+    bars = Array.from({ length: 7 }, (_, i) => {
+      const distance = Math.abs(i - peakIdx);
+      // Exponential decay from peak, floored at 0
+      return Math.max(0, Math.round(total * Math.pow(0.45, distance) / 3));
+    });
+    // Ensure at least the peak bar is non-zero when total > 0
+    if (bars[peakIdx] === 0) bars[peakIdx] = 1;
+  }
+
+  const barMax = Math.max(...bars, 1);
 
   return (
     <div className="flex items-end gap-px h-4 mt-1">
@@ -693,7 +731,7 @@ function KeyActivityBars({ apiKey }: { apiKey: ApiKey }) {
         <div
           key={i}
           className="w-1.5 rounded-sm bg-amber-400/40"
-          style={{ height: `${(v / barMax) * 100}%` }}
+          style={{ height: `${Math.max((v / barMax) * 100, v > 0 ? 10 : 0)}%` }}
         />
       ))}
     </div>
@@ -973,7 +1011,20 @@ function UserDashboard({ user }: { user: User }) {
 
           {/* Usage chart (14 days) */}
           <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5">
-            <h2 className="text-sm font-semibold text-zinc-200 mb-4">Requests (last 14 days)</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-zinc-200">Requests (last 14 days)</h2>
+              {usage.length > 0 && (
+                <button
+                  onClick={() => exportUsageCsv(usage)}
+                  className="inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-amber-400 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                  Export CSV
+                </button>
+              )}
+            </div>
             {usageLoading ? (
               <div className="flex justify-center py-8">
                 <div className="w-6 h-6 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />

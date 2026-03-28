@@ -39,7 +39,7 @@ from ingestible.pipeline.stage6_storage import (
     load_structure,
     update_document_meta,
 )
-from ingestible.pipeline.task_queue import get_task_queue
+from ingestible.pipeline.task_queue import UserConcurrencyExceeded, get_task_queue
 from ingestible.search.hybrid import load_searcher
 
 # ---------------------------------------------------------------------------
@@ -128,7 +128,29 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if supabase_client is not None:
             valid, key_id = await validate_supabase_key(token, supabase_client)
             if valid:
+                request.state.key_id = key_id
                 asyncio.create_task(update_usage_stats(key_id, supabase_client))
+
+                # Soft-gate: fetch quotas (failures allow the request through)
+                try:
+                    from ingestible.auth import get_user_quotas
+
+                    quotas = await get_user_quotas(key_id, supabase_client)
+                    if quotas is not None:
+                        request.state.quotas = quotas
+                        if quotas.suspended:
+                            return JSONResponse(
+                                status_code=403,
+                                content={"detail": "Account suspended"},
+                            )
+                        if quotas.requests_today >= quotas.requests_per_day:
+                            return JSONResponse(
+                                status_code=429,
+                                content={"detail": "Daily request quota exceeded"},
+                            )
+                except Exception:
+                    pass  # quota fetch failed — allow request through
+
                 return await call_next(request)
 
         return JSONResponse(
@@ -251,6 +273,40 @@ def _check_upload_size(content: bytes, settings) -> None:
             status_code=413,
             detail=f"File too large. Maximum size: {max_mb:.0f}MB",
         )
+
+
+def _check_ingestion_quotas(
+    request: Request, content_length: int, skip_enrichment: bool
+) -> bool:
+    """Enforce tier-based ingestion quotas from Supabase.
+
+    Raises :class:`HTTPException` if the request violates a quota limit.
+    Returns the (possibly updated) *skip_enrichment* flag — free-tier users
+    have enrichment silently disabled.
+
+    If no quotas are attached to the request (env-var auth, Supabase down),
+    the request is allowed through unchanged.
+    """
+    quotas = getattr(request.state, "quotas", None)
+    if quotas is None:
+        return skip_enrichment
+
+    if quotas.documents_ingested >= quotas.max_documents:
+        raise HTTPException(
+            status_code=403,
+            detail="Document limit reached for your plan",
+        )
+
+    if content_length > quotas.max_file_size_mb * 1_000_000:
+        raise HTTPException(
+            status_code=413,
+            detail="File exceeds your plan's size limit",
+        )
+
+    if not quotas.enrichment_enabled and not skip_enrichment:
+        skip_enrichment = True
+
+    return skip_enrichment
 
 
 def _get_user(request: Request) -> str:
@@ -505,6 +561,7 @@ async def ingest_document(
     suffix = Path(file.filename or "upload.pdf").suffix
     content = await file.read()
     _check_upload_size(content, settings)
+    skip_enrichment = _check_ingestion_quotas(request, len(content), skip_enrichment)
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(content)
         tmp_path = tmp.name
@@ -602,6 +659,7 @@ async def ingest_url(body: URLIngestRequest, request: Request):
 
     Downloads the resource, detects content type, and runs the full 6-stage pipeline.
     """
+    skip_enrichment = _check_ingestion_quotas(request, 0, body.skip_enrichment)
     settings = get_cached_settings()
 
     if body.profile != "auto":
@@ -612,7 +670,7 @@ async def ingest_url(body: URLIngestRequest, request: Request):
     doc_dir = ingest(
         body.url,
         settings,
-        skip_enrichment=body.skip_enrichment,
+        skip_enrichment=skip_enrichment,
         verbose=False,
     )
 
@@ -645,7 +703,7 @@ async def ingest_url(body: URLIngestRequest, request: Request):
         total_pages=meta.get("total_pages", 0),
         total_chunks=len(chunks.l3_chunks),
         l0_tokens=l0_tokens,
-        enriched=not body.skip_enrichment,
+        enriched=not skip_enrichment,
         enrichment_tokens=_enrichment_tokens,
         estimated_cost_usd=_estimated_cost,
         duration_seconds=_duration,
@@ -686,6 +744,9 @@ async def ingest_batch_endpoint(
     """
     from ingestible.pipeline.batch import BatchReport, _ingest_one
 
+    # Check document-count and enrichment quotas up front (file size checked per-file)
+    skip_enrichment = _check_ingestion_quotas(request, 0, skip_enrichment)
+
     settings = get_cached_settings()
     report = BatchReport(total=len(files))
     results: list[BatchIngestResult] = []
@@ -694,6 +755,7 @@ async def ingest_batch_endpoint(
         suffix = Path(upload.filename or "upload.pdf").suffix
         content = await upload.read()
         _check_upload_size(content, settings)
+        _check_ingestion_quotas(request, len(content), skip_enrichment)
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(content)
             tmp_path = Path(tmp.name)
@@ -1381,6 +1443,7 @@ async def ingest_stream(
     suffix = Path(file.filename or "upload.pdf").suffix
     content = await file.read()
     _check_upload_size(content, settings)
+    skip_enrichment = _check_ingestion_quotas(request, len(content), skip_enrichment)
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(content)
         tmp_path = tmp.name
@@ -1461,6 +1524,7 @@ async def ingest_async(
     suffix = Path(file.filename or "upload.pdf").suffix
     content = await file.read()
     _check_upload_size(content, settings)
+    skip_enrichment = _check_ingestion_quotas(request, len(content), skip_enrichment)
 
     # Write to a persistent temp file (not auto-deleted)
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
@@ -1469,12 +1533,19 @@ async def ingest_async(
     tmp_path = Path(tmp.name)
 
     try:
-        queue = get_task_queue(max_workers=settings.max_concurrent_ingestions)
+        queue = get_task_queue(
+            max_workers=settings.max_concurrent_ingestions,
+            max_jobs_per_user=settings.max_jobs_per_user,
+        )
         job = queue.submit_ingestion(
             tmp.name,
             settings,
             skip_enrichment=skip_enrichment,
+            user=_get_user(request),
         )
+    except UserConcurrencyExceeded as exc:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except Exception:
         tmp_path.unlink(missing_ok=True)
         raise
