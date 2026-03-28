@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import os
@@ -49,8 +50,14 @@ limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(
     title="Ingestible API",
-    description="PDF ingestion pipeline with hierarchical retrieval",
-    version="1.0.0",
+    description=(
+        "Document ingestion pipeline with hierarchical chunking and hybrid search. "
+        "Supports 25+ file formats including PDF, DOCX, HTML, Markdown, audio, video, "
+        "spreadsheets, and more. Documents are parsed, structured, chunked into a 4-level "
+        "hierarchy (L0-L3), optionally enriched with LLM-generated metadata, embedded, "
+        "and stored for hybrid vector + BM25 retrieval."
+    ),
+    version="1.1.0",
 )
 
 app.state.limiter = limiter
@@ -84,13 +91,16 @@ def get_api_keys() -> list[str]:
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
-    """Bearer token authentication matching AILang proxy pattern."""
+    """Bearer token authentication — checks env-var keys first, then Supabase."""
 
     async def dispatch(self, request: Request, call_next):
-        keys = get_api_keys()
+        from ingestible.auth import is_supabase_auth_enabled, validate_supabase_key, update_usage_stats
 
-        # No keys configured = auth disabled
-        if not keys:
+        env_keys = get_api_keys()
+        supabase_client = getattr(request.app.state, "supabase_http", None)
+
+        # No auth configured at all = auth disabled
+        if not env_keys and supabase_client is None:
             return await call_next(request)
 
         # Skip auth for public paths
@@ -107,15 +117,21 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         token = auth[7:]  # Strip "Bearer "
 
-        # Constant-time comparison to prevent timing attacks
-        valid = any(hmac.compare_digest(token, k) for k in keys)
-        if not valid:
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Missing or invalid API key"},
-            )
+        # Fast path: env-var keys (constant-time comparison)
+        if env_keys and any(hmac.compare_digest(token, k) for k in env_keys):
+            return await call_next(request)
 
-        return await call_next(request)
+        # Slow path: Supabase lookup (with cache)
+        if supabase_client is not None:
+            valid, key_id = await validate_supabase_key(token, supabase_client)
+            if valid:
+                asyncio.create_task(update_usage_stats(key_id, supabase_client))
+                return await call_next(request)
+
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Missing or invalid API key"},
+        )
 
 
 # Add middleware (order matters: auth runs before CORS)
@@ -146,25 +162,42 @@ Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 @app.on_event("startup")
 async def _startup():
+    import logging
+    import httpx
+    from ingestible.auth import init_supabase_auth
+
     settings = get_cached_settings()
     setup_logging(json_output=settings.log_json, level=settings.log_level)
+
+    _logger = logging.getLogger(__name__)
+
+    # Supabase key validation
+    if init_supabase_auth():
+        app.state.supabase_http = httpx.AsyncClient(timeout=5.0)
+        _logger.info("Supabase API key validation enabled")
+    else:
+        app.state.supabase_http = None
 
     # Clean up stale checkpoints and temp files from previous runs
     from ingestible.pipeline.cleanup import cleanup_stale
 
     counts = cleanup_stale(settings)
     if any(counts.values()):
-        import logging
-
-        logging.getLogger(__name__).info("Startup cleanup: %s", counts)
+        _logger.info("Startup cleanup: %s", counts)
 
 
 @app.on_event("shutdown")
 async def _shutdown():
-    """Drain background ingestion jobs on shutdown."""
+    """Drain background ingestion jobs and close HTTP clients on shutdown."""
     import logging
 
     logger = logging.getLogger(__name__)
+
+    # Close Supabase HTTP client
+    supabase_http = getattr(app.state, "supabase_http", None)
+    if supabase_http is not None:
+        await supabase_http.aclose()
+
     queue = get_task_queue()
     active = queue.active_count()
     if active > 0:
@@ -267,52 +300,62 @@ def _l0_overview_text(l0: L0Chunk) -> str:
 
 
 class IngestResponse(BaseModel):
-    doc_id: str
-    title: str
-    total_pages: int
-    total_chunks: int
-    l0_tokens: int = Field(description="Token count of L0 (document overview)")
-    enriched: bool
+    """Result of a successful document ingestion."""
+
+    doc_id: str = Field(description="Unique document identifier (slug derived from filename)")
+    title: str = Field(description="Extracted or inferred document title")
+    total_pages: int = Field(description="Number of pages (or segments for non-paged formats)")
+    total_chunks: int = Field(description="Number of L3 (passage-level) chunks created")
+    l0_tokens: int = Field(description="Token count of the L0 document overview")
+    enriched: bool = Field(description="Whether LLM enrichment was applied")
 
 
 class DocumentSummary(BaseModel):
-    doc_id: str
-    title: str
-    total_pages: int
-    ingestion_date: str
+    """Lightweight document listing entry."""
+
+    doc_id: str = Field(description="Unique document identifier")
+    title: str = Field(description="Document title")
+    total_pages: int = Field(description="Number of pages")
+    ingestion_date: str = Field(description="ISO 8601 ingestion timestamp")
 
 
 class DocumentOverview(BaseModel):
-    doc_id: str
-    title: str
-    total_pages: int
-    ingestion_date: str
-    l0_content: str = Field(description="Document overview (L0 chunk)")
-    l0_tokens: int
-    total_chunks: int
-    chapters: list[str] = Field(default_factory=list)
+    """Detailed document overview including L0 content and chapter list."""
+
+    doc_id: str = Field(description="Unique document identifier")
+    title: str = Field(description="Document title")
+    total_pages: int = Field(description="Number of pages")
+    ingestion_date: str = Field(description="ISO 8601 ingestion timestamp")
+    l0_content: str = Field(description="Human-readable L0 overview (title, summary, key findings, TOC)")
+    l0_tokens: int = Field(description="Token count of the L0 overview")
+    total_chunks: int = Field(description="Number of L3 (passage-level) chunks")
+    chapters: list[str] = Field(default_factory=list, description="L1 chapter titles")
 
 
 class TokenEconomics(BaseModel):
-    full_document_tokens: int = Field(description="Tokens if entire document were in context")
-    l0_overview_tokens: int = Field(description="Tokens for L0 overview (always included)")
-    avg_query_tokens: int = Field(description="Average tokens per query (L0 + top passages)")
-    savings_percent: float = Field(description="Token savings vs. full document")
+    """Token cost comparison: full document vs. hierarchical retrieval."""
+
+    full_document_tokens: int = Field(description="Tokens if the entire document were placed in context")
+    l0_overview_tokens: int = Field(description="Tokens for the L0 overview (always included in queries)")
+    avg_query_tokens: int = Field(description="Average tokens per query (L0 + top-3 passages)")
+    savings_percent: float = Field(description="Percentage token savings vs. full document in context")
 
 
 class SearchRequest(BaseModel):
-    query: str
-    n_results: int = Field(default=5, ge=1, le=20)
-    hyde: bool = Field(default=False, description="Use HyDE query expansion for vector search")
-    auto_merge: bool = Field(default=False, description="Auto-merge L3 results into parent L2/L1")
-    kg_boost: bool = Field(
-        default=False, description="Boost results using knowledge graph relationships"
-    )
+    """Search query with optional enhancement flags."""
+
+    query: str = Field(description="Natural language search query")
+    n_results: int = Field(default=5, ge=1, le=20, description="Number of results to return (1-20)")
+    hyde: bool = Field(default=False, description="Use HyDE query expansion — generates a hypothetical answer passage via LLM for better vector matching")
+    auto_merge: bool = Field(default=False, description="Auto-merge L3 results into parent L2/L1 when 3+ passages from the same section match")
+    kg_boost: bool = Field(default=False, description="Boost results using knowledge graph entity relationships")
 
 
 class HealthResponse(BaseModel):
-    status: str
-    documents_count: int
+    """Liveness probe response."""
+
+    status: str = Field(description="Always 'ok' if the service is running")
+    documents_count: int = Field(description="Number of ingested documents")
 
 
 # ---------------------------------------------------------------------------
@@ -320,24 +363,26 @@ class HealthResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@app.get("/health", response_model=HealthResponse)
+@app.get("/health", response_model=HealthResponse, tags=["Health"])
 @limiter.limit(_RATE_DEFAULT)
 async def health(request: Request):
-    """Health check with document count."""
+    """Fast liveness probe. Returns immediately without checking dependencies."""
     settings = get_cached_settings()
     docs = list_documents(settings)
     return HealthResponse(status="ok", documents_count=len(docs))
 
 
 class ReadinessCheck(BaseModel):
-    status: str
-    checks: dict[str, dict]
+    """Deep readiness check result with per-dependency status."""
+
+    status: str = Field(description="Overall status: 'ready' or 'degraded'")
+    checks: dict[str, dict] = Field(description="Per-dependency check results (data_dir, disk_space, embedding_model, llm_api, documents)")
 
 
-@app.get("/health/ready", response_model=ReadinessCheck)
+@app.get("/health/ready", response_model=ReadinessCheck, tags=["Health"])
 @limiter.limit(_RATE_DEFAULT)
 async def health_ready(request: Request):
-    """Deep readiness check — verifies all dependencies are available."""
+    """Deep readiness check. Verifies data directory, disk space, embedding model, and LLM API."""
     settings = get_cached_settings()
     checks: dict[str, dict] = {}
     all_ok = True
@@ -400,22 +445,22 @@ async def health_ready(request: Request):
     )
 
 
-@app.post("/ingest", response_model=IngestResponse)
+@app.post("/ingest", response_model=IngestResponse, tags=["Ingestion"])
 @limiter.limit(_RATE_INGEST)
 async def ingest_document(
     request: Request,
-    file: UploadFile = File(...),
-    skip_enrichment: bool = Form(False),
-    profile: str = Form("auto"),
-    access_tags: str = Form(""),
-    weight: float = Form(0.0),
-    pinned: bool = Form(False),
-    tags: str = Form(""),
+    file: UploadFile = File(..., description="Document file to ingest (PDF, DOCX, HTML, Markdown, audio, video, etc.)"),
+    skip_enrichment: bool = Form(False, description="Skip LLM enrichment (faster, but no summaries/concepts/questions)"),
+    profile: str = Form("auto", description="Extraction profile: 'auto', 'fast', 'accurate', or 'economy'"),
+    access_tags: str = Form("", description="Comma-separated access control tags for this document"),
+    weight: float = Form(0.0, description="Corpus search weight boost (0.0 = neutral)"),
+    pinned: bool = Form(False, description="Pin document to always appear in corpus search results"),
+    tags: str = Form("", description="Comma-separated metadata tags for filtering"),
 ):
-    """
-    Ingest a PDF into the knowledge store.
+    """Ingest a document into the knowledge store.
 
-    Runs the 6-stage pipeline: parse -> structure -> chunk -> enrich -> embed -> store.
+    Runs the full 6-stage pipeline: parse → structure → chunk → enrich → embed → store.
+    Supports 25+ file formats. Returns immediately with document metadata and chunk counts.
     """
     settings = get_cached_settings()
 
@@ -484,18 +529,19 @@ async def ingest_document(
 
 
 class URLIngestRequest(BaseModel):
-    url: str
-    skip_enrichment: bool = False
-    profile: str = "auto"
+    """Request body for URL-based ingestion."""
+
+    url: str = Field(description="URL of the document to ingest")
+    skip_enrichment: bool = Field(default=False, description="Skip LLM enrichment")
+    profile: str = Field(default="auto", description="Extraction profile: 'auto', 'fast', 'accurate', or 'economy'")
 
 
-@app.post("/ingest/url", response_model=IngestResponse)
+@app.post("/ingest/url", response_model=IngestResponse, tags=["Ingestion"])
 @limiter.limit(_RATE_INGEST)
 async def ingest_url(body: URLIngestRequest, request: Request):
-    """
-    Ingest a document from a URL.
+    """Ingest a document from a URL.
 
-    Downloads the URL, detects content type, and runs the full pipeline.
+    Downloads the resource, detects content type, and runs the full 6-stage pipeline.
     """
     settings = get_cached_settings()
 
@@ -529,32 +575,35 @@ async def ingest_url(body: URLIngestRequest, request: Request):
 
 
 class BatchIngestResult(BaseModel):
-    filename: str
-    doc_id: str | None = None
-    error: str | None = None
-    elapsed_seconds: float = 0.0
+    """Per-file result within a batch ingestion."""
+
+    filename: str = Field(description="Original filename")
+    doc_id: str | None = Field(default=None, description="Document ID (null if ingestion failed)")
+    error: str | None = Field(default=None, description="Error message (null if successful)")
+    elapsed_seconds: float = Field(default=0.0, description="Processing time for this file")
 
 
 class BatchIngestResponse(BaseModel):
-    total: int
-    succeeded: int
-    failed: int
-    elapsed_seconds: float
-    results: list[BatchIngestResult]
+    """Aggregated result of a batch ingestion request."""
+
+    total: int = Field(description="Total number of files submitted")
+    succeeded: int = Field(description="Number of files successfully ingested")
+    failed: int = Field(description="Number of files that failed")
+    elapsed_seconds: float = Field(description="Total elapsed time across all files")
+    results: list[BatchIngestResult] = Field(description="Per-file results")
 
 
-@app.post("/ingest/batch", response_model=BatchIngestResponse)
+@app.post("/ingest/batch", response_model=BatchIngestResponse, tags=["Ingestion"])
 @limiter.limit(_RATE_INGEST)
 async def ingest_batch_endpoint(
     request: Request,
-    files: list[UploadFile] = File(...),
-    skip_enrichment: bool = Form(False),
+    files: list[UploadFile] = File(..., description="One or more document files to ingest"),
+    skip_enrichment: bool = Form(False, description="Skip LLM enrichment for all files"),
 ):
-    """
-    Ingest multiple files in a single request.
+    """Ingest multiple files in a single request.
 
-    Accepts multipart file uploads. Each file is ingested independently with
-    error isolation -- one failure doesn't abort the batch.
+    Each file is processed independently with error isolation — one failure
+    does not abort the batch. Returns per-file results with elapsed time.
     """
     from ingestible.pipeline.batch import BatchReport, _ingest_one
 
@@ -602,15 +651,15 @@ async def ingest_batch_endpoint(
     )
 
 
-@app.get("/documents", response_model=list[DocumentSummary])
+@app.get("/documents", response_model=list[DocumentSummary], tags=["Documents"])
 @limiter.limit(_RATE_DEFAULT)
 async def list_docs(
     request: Request,
-    offset: int = Query(default=0, ge=0),
-    limit: int = Query(default=100, ge=1, le=1000),
-    tags: str = Query(default="", description="Comma-separated tags to filter by"),
+    offset: int = Query(default=0, ge=0, description="Pagination offset (0-based)"),
+    limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of documents to return (1-1000)"),
+    tags: str = Query(default="", description="Comma-separated metadata tags to filter by"),
 ):
-    """List all ingested documents, optionally filtered by tags."""
+    """List all ingested documents with pagination and optional tag filtering."""
     settings = get_cached_settings()
     filter_tags = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
     docs = list_documents(settings, tags=filter_tags)
@@ -626,10 +675,10 @@ async def list_docs(
     ]
 
 
-@app.get("/documents/{doc_id}", response_model=DocumentOverview)
+@app.get("/documents/{doc_id}", response_model=DocumentOverview, tags=["Documents"])
 @limiter.limit(_RATE_DEFAULT)
 async def get_document(doc_id: str, request: Request):
-    """Get document overview including L0 content and structure."""
+    """Get document overview including L0 content, chapter list, and token count."""
     doc_id = _validate_doc_id(doc_id)
     settings = get_cached_settings()
     doc_dir = settings.documents_dir / doc_id
@@ -661,15 +710,20 @@ async def get_document(doc_id: str, request: Request):
 
 
 class UpdateMetaRequest(BaseModel):
-    weight: float | None = None
-    pinned: bool | None = None
-    tags: list[str] | None = None
+    """Mutable metadata fields that can be updated without re-ingestion."""
+
+    weight: float | None = Field(default=None, description="Corpus search weight boost (0.0 = neutral). Higher values rank this document higher in cross-document search.")
+    pinned: bool | None = Field(default=None, description="Pin document so it always appears in corpus search results")
+    tags: list[str] | None = Field(default=None, description="Replace metadata tags (pass empty list to clear)")
 
 
-@app.patch("/documents/{doc_id}/meta")
+@app.patch("/documents/{doc_id}/meta", tags=["Documents"])
 @limiter.limit(_RATE_DEFAULT)
 async def patch_document_meta(doc_id: str, body: UpdateMetaRequest, request: Request):
-    """Update mutable metadata (weight, pinned, tags) without re-ingesting."""
+    """Update mutable document metadata without re-ingesting.
+
+    Only the fields you include in the request body are updated; omitted fields are left unchanged.
+    """
     doc_id = _validate_doc_id(doc_id)
     settings = get_cached_settings()
     doc_dir = settings.documents_dir / doc_id
@@ -687,13 +741,13 @@ async def patch_document_meta(doc_id: str, body: UpdateMetaRequest, request: Req
 
 
 class DeleteResponse(BaseModel):
-    deleted: str
+    deleted: str = Field(description="ID of the deleted document")
 
 
-@app.delete("/documents/{doc_id}", response_model=DeleteResponse)
+@app.delete("/documents/{doc_id}", response_model=DeleteResponse, tags=["Documents"])
 @limiter.limit(_RATE_DEFAULT)
 async def delete_document(doc_id: str, request: Request):
-    """Delete an ingested document and all its indexes."""
+    """Delete a document and all its indexes, chunks, and embeddings. This is irreversible."""
     doc_id = _validate_doc_id(doc_id)
     settings = get_cached_settings()
     doc_dir = settings.documents_dir / doc_id
@@ -715,13 +769,13 @@ async def delete_document(doc_id: str, request: Request):
     return DeleteResponse(deleted=doc_id)
 
 
-@app.get("/documents/{doc_id}/economics", response_model=TokenEconomics)
+@app.get("/documents/{doc_id}/economics", response_model=TokenEconomics, tags=["Documents"])
 @limiter.limit(_RATE_DEFAULT)
 async def get_token_economics(doc_id: str, request: Request):
-    """
-    Get token economics for a document.
+    """Get token economics for a document.
 
-    Shows how many tokens the full document would cost vs. hierarchical retrieval.
+    Compares the cost of placing the full document in an LLM context window vs.
+    using hierarchical retrieval (L0 overview + top-k passages).
     """
     doc_id = _validate_doc_id(doc_id)
     settings = get_cached_settings()
@@ -757,13 +811,14 @@ async def get_token_economics(doc_id: str, request: Request):
     )
 
 
-@app.post("/documents/{doc_id}/search", response_model=SearchResponse)
+@app.post("/documents/{doc_id}/search", response_model=SearchResponse, tags=["Search"])
 @limiter.limit(_RATE_SEARCH)
 async def search_document(doc_id: str, body: SearchRequest, request: Request):
-    """
-    Hybrid search within a document.
+    """Hybrid search within a single document.
 
-    Uses vector search (70%), BM25 (30%), and concept index with RRF fusion.
+    Fuses vector search (ChromaDB, weight 0.7), BM25 (weight 0.3), and concept index
+    using Reciprocal Rank Fusion. Optionally enable HyDE query expansion, auto-merge,
+    or knowledge graph boosting via request body flags.
     """
     doc_id = _validate_doc_id(doc_id)
     settings = get_cached_settings()
@@ -815,10 +870,10 @@ async def search_document(doc_id: str, body: SearchRequest, request: Request):
     return response
 
 
-@app.get("/documents/{doc_id}/chunks", response_model=ChunkSet)
+@app.get("/documents/{doc_id}/chunks", response_model=ChunkSet, tags=["Documents"])
 @limiter.limit(_RATE_DEFAULT)
 async def get_chunks(doc_id: str, request: Request):
-    """Get the full ChunkSet for a document."""
+    """Get the full ChunkSet (L0 through L3) for a document, including all enrichment data."""
     doc_id = _validate_doc_id(doc_id)
     settings = get_cached_settings()
     doc_dir = settings.documents_dir / doc_id
@@ -829,10 +884,10 @@ async def get_chunks(doc_id: str, request: Request):
     return load_chunks(doc_dir)
 
 
-@app.get("/documents/{doc_id}/citations")
+@app.get("/documents/{doc_id}/citations", tags=["Documents"])
 @limiter.limit(_RATE_DEFAULT)
 async def get_citations(doc_id: str, request: Request):
-    """Get extracted citations for a document."""
+    """Get bibliographic citations extracted during parsing."""
     doc_id = _validate_doc_id(doc_id)
     settings = get_cached_settings()
     doc_dir = settings.documents_dir / doc_id
@@ -844,10 +899,14 @@ async def get_citations(doc_id: str, request: Request):
     return {"doc_id": doc_id, "citations": [c.model_dump() for c in chunks.citations]}
 
 
-@app.get("/documents/{doc_id}/knowledge-graph")
+@app.get("/documents/{doc_id}/knowledge-graph", tags=["Documents"])
 @limiter.limit(_RATE_DEFAULT)
 async def get_knowledge_graph(doc_id: str, request: Request):
-    """Get extracted knowledge graph triples for a document."""
+    """Get knowledge graph triples and entities extracted during enrichment.
+
+    Requires KG extraction to have been enabled during ingestion. Entities are
+    sorted by occurrence count (most frequent first).
+    """
     doc_id = _validate_doc_id(doc_id)
     settings = get_cached_settings()
     doc_dir = settings.documents_dir / doc_id
@@ -875,10 +934,10 @@ async def get_knowledge_graph(doc_id: str, request: Request):
     }
 
 
-@app.get("/documents/{doc_id}/structure", response_model=DocumentStructure)
+@app.get("/documents/{doc_id}/structure", response_model=DocumentStructure, tags=["Documents"])
 @limiter.limit(_RATE_DEFAULT)
 async def get_structure(doc_id: str, request: Request):
-    """Get the document structure tree."""
+    """Get the hierarchical document structure tree (headings, sections, page ranges)."""
     doc_id = _validate_doc_id(doc_id)
     settings = get_cached_settings()
     doc_dir = settings.documents_dir / doc_id
@@ -895,21 +954,25 @@ async def get_structure(doc_id: str, request: Request):
 
 
 class CorpusSearchRequest(BaseModel):
-    query: str
-    n_results: int = Field(default=10, ge=1, le=50)
-    doc_ids: list[str] | None = None
-    tags: list[str] | None = None
-    hyde: bool = Field(default=False, description="Use HyDE query expansion")
-    auto_merge: bool = Field(default=False, description="Auto-merge L3 results into parent L2/L1")
-    kg_boost: bool = Field(
-        default=False, description="Boost results using knowledge graph relationships"
-    )
+    """Cross-document search query with optional filters and enhancement flags."""
+
+    query: str = Field(description="Natural language search query")
+    n_results: int = Field(default=10, ge=1, le=50, description="Number of results to return (1-50)")
+    doc_ids: list[str] | None = Field(default=None, description="Restrict search to these document IDs (null = all documents)")
+    tags: list[str] | None = Field(default=None, description="Only search documents with these metadata tags")
+    hyde: bool = Field(default=False, description="Use HyDE query expansion — generates a hypothetical answer passage via LLM for better vector matching")
+    auto_merge: bool = Field(default=False, description="Auto-merge L3 results into parent L2/L1 when 3+ passages from the same section match")
+    kg_boost: bool = Field(default=False, description="Boost results using knowledge graph entity relationships")
 
 
-@app.post("/search")
+@app.post("/search", tags=["Search"])
 @limiter.limit(_RATE_SEARCH)
 async def corpus_search(body: CorpusSearchRequest, request: Request):
-    """Search across all ingested documents with cross-document RRF fusion."""
+    """Search across all ingested documents.
+
+    Merges per-document hybrid search results using cross-document Reciprocal Rank
+    Fusion. Optionally filter by document IDs or metadata tags.
+    """
     from ingestible.search.corpus import CorpusSearcher
 
     settings = get_cached_settings()
@@ -961,10 +1024,14 @@ async def corpus_search(body: CorpusSearchRequest, request: Request):
 # ---------------------------------------------------------------------------
 
 
-@app.post("/documents/{doc_id}/enrich", response_model=IngestResponse)
+@app.post("/documents/{doc_id}/enrich", response_model=IngestResponse, tags=["Documents"])
 @limiter.limit(_RATE_INGEST)
 async def enrich_document(doc_id: str, request: Request):
-    """Re-enrich a document without re-parsing. Re-runs enrichment + embedding."""
+    """Re-enrich a document without re-parsing.
+
+    Re-runs LLM enrichment (stage 4) and embedding (stage 5) on existing chunks.
+    Useful after changing LLM provider or enrichment settings.
+    """
     doc_id = _validate_doc_id(doc_id)
     from ingestible.pipeline.re_enrich import re_enrich
 
@@ -1006,10 +1073,13 @@ async def enrich_document(doc_id: str, request: Request):
 # ---------------------------------------------------------------------------
 
 
-@app.post("/documents/{doc_id}/eval")
+@app.post("/documents/{doc_id}/eval", tags=["Evaluation"])
 @limiter.limit(_RATE_DEFAULT)
-async def eval_document(doc_id: str, request: Request, k: int = Query(default=5, ge=1, le=50)):
-    """Evaluate retrieval quality using synthetic queries from enrichment."""
+async def eval_document(doc_id: str, request: Request, k: int = Query(default=5, ge=1, le=50, description="Number of results to retrieve per query (1-50)")):
+    """Evaluate retrieval quality using synthetic queries generated during enrichment.
+
+    Returns hit rate, MRR, precision@k, and recall@k metrics.
+    """
     doc_id = _validate_doc_id(doc_id)
     settings = get_cached_settings()
     doc_dir = settings.documents_dir / doc_id
@@ -1023,15 +1093,16 @@ async def eval_document(doc_id: str, request: Request, k: int = Query(default=5,
     return report.to_dict()
 
 
-@app.post("/documents/{doc_id}/eval/judge")
+@app.post("/documents/{doc_id}/eval/judge", tags=["Evaluation"])
 @limiter.limit(_RATE_DEFAULT)
 async def eval_document_judge(
-    doc_id: str, request: Request, k: int = Query(default=5, ge=1, le=50)
+    doc_id: str, request: Request, k: int = Query(default=5, ge=1, le=50, description="Number of results to retrieve per query (1-50)")
 ):
     """Evaluate retrieval quality using LLM-as-judge scoring.
 
-    Returns faithfulness, relevance, and completeness scores (0-1 scale)
-    assessed by the configured LLM provider.
+    An LLM assesses each query-result pair on faithfulness, relevance, and
+    completeness (0-1 scale). More accurate than metric-based eval but slower
+    and requires LLM API credits.
     """
     doc_id = _validate_doc_id(doc_id)
     settings = get_cached_settings()
@@ -1053,16 +1124,20 @@ async def eval_document_judge(
 # ---------------------------------------------------------------------------
 
 
-@app.get("/documents/{doc_id}/export")
+@app.get("/documents/{doc_id}/export", tags=["Documents"])
 @limiter.limit(_RATE_DEFAULT)
 async def export_document_endpoint(
     doc_id: str,
     request: Request,
     format: str = Query(
-        ..., description="Export format: jsonl, parquet, llamaindex, langchain, complete"
+        ..., description="Export format: 'jsonl', 'parquet', 'llamaindex', 'langchain', or 'complete'"
     ),
 ):
-    """Export a document to a portable format. Returns the file as a download."""
+    """Export a document's chunks to a portable format.
+
+    Returns a file download. Formats: JSONL (one chunk per line), Parquet (columnar),
+    LlamaIndex (nodes JSON), LangChain (documents JSON), or complete (full ChunkSet JSON).
+    """
     doc_id = _validate_doc_id(doc_id)
     from starlette.responses import FileResponse
 
@@ -1125,10 +1200,14 @@ async def export_document_endpoint(
 # ---------------------------------------------------------------------------
 
 
-@app.get("/documents/{doc_id}/versions")
+@app.get("/documents/{doc_id}/versions", tags=["Documents"])
 @limiter.limit(_RATE_DEFAULT)
 async def get_versions(doc_id: str, request: Request):
-    """List all archived versions of a document."""
+    """List all archived versions of a document.
+
+    When a document is re-ingested, the previous version is archived.
+    Returns version timestamps and metadata.
+    """
     doc_id = _validate_doc_id(doc_id)
     from ingestible.pipeline.stage6_storage import list_versions
 
@@ -1147,14 +1226,19 @@ async def get_versions(doc_id: str, request: Request):
 # ---------------------------------------------------------------------------
 
 
-@app.post("/ingest/stream")
+@app.post("/ingest/stream", tags=["Ingestion"])
 @limiter.limit(_RATE_INGEST)
 async def ingest_stream(
     request: Request,
-    file: UploadFile = File(...),
-    skip_enrichment: bool = Form(False),
+    file: UploadFile = File(..., description="Document file to ingest"),
+    skip_enrichment: bool = Form(False, description="Skip LLM enrichment"),
 ):
-    """Ingest a document with Server-Sent Events progress streaming."""
+    """Ingest a document with real-time Server-Sent Events progress streaming.
+
+    Returns `text/event-stream` with JSON progress events for each pipeline stage.
+    The final event contains `{"status": "complete", "doc_id": "..."}` or
+    `{"status": "error", "error": "..."}`.
+    """
     from starlette.responses import StreamingResponse
 
     from ingestible.pipeline.progress import SSEProgress
@@ -1201,31 +1285,38 @@ async def ingest_stream(
 
 
 class JobResponse(BaseModel):
-    job_id: str
-    status: str
+    """Acknowledgement returned when a background job is submitted."""
+
+    job_id: str = Field(description="Unique job identifier for polling status")
+    status: str = Field(description="Initial status (always 'pending')")
 
 
 class JobDetailResponse(BaseModel):
-    job_id: str
-    status: str
-    doc_id: str | None = None
-    error: str | None = None
-    created_at: float
-    started_at: float | None = None
-    finished_at: float | None = None
-    progress_stage: str = ""
-    progress_step: int = 0
-    progress_total: int = 0
+    """Full status of a background ingestion job."""
+
+    job_id: str = Field(description="Unique job identifier")
+    status: str = Field(description="Job status: pending, running, complete, or failed")
+    doc_id: str | None = Field(default=None, description="Document ID (set once ingestion completes)")
+    error: str | None = Field(default=None, description="Error message if status is 'failed'")
+    created_at: float = Field(description="Unix timestamp when job was submitted")
+    started_at: float | None = Field(default=None, description="Unix timestamp when processing began")
+    finished_at: float | None = Field(default=None, description="Unix timestamp when processing ended")
+    progress_stage: str = Field(default="", description="Current pipeline stage name")
+    progress_step: int = Field(default=0, description="Current step within the stage")
+    progress_total: int = Field(default=0, description="Total steps in the current stage")
 
 
-@app.post("/ingest/async", response_model=JobResponse, status_code=202)
+@app.post("/ingest/async", response_model=JobResponse, status_code=202, tags=["Ingestion"])
 @limiter.limit(_RATE_INGEST)
 async def ingest_async(
     request: Request,
-    file: UploadFile = File(...),
-    skip_enrichment: bool = Form(False),
+    file: UploadFile = File(..., description="Document file to ingest"),
+    skip_enrichment: bool = Form(False, description="Skip LLM enrichment"),
 ):
-    """Submit a document for background ingestion. Returns a job ID immediately."""
+    """Submit a document for background ingestion.
+
+    Returns immediately with a job ID. Poll `GET /jobs/{job_id}` for progress.
+    """
     settings = get_cached_settings()
 
     suffix = Path(file.filename or "upload.pdf").suffix
@@ -1251,10 +1342,10 @@ async def ingest_async(
     return JobResponse(job_id=job.job_id, status=job.status.value)
 
 
-@app.get("/jobs/{job_id}", response_model=JobDetailResponse)
+@app.get("/jobs/{job_id}", response_model=JobDetailResponse, tags=["Jobs"])
 @limiter.limit(_RATE_DEFAULT)
 async def get_job_status(job_id: str, request: Request):
-    """Get the status of a background ingestion job."""
+    """Get the status and progress of a background ingestion job."""
     queue = get_task_queue()
     job = queue.get_job(job_id)
     if job is None:
@@ -1263,10 +1354,10 @@ async def get_job_status(job_id: str, request: Request):
     return JobDetailResponse(**d)
 
 
-@app.get("/jobs", response_model=list[JobDetailResponse])
+@app.get("/jobs", response_model=list[JobDetailResponse], tags=["Jobs"])
 @limiter.limit(_RATE_DEFAULT)
 async def list_jobs(request: Request):
-    """List all ingestion jobs."""
+    """List all background ingestion jobs (pending, running, complete, and failed)."""
     queue = get_task_queue()
     return [JobDetailResponse(**j.to_dict()) for j in queue.list_jobs()]
 
@@ -1309,7 +1400,7 @@ def _verify_webhook_signature(body: bytes, signature: str, secret: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
-@app.post("/webhooks/cv")
+@app.post("/webhooks/cv", tags=["Webhooks"])
 @limiter.limit(_RATE_DEFAULT)
 async def cv_webhook(request: Request):
     """Receive entry.updated webhooks from CognitiveVault.
