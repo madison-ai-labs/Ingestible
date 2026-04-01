@@ -46,12 +46,16 @@ export async function GET(req: NextRequest) {
   // Count user's current usage
   const { data: keyStats } = await supabase()
     .from("api_keys")
-    .select("id, requests_count, documents_ingested")
+    .select("id, requests_count, documents_ingested, tokens_used, bytes_uploaded")
     .eq("user_id", user.id);
 
   const keys = keyStats || [];
   const totalRequestsToday = 0; // Would need api_key_usage table query for today
   const totalDocuments = keys.reduce((s: number, k: any) => s + (k.documents_ingested || 0), 0);
+  const totalTokens = keys.reduce((s: number, k: any) => s + (k.tokens_used || 0), 0);
+  const totalBytes = keys.reduce((s: number, k: any) => s + (k.bytes_uploaded || 0), 0);
+  // Rough estimate: $0.10/1M tokens (Gemini Flash pricing)
+  const estimatedCostUsd = parseFloat(((totalTokens / 1_000_000) * 0.10).toFixed(4));
 
   return NextResponse.json({
     profile,
@@ -70,6 +74,9 @@ export async function GET(req: NextRequest) {
       requests_today: totalRequestsToday,
       documents: totalDocuments,
       keys: keys.length,
+      total_tokens: totalTokens,
+      total_bytes: totalBytes,
+      estimated_cost_usd: estimatedCostUsd,
     },
   });
 }
@@ -92,15 +99,38 @@ export async function PATCH(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}));
 
-  const allowedFields = [
+  const booleanFields = [
     "notify_quota_warning",
     "notify_quota_exceeded",
     "notify_weekly_digest",
+    "enrichment_enabled",
+    "auto_merge_enabled",
+    "hyde_enabled",
+    "kg_retrieval_enabled",
+    "content_classification",
   ];
 
+  const stringFields = [
+    "llm_provider",
+    "llm_api_key",
+    "llm_model",
+    "llm_custom_endpoint",
+    "llm_custom_model",
+    "vector_backend",
+    "vector_connection_string",
+    "embedding_model",
+  ];
+
+  const allowedFields = [...booleanFields, ...stringFields];
+
   const updates: Record<string, unknown> = {};
-  for (const field of allowedFields) {
+  for (const field of booleanFields) {
     if (typeof body[field] === "boolean") {
+      updates[field] = body[field];
+    }
+  }
+  for (const field of stringFields) {
+    if (typeof body[field] === "string" || body[field] === null) {
       updates[field] = body[field];
     }
   }

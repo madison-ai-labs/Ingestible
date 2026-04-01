@@ -856,10 +856,6 @@ function UserDashboard({ user }: { user: User }) {
     loadKeys();
   }
 
-  async function signOut() {
-    await supabase.auth.signOut();
-  }
-
   const activeKeys = keys.filter((k) => !k.revoked);
   const revokedKeys = keys.filter((k) => k.revoked);
 
@@ -900,22 +896,16 @@ function UserDashboard({ user }: { user: User }) {
     { id: "overview", label: "Overview" },
     { id: "keys", label: "API Keys" },
     { id: "playground", label: "Playground" },
-    { id: "settings", label: "Settings" },
   ];
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-zinc-100">Dashboard</h1>
-          <p className="text-sm text-zinc-500 mt-1">
-            {user.email || user.user_metadata?.name || "User"}
-          </p>
-        </div>
-        <button onClick={signOut} className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors px-3 py-1.5 rounded-lg border border-zinc-800 hover:border-zinc-700">
-          Sign out
-        </button>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-zinc-100">Dashboard</h1>
+        <p className="text-sm text-zinc-500 mt-1">
+          {user.email || user.user_metadata?.name || "User"}
+        </p>
       </div>
 
       {/* Tab navigation */}
@@ -1203,22 +1193,6 @@ function UserDashboard({ user }: { user: User }) {
         </div>
       )}
 
-      {/* ── Settings Tab ── */}
-      {tab === "settings" && (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6">
-          <h2 className="text-lg font-semibold text-zinc-100 mb-2">Account Settings</h2>
-          <p className="text-sm text-zinc-400 mb-5">
-            Manage your profile, notification preferences, and billing details.
-          </p>
-          <a
-            href="/dashboard/settings"
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-amber-500 text-zinc-950 font-semibold text-sm hover:bg-amber-400 transition-colors"
-          >
-            Open Settings
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>
-          </a>
-        </div>
-      )}
     </div>
   );
 }
