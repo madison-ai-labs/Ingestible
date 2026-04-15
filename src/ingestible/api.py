@@ -275,9 +275,7 @@ def _check_upload_size(content: bytes, settings) -> None:
         )
 
 
-def _check_ingestion_quotas(
-    request: Request, content_length: int, skip_enrichment: bool
-) -> bool:
+def _check_ingestion_quotas(request: Request, content_length: int, skip_enrichment: bool) -> bool:
     """Enforce tier-based ingestion quotas from Supabase.
 
     Raises :class:`HTTPException` if the request violates a quota limit.
@@ -397,6 +395,20 @@ class DocumentOverview(BaseModel):
     l0_tokens: int = Field(description="Token count of the L0 overview")
     total_chunks: int = Field(description="Number of L3 (passage-level) chunks")
     chapters: list[str] = Field(default_factory=list, description="L1 chapter titles")
+    original_filename: str = Field(
+        default="", description="Original uploaded filename (empty for older documents)"
+    )
+    original_media_type: str = Field(
+        default="", description="MIME type of the original file (empty for older documents)"
+    )
+    has_pdf: bool = Field(
+        default=False,
+        description="True if the original PDF is retained and can be fetched via GET /documents/{doc_id}/pdf",
+    )
+    pdf_url: str | None = Field(
+        default=None,
+        description="Relative URL to fetch the original PDF, or null if not available",
+    )
 
 
 class TokenEconomics(BaseModel):
@@ -549,6 +561,16 @@ async def ingest_document(
         False, description="Pin document to always appear in corpus search results"
     ),
     tags: str = Form("", description="Comma-separated metadata tags for filtering"),
+    retain_original: bool = Form(
+        False,
+        description=(
+            "Retain the uploaded file on disk so it can be fetched back via "
+            "GET /documents/{doc_id}/pdf. Default false — the raw bytes are "
+            "discarded after parsing, which is the safer choice for sensitive "
+            "material. Enable for documents you intend to render in a viewer "
+            "(e.g. learning material, published standards)."
+        ),
+    ),
 ):
     """Ingest a document into the knowledge store.
 
@@ -586,6 +608,8 @@ async def ingest_document(
             weight=weight,
             pinned=pinned,
             tags=parsed_tags,
+            original_filename=file.filename,
+            retain_original=retain_original,
         )
 
         meta = load_document_meta(doc_dir)
@@ -840,6 +864,13 @@ async def get_document(doc_id: str, request: Request):
 
     chapters = [c.title for c in chunks.l1_chunks]
 
+    original_media_type = meta.get("original_media_type", "")
+    has_pdf = bool(
+        meta.get("original_stored_name")
+        and original_media_type == "application/pdf"
+        and (doc_dir / meta["original_stored_name"]).exists()
+    )
+
     return DocumentOverview(
         doc_id=meta.get("doc_id", doc_id),
         title=meta.get("title", "Untitled"),
@@ -849,6 +880,188 @@ async def get_document(doc_id: str, request: Request):
         l0_tokens=l0_tokens,
         total_chunks=len(chunks.l3_chunks),
         chapters=chapters,
+        original_filename=meta.get("original_filename", ""),
+        original_media_type=original_media_type,
+        has_pdf=has_pdf,
+        pdf_url=f"/documents/{doc_id}/pdf" if has_pdf else None,
+    )
+
+
+_PDF_CHUNK_SIZE = 1024 * 1024  # 1 MiB per Range streaming chunk
+
+
+def _parse_range_header(header: str, file_size: int) -> tuple[int, int] | None:
+    """Parse a single-range 'bytes=start-end' header. Returns (start, end_inclusive) or None."""
+    if not header or not header.lower().startswith("bytes="):
+        return None
+    spec = header.split("=", 1)[1].strip()
+    # Reject multi-range requests — PDF.js only uses single ranges.
+    if "," in spec:
+        return None
+    start_s, _, end_s = spec.partition("-")
+    try:
+        if start_s == "":
+            # Suffix range: "-N" = last N bytes
+            length = int(end_s)
+            if length <= 0:
+                return None
+            start = max(0, file_size - length)
+            end = file_size - 1
+        else:
+            start = int(start_s)
+            end = int(end_s) if end_s else file_size - 1
+    except ValueError:
+        return None
+    if start < 0 or end < start or start >= file_size:
+        return None
+    end = min(end, file_size - 1)
+    return start, end
+
+
+def _check_doc_access(meta: dict, request: Request, settings) -> None:
+    """Enforce access-tag intersection between caller and document.
+
+    Mirrors the search endpoint's model: when ``access_control_enabled`` is on
+    and the document has ``access_tags``, the caller must present at least one
+    matching tag via the ``X-Access-Tags`` header. Documents with no tags are
+    open to any authenticated caller.
+    """
+    if not settings.access_control_enabled:
+        return
+    doc_tags = set(meta.get("access_tags", []) or [])
+    if not doc_tags:
+        return
+    header = request.headers.get("X-Access-Tags", "")
+    user_tags = {t.strip() for t in header.split(",") if t.strip()}
+    if not (doc_tags & user_tags):
+        raise HTTPException(status_code=403, detail="Access denied for this document")
+
+
+@app.get("/documents/{doc_id}/pdf", tags=["Documents"])
+@limiter.limit(_RATE_DEFAULT)
+async def get_document_pdf(doc_id: str, request: Request):
+    """Serve the original PDF bytes with HTTP Range support for streaming.
+
+    Returns 200 with the full bytes, or 206 with a byte range when the client
+    sends a ``Range: bytes=start-end`` header (required by PDF.js to stream
+    large documents progressively). Returns 415 when the ingested original
+    was not a PDF, 404 when the document has no retained original (either
+    ingested before retention was added or ingested with ``retain_original=false``),
+    and 403 when access-tag gating rejects the caller.
+
+    Response sets ``Cache-Control: no-store`` by default: PDFs may carry
+    sensitive client data and should not be written to any cache (browser,
+    proxy, or CDN).
+    """
+    from starlette.responses import FileResponse, Response, StreamingResponse
+
+    doc_id = _validate_doc_id(doc_id)
+    settings = get_cached_settings()
+    doc_dir = settings.documents_dir / doc_id
+
+    if not doc_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
+
+    meta = load_document_meta(doc_dir)
+    _check_doc_access(meta, request, settings)
+
+    stored_name = meta.get("original_stored_name")
+    media_type = meta.get("original_media_type", "")
+    display_name = meta.get("original_filename") or stored_name or f"{doc_id}.pdf"
+
+    if not stored_name:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Original file not retained for this document. Re-ingest with "
+                "retain_original=true to enable PDF serving."
+            ),
+        )
+
+    if media_type != "application/pdf":
+        raise HTTPException(
+            status_code=415,
+            detail=(
+                f"Document is not a PDF (original type: {media_type or 'unknown'}). "
+                f"Use /documents/{doc_id}/chunks for content."
+            ),
+        )
+
+    file_path = doc_dir / stored_name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Stored PDF file missing on disk")
+
+    file_size = file_path.stat().st_size
+    common_headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f'inline; filename="{display_name}"',
+        "Cache-Control": "no-store",
+    }
+
+    range_header = request.headers.get("range") or request.headers.get("Range")
+    parsed = _parse_range_header(range_header, file_size) if range_header else None
+
+    if range_header and parsed is None:
+        return Response(
+            status_code=416,
+            headers={**common_headers, "Content-Range": f"bytes */{file_size}"},
+        )
+
+    # Audit the access (partial or full) before streaming.
+    if settings.audit_enabled:
+        from ingestible.audit import log_access
+
+        if parsed is not None:
+            start, end = parsed
+            log_access(
+                settings.data_dir / "audit.jsonl",
+                doc_id=doc_id,
+                resource="pdf",
+                user=_get_user(request),
+                bytes_served=end - start + 1,
+                range_start=start,
+                range_end=end,
+            )
+        else:
+            log_access(
+                settings.data_dir / "audit.jsonl",
+                doc_id=doc_id,
+                resource="pdf",
+                user=_get_user(request),
+                bytes_served=file_size,
+            )
+
+    if parsed is not None:
+        start, end = parsed
+        length = end - start + 1
+
+        def _iter_range():
+            with open(file_path, "rb") as f:
+                f.seek(start)
+                remaining = length
+                while remaining > 0:
+                    data = f.read(min(_PDF_CHUNK_SIZE, remaining))
+                    if not data:
+                        break
+                    remaining -= len(data)
+                    yield data
+
+        headers = {
+            **common_headers,
+            "Content-Range": f"bytes {start}-{end}/{file_size}",
+            "Content-Length": str(length),
+        }
+        return StreamingResponse(
+            _iter_range(),
+            status_code=206,
+            media_type="application/pdf",
+            headers=headers,
+        )
+
+    return FileResponse(
+        path=file_path,
+        media_type="application/pdf",
+        headers=common_headers,
     )
 
 

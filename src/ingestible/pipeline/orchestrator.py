@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import time
 from pathlib import Path
 
 from ingestible.config import Settings
@@ -179,11 +180,26 @@ def ingest(
     weight: float = 0.0,
     pinned: bool = False,
     tags: list[str] | None = None,
+    original_filename: str | None = None,
+    retain_original: bool = False,
 ) -> Path:
     """Run the full ingestion pipeline on a document. Returns the document directory.
 
     ``file_path`` may be a local path, an HTTP(S) URL, or a cloud URL (s3://, gs://, az://).
+    ``original_filename`` carries the human-facing filename when ``file_path`` is a
+    temporary upload path (the extension there is preserved but the basename is random).
     """
+    # --- Cost tracking ---
+    try:
+        from ingestible.models.costs import get_cost_tracker, reset_cost_tracker
+
+        reset_cost_tracker()
+        _cost_start_time = time.monotonic()
+        _cost_tracker = get_cost_tracker()
+    except Exception:
+        _cost_start_time = None
+        _cost_tracker = None
+
     # --- Cloud / URL fetch ---
     _fetched_tmp: Path | None = None
     str_path = str(file_path)
@@ -202,6 +218,13 @@ def ingest(
         file_path = _fetched_tmp
 
     file_path = Path(file_path).resolve()
+
+    # Record input file size for cost tracking
+    try:
+        if _cost_tracker is not None:
+            _cost_tracker.input_file_bytes = file_path.stat().st_size if file_path.is_file() else 0
+    except Exception:
+        pass
 
     if verbose:
         logging.getLogger("ingestible").setLevel(logging.INFO)
@@ -455,11 +478,31 @@ def ingest(
                 weight=weight,
                 pinned=pinned,
                 tags=tags,
+                source_path=file_path,
+                original_filename=original_filename,
+                retain_original=retain_original,
             )
 
             # Clean up checkpoints on success
             if use_checkpoint:
                 clear_checkpoints(doc_dir)
+
+        # Finalize cost tracking
+        try:
+            if _cost_tracker is not None and _cost_start_time is not None:
+                from ingestible.models.costs import get_cost_tracker
+
+                tracker = get_cost_tracker()
+                tracker.duration_seconds = time.monotonic() - _cost_start_time
+                tracker.total_chunks = (
+                    len(chunks.l3_chunks) + len(chunks.l2_chunks) + len(chunks.l1_chunks) + 1
+                )
+                tracker.enrichment_llm.provider = (
+                    tracker.enrichment_llm.provider or settings.llm_provider
+                )
+                tracker.estimate_cost()
+        except Exception:
+            pass
 
         INGEST_TOTAL.labels(status="success").inc()
         logger.info("=== Done. Document stored at %s ===", doc_dir)

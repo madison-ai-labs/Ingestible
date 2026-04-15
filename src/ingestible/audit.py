@@ -97,6 +97,36 @@ def log_delete(
     )
 
 
+def log_access(
+    audit_path: Path,
+    *,
+    doc_id: str,
+    resource: str,
+    user: str = "",
+    bytes_served: int = 0,
+    range_start: int | None = None,
+    range_end: int | None = None,
+) -> None:
+    """Log a retrieval of the original document bytes (e.g. PDF serving).
+
+    ``resource`` identifies which artifact was fetched (e.g. "pdf"). Range
+    fields are populated for partial (HTTP 206) responses.
+    """
+    _write_event(
+        audit_path,
+        {
+            "timestamp": time.time(),
+            "event": "access",
+            "user": user,
+            "doc_id": doc_id,
+            "resource": resource,
+            "bytes_served": bytes_served,
+            "range_start": range_start,
+            "range_end": range_end,
+        },
+    )
+
+
 def log_export(
     audit_path: Path,
     *,

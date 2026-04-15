@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import logging
+import mimetypes
+import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,10 +40,37 @@ def save_document(
     weight: float = 0.0,
     pinned: bool = False,
     tags: list[str] | None = None,
+    source_path: Path | None = None,
+    original_filename: str | None = None,
+    retain_original: bool = False,
 ) -> Path:
-    """Persist a processed document to disk as a JSON file hierarchy."""
+    """Persist a processed document to disk as a JSON file hierarchy.
+
+    When ``retain_original`` is true and ``source_path`` is provided, the
+    original file is copied to ``{doc_dir}/original{ext}`` so it can be served
+    back (e.g. for in-browser PDF rendering) via ``GET /documents/{doc_id}/pdf``.
+    When ``retain_original`` is false (the default) the bytes are never
+    persisted — search and chunks remain available, but ``/pdf`` returns 404.
+    """
     doc_dir = settings.documents_dir / chunks.doc_id
     doc_dir.mkdir(parents=True, exist_ok=True)
+
+    # Preserve original file + derive filename / media type.
+    original_stored_name = ""
+    original_media_type = ""
+    if retain_original and source_path is not None and source_path.exists():
+        # Use the original (human-provided) filename for extension + display,
+        # falling back to the path's own name when ingestion came straight from disk.
+        display_name = original_filename or source_path.name
+        ext = Path(display_name).suffix.lower()
+        stored = doc_dir / f"original{ext}"
+        try:
+            shutil.copyfile(source_path, stored)
+            original_stored_name = stored.name
+            guessed, _ = mimetypes.guess_type(display_name)
+            original_media_type = guessed or "application/octet-stream"
+        except OSError as e:
+            logger.warning("Failed to persist original file for %s: %s", chunks.doc_id, e)
 
     # meta.json
     meta = {
@@ -63,8 +92,22 @@ def save_document(
         "weight": weight,
         "pinned": pinned,
         "tags": tags or [],
+        "original_filename": original_filename or (source_path.name if source_path else ""),
+        "original_media_type": original_media_type,
+        "original_stored_name": original_stored_name,
+        "retain_original": retain_original,
         "l0": chunks.l0.model_dump(),
     }
+
+    # Attach cost tracking data if available
+    try:
+        from ingestible.models.costs import get_cost_tracker
+
+        cost_tracker = get_cost_tracker()
+        meta["cost_tracking"] = cost_tracker.to_dict()
+    except Exception:
+        pass
+
     _write_json(doc_dir / "meta.json", meta)
 
     # citations.json — structured citations from enrichment
@@ -124,6 +167,20 @@ def save_document(
         orphan_dir.mkdir(parents=True, exist_ok=True)
         for p in orphans:
             _write_json(orphan_dir / f"{p.chunk_id}.json", p.model_dump())
+
+    # Calculate output storage bytes and update cost tracking
+    try:
+        from ingestible.models.costs import get_cost_tracker
+
+        cost_tracker = get_cost_tracker()
+        total_bytes = sum(
+            os.path.getsize(os.path.join(dirpath, f))
+            for dirpath, _, filenames in os.walk(str(doc_dir))
+            for f in filenames
+        )
+        cost_tracker.output_storage_bytes = total_bytes
+    except Exception:
+        pass
 
     logger.info("Saved document to %s", doc_dir)
     return doc_dir

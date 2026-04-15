@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.2.0 (2026-04-15)
+
+### Added
+- **Original-file retention + PDF serving** — `POST /ingest` accepts `retain_original` (default `false`). When enabled, the uploaded file is kept under `{doc_dir}/original{ext}` and served back via `GET /documents/{doc_id}/pdf` with HTTP Range support for streaming PDF.js viewers. Responses set `Cache-Control: no-store`.
+- **Access-tag gating on `/pdf`** — parity with search: when `access_control_enabled` is on, `/pdf` requires an intersecting `X-Access-Tags` header against the document's `access_tags`. 403 on mismatch.
+- **`log_access` audit event** — every `/pdf` fetch (full or Range) is written to `audit.jsonl` with user, doc_id, bytes served, and byte range.
+- **`DocumentOverview` exposes retention state** — new fields `has_pdf`, `original_filename`, `original_media_type`, and `pdf_url` on `GET /documents/{doc_id}`.
+- **`docs/privacy.md`** — threat model, retention modes, caching rationale, and audit guarantees.
+
 ## v1.1.1 (2026-03-25)
 
 ### Changed
