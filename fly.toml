@@ -1,4 +1,4 @@
-# Ingestible — Document ingestion service for CognitiveVault
+# Ingestible — Document ingestion service
 # Fly.io deployment configuration
 #
 # Deploy: fly deploy
@@ -11,7 +11,7 @@ primary_region = "fra"
 [build]
   dockerfile = "Dockerfile"
   [build.args]
-    EXTRAS = "local,pgvector,gemini"
+    EXTRAS = "pgvector,gemini"
 
 [env]
   PORT = "8081"
@@ -20,10 +20,18 @@ primary_region = "fra"
   WEB_CONCURRENCY = "2"
   GUNICORN_PRELOAD = "false"
 
+  # Cloud embedding — no PyTorch needed, ~200MB RAM instead of ~3GB
+  INGEST_EMBEDDING_PROVIDER = "openai"
+  INGEST_EMBEDDING_MODEL = "text-embedding-3-small"
+
+  # Lean searcher cache for cloud deployment
+  INGEST_SEARCHER_CACHE_SIZE = "10"
+
 # Secrets (set via: fly secrets set KEY=VALUE)
 # Required:
-#   GEMINI_API_KEY        — for LLM enrichment + embeddings
-#   INGEST_API_KEYS       — comma-separated bearer tokens for auth
+#   INGEST_OPENAI_API_KEY     — for API-based embeddings
+#   INGEST_GEMINI_API_KEY     — for LLM enrichment (or use INGEST_ANTHROPIC_API_KEY)
+#   INGEST_API_KEYS           — comma-separated bearer tokens for auth
 
 [http_service]
   internal_port = 8081
@@ -46,7 +54,7 @@ primary_region = "fra"
 
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "2gb"
+  memory = "512mb"
 
 [mounts]
   source = "ingestible_data"

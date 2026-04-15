@@ -1,9 +1,9 @@
-"""Tests for Feature 2 — Contextual Chunking."""
+"""Tests for Feature 2 — Contextual Chunking (heuristic prefix generation)."""
 
 from __future__ import annotations
 
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -66,100 +66,65 @@ def _make_test_data():
 
 @pytest.mark.asyncio
 async def test_context_prefix_set_on_chunks():
-    """Context prefix is set on L3 chunks when LLM succeeds."""
+    """Context prefix is set on L3 chunks using hierarchy titles."""
     from ingestible.pipeline.stage3c_contextual import add_context_prefixes
 
     chunks, structure = _make_test_data()
-    settings = Settings(
-        data_dir="/tmp/test",
-        contextual_chunking=True,
-        openai_api_key="test-key",
-    )
+    settings = Settings(data_dir="/tmp/test")
 
-    from pydantic import BaseModel
-
-    class _Blurb(BaseModel):
-        sentence: str
-
-    mock_client = AsyncMock()
-    mock_client.generate_json.return_value = _Blurb(
-        sentence="This chunk discusses neural network fundamentals from the AI Textbook."
-    )
-
-    with patch(
-        "ingestible.pipeline.stage4_enrichment._make_client",
-        return_value=mock_client,
-    ):
-        result = await add_context_prefixes(chunks, structure, settings)
+    result = await add_context_prefixes(chunks, structure, settings)
 
     assert result.l3_chunks[0].context_prefix != ""
     assert result.l3_chunks[1].context_prefix != ""
-    assert "neural network" in result.l3_chunks[0].context_prefix.lower()
 
 
 @pytest.mark.asyncio
-async def test_prompt_includes_titles():
-    """The LLM prompt includes doc, chapter, and section titles."""
+async def test_prefix_includes_hierarchy_titles():
+    """The context prefix includes doc, chapter, and section titles."""
     from ingestible.pipeline.stage3c_contextual import add_context_prefixes
 
     chunks, structure = _make_test_data()
-    settings = Settings(
-        data_dir="/tmp/test",
-        contextual_chunking=True,
-        openai_api_key="test-key",
-    )
+    settings = Settings(data_dir="/tmp/test")
 
-    from pydantic import BaseModel
+    result = await add_context_prefixes(chunks, structure, settings)
 
-    class _Blurb(BaseModel):
-        sentence: str
-
-    captured_prompts = []
-
-    mock_client = AsyncMock()
-
-    async def capture_prompt(prompt, output_type):
-        captured_prompts.append(prompt)
-        return _Blurb(sentence="Context sentence.")
-
-    mock_client.generate_json.side_effect = capture_prompt
-
-    with patch(
-        "ingestible.pipeline.stage4_enrichment._make_client",
-        return_value=mock_client,
-    ):
-        await add_context_prefixes(chunks, structure, settings)
-
-    assert len(captured_prompts) >= 1
-    prompt = captured_prompts[0]
-    assert "AI Textbook" in prompt
-    assert "Neural Networks" in prompt
-    assert "Introduction to ML" in prompt
+    prefix = result.l3_chunks[0].context_prefix
+    assert "AI Textbook" in prefix
+    assert "Neural Networks" in prefix
+    assert "Introduction to ML" in prefix
 
 
 @pytest.mark.asyncio
-async def test_context_prefix_survives_llm_failure():
-    """If LLM fails for a chunk, context_prefix stays empty (no crash)."""
+async def test_prefix_uses_separator():
+    """The prefix joins hierarchy levels with ' > '."""
     from ingestible.pipeline.stage3c_contextual import add_context_prefixes
 
     chunks, structure = _make_test_data()
-    settings = Settings(
-        data_dir="/tmp/test",
-        contextual_chunking=True,
-        openai_api_key="test-key",
-    )
+    settings = Settings(data_dir="/tmp/test")
 
-    mock_client = AsyncMock()
-    mock_client.generate_json.side_effect = RuntimeError("API error")
+    result = await add_context_prefixes(chunks, structure, settings)
 
-    with patch(
-        "ingestible.pipeline.stage4_enrichment._make_client",
-        return_value=mock_client,
-    ):
-        result = await add_context_prefixes(chunks, structure, settings)
+    prefix = result.l3_chunks[0].context_prefix
+    assert prefix == "AI Textbook > Neural Networks > Introduction to ML"
 
-    assert result.l3_chunks[0].context_prefix == ""
-    assert result.l3_chunks[1].context_prefix == ""
+
+@pytest.mark.asyncio
+async def test_prefix_deduplicates_chapter_section():
+    """If section title equals chapter title, it's not repeated."""
+    from ingestible.pipeline.stage3c_contextual import add_context_prefixes
+
+    chunks, structure = _make_test_data()
+    # Make section title same as chapter title
+    for node in structure.root.walk():
+        if node.id == "sec1":
+            node.title = "Neural Networks"
+
+    settings = Settings(data_dir="/tmp/test")
+    result = await add_context_prefixes(chunks, structure, settings)
+
+    prefix = result.l3_chunks[0].context_prefix
+    assert prefix == "AI Textbook > Neural Networks"
+    assert prefix.count("Neural Networks") == 1
 
 
 def test_embedding_prepends_prefix():

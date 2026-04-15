@@ -51,17 +51,17 @@ class CostBreakdown:
         cost = 0.0
         llm = self.enrichment_llm
         if llm.provider == "gemini":
-            # Gemini 2.0 Flash: $0.10/1M input, $0.40/1M output
-            cost += (llm.input_tokens / 1_000_000) * 0.10
-            cost += (llm.output_tokens / 1_000_000) * 0.40
+            # Gemini 2.5 Flash: $0.30/1M input, $2.50/1M output
+            cost += (llm.input_tokens / 1_000_000) * 0.30
+            cost += (llm.output_tokens / 1_000_000) * 2.50
         elif llm.provider == "openai":
             # GPT-4o-mini: $0.15/1M input, $0.60/1M output
             cost += (llm.input_tokens / 1_000_000) * 0.15
             cost += (llm.output_tokens / 1_000_000) * 0.60
         elif llm.provider == "anthropic":
-            # Claude Haiku: $0.25/1M input, $1.25/1M output
-            cost += (llm.input_tokens / 1_000_000) * 0.25
-            cost += (llm.output_tokens / 1_000_000) * 1.25
+            # Claude Haiku 4.5: $1.00/1M input, $5.00/1M output
+            cost += (llm.input_tokens / 1_000_000) * 1.00
+            cost += (llm.output_tokens / 1_000_000) * 5.00
 
         emb = self.embedding_api
         if emb.provider == "openai":
@@ -107,14 +107,12 @@ def check_budget(max_tokens: int, max_cost_usd: float) -> None:
     total_tokens = t.enrichment_llm.input_tokens + t.enrichment_llm.output_tokens
     if total_tokens > max_tokens:
         raise TokenBudgetExceeded(
-            f"Token budget exceeded: {total_tokens:,} tokens used, "
-            f"limit is {max_tokens:,}"
+            f"Token budget exceeded: {total_tokens:,} tokens used, limit is {max_tokens:,}"
         )
     t.estimate_cost()
     if t.estimated_cost_usd > max_cost_usd:
         raise TokenBudgetExceeded(
-            f"Cost budget exceeded: ${t.estimated_cost_usd:.4f} spent, "
-            f"limit is ${max_cost_usd:.2f}"
+            f"Cost budget exceeded: ${t.estimated_cost_usd:.4f} spent, limit is ${max_cost_usd:.2f}"
         )
 
 

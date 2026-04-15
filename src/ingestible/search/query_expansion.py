@@ -33,6 +33,7 @@ def clear_hyde_cache() -> None:
     """Clear the HyDE expansion cache (useful for testing)."""
     _hyde_cache.clear()
 
+
 _HYDE_SYSTEM = (
     "You are a helpful assistant. Write a short passage (2-3 sentences) that would "
     "directly answer this question. Write only the passage, no preamble."

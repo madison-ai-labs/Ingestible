@@ -160,7 +160,5 @@ def get_task_queue(max_workers: int = 2, max_jobs_per_user: int = 1) -> TaskQueu
     if _queue is None:
         with _queue_lock:
             if _queue is None:
-                _queue = TaskQueue(
-                    max_workers=max_workers, max_jobs_per_user=max_jobs_per_user
-                )
+                _queue = TaskQueue(max_workers=max_workers, max_jobs_per_user=max_jobs_per_user)
     return _queue

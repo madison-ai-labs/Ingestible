@@ -132,7 +132,8 @@ class TestSelectiveEnrichmentL3:
 
         from unittest.mock import patch
 
-        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
+        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client), \
+             patch("ingestible.pipeline.stage4_enrichment._make_cheap_client", return_value=client):
             result = asyncio.run(enrich_chunks(chunks, _settings(), previous_chunks=previous))
 
         # All L3 chunks should have copied enrichment, no LLM calls for L3
@@ -155,7 +156,8 @@ class TestSelectiveEnrichmentL3:
 
         from unittest.mock import patch
 
-        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
+        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client), \
+             patch("ingestible.pipeline.stage4_enrichment._make_cheap_client", return_value=client):
             result = asyncio.run(enrich_chunks(chunks, _settings(), previous_chunks=previous))
 
         # Unchanged chunks got previous enrichment
@@ -173,7 +175,8 @@ class TestSelectiveEnrichmentL3:
 
         from unittest.mock import patch
 
-        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
+        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client), \
+             patch("ingestible.pipeline.stage4_enrichment._make_cheap_client", return_value=client):
             result = asyncio.run(enrich_chunks(chunks, _settings(), previous_chunks=None))
 
         for c in result.l3_chunks:
@@ -192,7 +195,8 @@ class TestSelectiveEnrichmentL3:
 
         from unittest.mock import patch
 
-        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
+        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client), \
+             patch("ingestible.pipeline.stage4_enrichment._make_cheap_client", return_value=client):
             result = asyncio.run(enrich_chunks(chunks, _settings(), previous_chunks=previous))
 
         # Should have called LLM since previous had no enrichment
@@ -211,7 +215,8 @@ class TestSelectiveEnrichmentUpperLevels:
 
         from unittest.mock import patch
 
-        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
+        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client), \
+             patch("ingestible.pipeline.stage4_enrichment._make_cheap_client", return_value=client):
             result = asyncio.run(enrich_chunks(chunks, _settings(), previous_chunks=previous))
 
         # L2
@@ -238,12 +243,12 @@ class TestSelectiveEnrichmentUpperLevels:
 
         from unittest.mock import patch
 
-        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
+        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client), \
+             patch("ingestible.pipeline.stage4_enrichment._make_cheap_client", return_value=client):
             asyncio.run(enrich_chunks(chunks, _settings(), previous_chunks=previous))
 
-        # L2/L1/L0 should have been re-enriched via LLM
-        # 1 L3 + 1 L2 + 1 L1 + 1 L0 = 4 calls
-        assert client.generate_json.call_count == 4
+        # L2 is heuristic (no LLM), so: 1 L3 + 1 L1 + 1 L0 = 3 calls
+        assert client.generate_json.call_count == 3
 
 
 class TestTargetedReEnrichment:

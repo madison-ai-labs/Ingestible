@@ -306,8 +306,10 @@ def _make_client(settings: Settings) -> LLMClient:
     if settings.llm_provider == "anthropic":
         if settings.anthropic_api_key:
             return AnthropicClient(
-                settings.anthropic_api_key, settings.anthropic_model,
-                timeout=timeout, **budget_kwargs,
+                settings.anthropic_api_key,
+                settings.anthropic_model,
+                timeout=timeout,
+                **budget_kwargs,
             )
         if settings.openai_api_key:
             logger.info("No INGEST_ANTHROPIC_API_KEY set, falling back to OpenAI")
@@ -333,6 +335,34 @@ def _make_client(settings: Settings) -> LLMClient:
     )
 
 
+def _make_cheap_client(settings: Settings) -> LLMClient:
+    """Return a cost-optimized client for bulk enrichment tasks (L3, KG, etc.).
+
+    When cost_routing_enabled is True and an OpenAI key is available, routes to
+    GPT-4o-mini ($0.15/$0.60 per 1M tokens) instead of the primary model.
+    Falls back to the primary client if routing is disabled or no OpenAI key.
+    """
+    if not settings.cost_routing_enabled:
+        return _make_client(settings)
+
+    api_key = settings.openai_api_key or settings.openai_embedding_api_key
+    if not api_key:
+        logger.debug("Cost routing enabled but no OpenAI key available, using primary model")
+        return _make_client(settings)
+
+    budget_kwargs = {
+        "max_tokens_budget": settings.max_llm_tokens_per_document,
+        "max_cost_budget": settings.max_llm_cost_per_document,
+    }
+    logger.info("Cost routing: using %s for bulk enrichment", settings.cost_routing_model)
+    return OpenAIClient(
+        api_key,
+        settings.cost_routing_model,
+        timeout=settings.llm_timeout,
+        **budget_kwargs,
+    )
+
+
 async def enrich_chunks(
     chunks: ChunkSet,
     settings: Settings,
@@ -345,7 +375,9 @@ async def enrich_chunks(
     copy enrichment fields from the previous version instead of calling the LLM.
     When ALL L3 chunks are unchanged, L2/L1/L0 enrichment is also skipped.
     """
-    client = _make_client(settings)
+    # Use cheap model for bulk tasks (L3, KG), primary model for high-value tasks (L0)
+    cheap_client = _make_cheap_client(settings)
+    primary_client = _make_client(settings)
     sem = asyncio.Semaphore(settings.llm_concurrency)
     max_retries = settings.llm_max_retries
     base_delay = settings.llm_retry_base_delay
@@ -405,7 +437,7 @@ async def enrich_chunks(
         l3_tasks = [
             _enrich_l3(
                 c,
-                client,
+                cheap_client,
                 sem,
                 prompt_suffix=prompt_suffix,
                 extract_citations=extract_citations,
@@ -420,11 +452,12 @@ async def enrich_chunks(
             idx, chunk = l3_to_enrich[j]
             if isinstance(result, TokenBudgetExceeded):
                 tracker = get_cost_tracker()
-                total_tok = tracker.enrichment_llm.input_tokens + tracker.enrichment_llm.output_tokens
+                total_tok = (
+                    tracker.enrichment_llm.input_tokens + tracker.enrichment_llm.output_tokens
+                )
                 tracker.estimate_cost()
                 logger.warning(
-                    "Token budget exceeded for document — stopping enrichment "
-                    "at %s tokens ($%.4f)",
+                    "Token budget exceeded for document — stopping enrichment at %s tokens ($%.4f)",
                     f"{total_tok:,}",
                     tracker.estimated_cost_usd,
                 )
@@ -454,40 +487,37 @@ async def enrich_chunks(
         logger.info("All L3 chunks unchanged — copying L2/L1/L0 enrichment from previous version")
         _copy_upper_enrichment(chunks, previous_chunks)
     else:
-        # --- L2 enrichment ---
-        logger.info("Enriching %d L2 chunks...", len(chunks.l2_chunks))
-        l2_tasks = [
-            _enrich_l2(c, chunks, client, sem, max_retries=max_retries, base_delay=base_delay)
-            for c in chunks.l2_chunks
-        ]
-        enriched_l2 = await asyncio.gather(*l2_tasks, return_exceptions=True)
+        # --- L2 enrichment (heuristic — aggregates L3 summaries, no LLM) ---
+        logger.info("Enriching %d L2 chunks (heuristic)...", len(chunks.l2_chunks))
+        for chunk in chunks.l2_chunks:
+            child_summaries = [
+                c.summary
+                for c in chunks.l3_chunks
+                if c.parent_section_id == chunk.chunk_id and c.summary
+                and not c.summary.startswith("[")
+            ]
+            child_concepts = []
+            for c in chunks.l3_chunks:
+                if c.parent_section_id == chunk.chunk_id:
+                    child_concepts.extend(c.concepts)
+            if child_summaries:
+                chunk.section_summary = " ".join(child_summaries[:3])
+            else:
+                chunk.section_summary = chunk.content[:500] if chunk.content else ""
+            chunk.key_points = child_summaries[:5]
+            # Deduplicate concepts, preserve order
+            seen_concepts: set[str] = set()
+            unique_concepts: list[str] = []
+            for concept in child_concepts:
+                if concept.lower() not in seen_concepts:
+                    seen_concepts.add(concept.lower())
+                    unique_concepts.append(concept)
+            chunk.concepts_introduced = unique_concepts[:10]
 
-        for i, result in enumerate(enriched_l2):
-            if isinstance(result, TokenBudgetExceeded):
-                budget_exceeded = True
-                chunks.l2_chunks[i].section_summary = "[enrichment stopped: budget exceeded]"
-                continue
-            if isinstance(result, Exception):
-                logger.warning(
-                    "L2 enrichment failed for %s: %s", chunks.l2_chunks[i].chunk_id, result
-                )
-                chunks.l2_chunks[i].section_summary = "[enrichment failed]"
-                continue
-            chunk = chunks.l2_chunks[i]
-            chunk.section_summary = result.section_summary
-            chunk.key_points = result.key_points
-            chunk.concepts_introduced = result.concepts_introduced
-
-        if budget_exceeded:
-            logger.warning(
-                "Token budget exceeded for document — stopping enrichment after L2"
-            )
-            return chunks
-
-        # --- L1 enrichment ---
+        # --- L1 enrichment (cheap model) ---
         logger.info("Enriching %d L1 chunks...", len(chunks.l1_chunks))
         l1_tasks = [
-            _enrich_l1(c, chunks, client, sem, max_retries=max_retries, base_delay=base_delay)
+            _enrich_l1(c, chunks, cheap_client, sem, max_retries=max_retries, base_delay=base_delay)
             for c in chunks.l1_chunks
         ]
         enriched_l1 = await asyncio.gather(*l1_tasks, return_exceptions=True)
@@ -511,19 +541,17 @@ async def enrich_chunks(
             chunk.key_takeaways = result.key_takeaways
 
         if budget_exceeded:
-            logger.warning(
-                "Token budget exceeded for document — stopping enrichment after L1"
-            )
+            logger.warning("Token budget exceeded for document — stopping enrichment after L1")
             return chunks
 
-        # --- L0 enrichment (now produces full digest) ---
+        # --- L0 enrichment (primary model — highest value output) ---
         logger.info("Enriching L0 (document digest)...")
         try:
             l0_suffix = profile.l0_prompt_suffix if profile else ""
             l0_result = await _enrich_l0(
                 chunks.l0,
                 chunks,
-                client,
+                primary_client,
                 sem,
                 prompt_suffix=l0_suffix,
                 max_retries=max_retries,
@@ -542,8 +570,7 @@ async def enrich_chunks(
             total_tok = tracker.enrichment_llm.input_tokens + tracker.enrichment_llm.output_tokens
             tracker.estimate_cost()
             logger.warning(
-                "Token budget exceeded for document — stopping enrichment "
-                "at %s tokens ($%.4f)",
+                "Token budget exceeded for document — stopping enrichment at %s tokens ($%.4f)",
                 f"{total_tok:,}",
                 tracker.estimated_cost_usd,
             )
@@ -563,7 +590,7 @@ async def enrich_chunks(
             logger.info("Extracting knowledge graph triples...")
             try:
                 kg_triples = await _extract_kg_triples(
-                    chunks, client, sem, max_retries=max_retries, base_delay=base_delay
+                    chunks, cheap_client, sem, max_retries=max_retries, base_delay=base_delay
                 )
                 chunks.knowledge_graph = kg_triples
             except TokenBudgetExceeded:
@@ -585,7 +612,7 @@ async def enrich_chunks(
             logger.info("Extracting citations...")
             try:
                 citations = await _extract_citations(
-                    chunks, client, sem, max_retries=max_retries, base_delay=base_delay
+                    chunks, cheap_client, sem, max_retries=max_retries, base_delay=base_delay
                 )
                 chunks.citations = citations
             except TokenBudgetExceeded:

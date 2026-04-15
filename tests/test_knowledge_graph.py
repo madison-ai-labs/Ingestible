@@ -165,7 +165,8 @@ class TestKGExtraction:
         client = _mock_client_with_kg()
         profile = _kg_profile()
 
-        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
+        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client), \
+             patch("ingestible.pipeline.stage4_enrichment._make_cheap_client", return_value=client):
             result = asyncio.run(enrich_chunks(chunks, _settings(), profile=profile))
 
         # Per-chunk triples stored
@@ -184,7 +185,8 @@ class TestKGExtraction:
         client = _mock_client_with_kg()
         profile = _kg_profile()
 
-        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
+        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client), \
+             patch("ingestible.pipeline.stage4_enrichment._make_cheap_client", return_value=client):
             result = asyncio.run(enrich_chunks(chunks, _settings(), profile=profile))
 
         # Find the "Transformer uses Attention" triple
@@ -208,7 +210,8 @@ class TestKGExtraction:
             extract_knowledge_graph=False,
         )
 
-        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
+        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client), \
+             patch("ingestible.pipeline.stage4_enrichment._make_cheap_client", return_value=client):
             result = asyncio.run(enrich_chunks(chunks, settings, profile=profile))
 
         assert result.knowledge_graph == []
@@ -227,7 +230,8 @@ class TestKGExtraction:
             extract_knowledge_graph=True,
         )
 
-        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
+        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client), \
+             patch("ingestible.pipeline.stage4_enrichment._make_cheap_client", return_value=client):
             result = asyncio.run(enrich_chunks(chunks, settings, profile=profile))
 
         assert len(result.knowledge_graph) >= 1
@@ -265,7 +269,8 @@ class TestKGSelectiveReEnrichment:
         client = _mock_client_with_kg()
         profile = _kg_profile()
 
-        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client):
+        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client), \
+             patch("ingestible.pipeline.stage4_enrichment._make_cheap_client", return_value=client):
             result = asyncio.run(
                 enrich_chunks(
                     chunks,

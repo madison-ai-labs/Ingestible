@@ -8,6 +8,20 @@
 - **`log_access` audit event** — every `/pdf` fetch (full or Range) is written to `audit.jsonl` with user, doc_id, bytes served, and byte range.
 - **`DocumentOverview` exposes retention state** — new fields `has_pdf`, `original_filename`, `original_media_type`, and `pdf_url` on `GET /documents/{doc_id}`.
 - **`docs/privacy.md`** — threat model, retention modes, caching rationale, and audit guarantees.
+- **Cost routing for bulk enrichment** — `INGEST_COST_ROUTING_ENABLED=true` (default) routes L3 enrichment, KG extraction, context prefixes, and HyDE to `INGEST_COST_ROUTING_MODEL` (default `gpt-4o-mini`). L0 document digest still uses the primary model for quality. Requires an OpenAI key; falls back to the primary model otherwise.
+- **Cloud-first Docker image** — default `EXTRAS=pgvector,gemini` (~200MB RAM, API-based embeddings). The PyTorch + local-embedding build is still available as the `-full` image variant. CI release workflow updated accordingly.
+- **Admin cost + storage metrics** — `/api/admin/metrics` reports estimated monthly cost and total uploaded bytes; `/api/admin/users` adds `cost_usd` per user.
+- **Pricing page** on the website (`/pricing`) — Free, Pay-as-you-go, and Pro tiers.
+- **Supabase migration** `20260328_update_usage_rpc.sql` — usage-stats RPC update.
+- **Design doc** `docs/design-content-awareness-and-truth.md` — scoped proposal for content-tier classification (VBC), surprise scoring, version-aware search, and entity resolution. All opt-in, off by default.
+
+### Changed
+- **Default embedding provider switched from `local` to `openai`** (`text-embedding-3-small`). Local sentence-transformers still available via the `[local]` extra — recommended for self-hosted deployments with ≥3 GB RAM. Reduces default container footprint from ~3 GB to ~200 MB.
+- **Default Gemini model: `gemini-2.0-flash` → `gemini-2.5-flash`**. Gemini 2.0 Flash shuts down 2026-06-01.
+- **Contextual chunking (Stage 3c) rewritten as heuristic** — the context prefix is now built from document/chapter/section titles instead of per-chunk LLM calls. Near-identical retrieval quality, zero LLM cost for this stage. Removes the `llm_concurrency` / retry path from Stage 3c.
+- **`searcher_cache_size` default: 50 → 10** — better fit for cloud memory budgets (each cached document searcher is ~50–145 MB).
+- **LLM pricing tables** in `docs/costpoints.md` updated for March 2026 rates (Claude Haiku 4.5 $1.00/$5.00, Gemini 2.5 Flash $0.30/$2.50) and a new per-document cost-estimate table across providers.
+- **`docker-compose.prod.yml`** retuned for the cloud stack — OpenAI embeddings, `INGEST_SEARCHER_CACHE_SIZE=10`, resource limits.
 
 ## v1.1.1 (2026-03-25)
 

@@ -5,8 +5,8 @@ const DOCS_URL = "/docs/Introduction";
 function Hero() {
   return (
     <section className="relative pt-32 pb-24 sm:pt-40 sm:pb-32 overflow-hidden">
-      {/* Glow effect */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[600px] bg-amber-500/[0.04] rounded-full blur-3xl pointer-events-none" />
+      {/* Glow effect — parallax on scroll in supporting browsers */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[600px] bg-amber-500/[0.04] rounded-full blur-3xl pointer-events-none hero-glow-parallax" />
 
       <div className="relative max-w-4xl mx-auto px-6 text-center">
         <div className="animate-fade-in-up opacity-0">
@@ -34,14 +34,14 @@ function Hero() {
         <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4 animate-fade-in-up opacity-0 animate-delay-300">
           <a
             href="#install"
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl bg-amber-500 text-zinc-950 font-semibold text-sm hover:bg-amber-400 transition-colors"
+            className="btn-press w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl bg-amber-500 text-zinc-950 font-semibold text-sm hover:bg-amber-400 transition-colors"
           >
             Get started
             <ArrowRightIcon />
           </a>
           <a
             href={GITHUB_URL}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl border border-zinc-700 text-zinc-200 font-semibold text-sm hover:border-zinc-500 hover:bg-zinc-900 transition-colors"
+            className="btn-press w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl border border-zinc-700 text-zinc-200 font-semibold text-sm hover:border-zinc-500 hover:bg-zinc-900 transition-colors"
           >
             <GithubIcon />
             View on GitHub
@@ -166,7 +166,7 @@ function Features() {
           {FEATURES.map((f) => (
             <div
               key={f.title}
-              className="group rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 hover:border-zinc-700 hover:bg-zinc-900/70 transition-all duration-300"
+              className="card-lift group rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 hover:border-zinc-700 hover:bg-zinc-900/70 transition-[background-color,border-color] duration-300"
             >
               <div className={`${f.color} mb-4`}>{f.icon}</div>
               <h3 className="font-semibold text-zinc-100 mb-2">{f.title}</h3>
@@ -676,14 +676,14 @@ function CTA() {
         <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
           <a
             href={PYPI_URL}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl bg-amber-500 text-zinc-950 font-semibold text-sm hover:bg-amber-400 transition-colors"
+            className="btn-press w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl bg-amber-500 text-zinc-950 font-semibold text-sm hover:bg-amber-400 transition-colors"
           >
             Install from PyPI
             <ArrowRightIcon />
           </a>
           <a
             href={DOCS_URL}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl border border-zinc-700 text-zinc-200 font-semibold text-sm hover:border-zinc-500 hover:bg-zinc-900 transition-colors"
+            className="btn-press w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl border border-zinc-700 text-zinc-200 font-semibold text-sm hover:border-zinc-500 hover:bg-zinc-900 transition-colors"
           >
             Read the docs
           </a>

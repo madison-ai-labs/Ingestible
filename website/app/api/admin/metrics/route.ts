@@ -44,7 +44,11 @@ export async function GET(req: NextRequest) {
   const totalDocs = (keys || []).reduce((s, k) => s + (k.documents_ingested || 0), 0);
   const totalSearches = (keys || []).reduce((s, k) => s + (k.searches_performed || 0), 0);
   const totalErrors = (keys || []).reduce((s, k) => s + (k.errors_count || 0), 0);
+  const totalBytesUploaded = (keys || []).reduce((s, k) => s + (k.bytes_uploaded || 0), 0);
   const activeKeys = (keys || []).filter((k) => !k.revoked).length;
+
+  // Rough estimate: $0.10/1M tokens (Gemini Flash pricing)
+  const estimatedMonthlyCost = ((totalTokens / 1_000_000) * 0.10).toFixed(2);
 
   return NextResponse.json({
     period_days: days,
@@ -57,6 +61,9 @@ export async function GET(req: NextRequest) {
       total_searches: totalSearches,
       total_errors: totalErrors,
       error_rate: totalRequests > 0 ? (totalErrors / totalRequests * 100).toFixed(1) : "0",
+      total_bytes_uploaded: totalBytesUploaded,
+      estimated_monthly_cost: "$" + estimatedMonthlyCost,
+      total_storage_bytes: totalBytesUploaded,
     },
     daily: Object.entries(byDate)
       .map(([date, stats]) => ({ date, ...stats }))

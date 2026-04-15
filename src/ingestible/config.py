@@ -68,10 +68,17 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-haiku-4-5-20251001"
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-2.5-flash"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"
     llm_concurrency: int = 10
+
+    # Cost-efficient routing: use a cheaper model for bulk L3/L2 enrichment tasks
+    # When enabled and openai_api_key is set, L3 enrichment, KG extraction, context
+    # prefixes, and HyDE use GPT-4o-mini regardless of llm_provider. L0 enrichment
+    # (document digest) always uses the primary model for quality.
+    cost_routing_enabled: bool = True
+    cost_routing_model: str = "gpt-4o-mini"  # cheap model for bulk tasks
 
     # LLM resilience
     llm_timeout: int = 120  # seconds per LLM call
@@ -157,7 +164,7 @@ class Settings(BaseSettings):
     splade_model: str = "naver/splade-cocondenser-ensembledistil"
 
     # Search
-    searcher_cache_size: int = 50  # max cached document searchers in memory
+    searcher_cache_size: int = 10  # max cached document searchers in memory
     vector_weight: float = 0.4
     bm25_weight: float = 0.6
     exact_match_boost: float = 0.003  # per-term bonus for verbatim query term matches

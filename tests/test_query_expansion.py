@@ -169,6 +169,9 @@ async def test_expand_query_no_expansion():
 
 
 async def test_expand_query_hyde():
+    from ingestible.search.query_expansion import clear_hyde_cache
+
+    clear_hyde_cache()
     settings = _make_settings(llm_provider="openai")
     config = QueryExpansionConfig(hyde_enabled=True)
 
@@ -229,6 +232,9 @@ async def test_expand_query_both():
 
 
 async def test_expand_query_hyde_failure_fallback():
+    from ingestible.search.query_expansion import clear_hyde_cache
+
+    clear_hyde_cache()
     settings = _make_settings(llm_provider="openai")
     config = QueryExpansionConfig(hyde_enabled=True)
 

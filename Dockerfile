@@ -15,9 +15,11 @@ RUN pip install --no-cache-dir build && \
 FROM python:3.12-slim
 
 # Extras to install (override for different deployment targets)
-# local        = ChromaDB + sentence-transformers (local dev)
-# local,pgvector = ChromaDB + pgvector (production w/ Supabase)
-ARG EXTRAS="local,pgvector,gemini"
+# Cloud (default): API-based embeddings, no PyTorch (~200MB RAM)
+#   pgvector,gemini
+# Self-hosted: local embeddings via sentence-transformers (~3GB RAM)
+#   local,pgvector,gemini
+ARG EXTRAS="pgvector,gemini"
 
 # Install ffmpeg for audio/video support
 RUN apt-get update && \

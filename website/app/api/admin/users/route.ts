@@ -72,9 +72,8 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const users = (profiles || []).map((p) => ({
-    ...p,
-    usage: userKeys[p.id] || {
+  const users = (profiles || []).map((p) => {
+    const usage = userKeys[p.id] || {
       total_keys: 0,
       active_keys: 0,
       total_requests: 0,
@@ -83,8 +82,11 @@ export async function GET(req: NextRequest) {
       total_searches: 0,
       total_errors: 0,
       last_used_at: null,
-    },
-  }));
+    };
+    // Rough estimate: $0.10/1M tokens (Gemini Flash pricing)
+    const cost_usd = parseFloat(((usage.total_tokens / 1_000_000) * 0.10).toFixed(4));
+    return { ...p, usage: { ...usage, cost_usd } };
+  });
 
   return NextResponse.json(users);
 }
