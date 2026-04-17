@@ -36,6 +36,7 @@ dependencies = [
     "rank-bm25>=0.2",
     "tiktoken>=0.7",
     "numpy>=1.24",
+    "networkx>=3.0",
     # Core
     "pydantic>=2.0",
     "pydantic-settings>=2.0",

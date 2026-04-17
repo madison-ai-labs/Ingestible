@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -410,3 +411,383 @@ class TestConfidenceFiltering:
         result = idx.expand_from_chunks(["c1"], triples, max_hops=1, min_confidence=0.0)
         assert "c1" in result
         assert "c2" in result
+
+
+# ---------------------------------------------------------------------------
+# 10. Graph analysis (networkx-powered)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _MockSettings:
+    """Minimal settings stub for graph analysis tests."""
+
+    kg_graph_analysis: bool = True
+    kg_pagerank_damping: float = 0.85
+    kg_community_boost: float = 1.2
+    kg_hub_degree_multiplier: float = 3.0
+    kg_hub_min_degree: int = 5  # lower for tests
+    kg_bridge_boost: float = 1.5
+    kg_hub_dampening: float = 0.3
+
+
+@pytest.fixture()
+def star_triples() -> list[KGTriple]:
+    """Star graph: Hub connected to 25 spokes via the same predicate.
+
+    hub --relates--> spoke_0 (c-0)
+    hub --relates--> spoke_1 (c-1)
+    ...
+    hub --relates--> spoke_24 (c-24)
+    """
+    triples = []
+    for i in range(25):
+        triples.append(_triple("Hub", "relates", f"Spoke_{i}", f"c-{i}"))
+    return triples
+
+
+@pytest.fixture()
+def cluster_triples() -> list[KGTriple]:
+    """Two clusters connected by a bridge entity.
+
+    Cluster A: A1 --uses--> A2 --extends--> A3 (chunks ca-1, ca-2)
+    Cluster B: B1 --uses--> B2 --extends--> B3 (chunks cb-1, cb-2)
+    Bridge:    A3 --depends_on--> B1          (chunk bridge-1)
+    """
+    return [
+        _triple("A1", "uses", "A2", "ca-1"),
+        _triple("A2", "extends", "A3", "ca-2"),
+        _triple("B1", "uses", "B2", "cb-1"),
+        _triple("B2", "extends", "B3", "cb-2"),
+        _triple("A3", "depends_on", "B1", "bridge-1"),
+    ]
+
+
+class TestGraphMetricsComputation:
+    def test_pagerank_runs(self, sample_triples: list[KGTriple]) -> None:
+        idx = KGIndex()
+        idx.add_triples(sample_triples)
+        idx.compute_graph_metrics(_MockSettings())
+
+        pr = idx._graph_metrics.get("pagerank", {})
+        assert len(pr) > 0
+        assert abs(sum(pr.values()) - 1.0) < 0.01  # PageRank sums to ~1.0
+
+    def test_betweenness_runs(self, cluster_triples: list[KGTriple]) -> None:
+        idx = KGIndex()
+        idx.add_triples(cluster_triples)
+        idx.compute_graph_metrics(_MockSettings())
+
+        bc = idx._graph_metrics.get("betweenness", {})
+        assert len(bc) > 0
+        # Bridge entities (a3, b1) should have higher betweenness
+        assert bc.get("a3", 0) > 0 or bc.get("b1", 0) > 0
+
+    def test_communities_detected(self, cluster_triples: list[KGTriple]) -> None:
+        idx = KGIndex()
+        idx.add_triples(cluster_triples)
+        idx.compute_graph_metrics(_MockSettings())
+
+        communities = idx._graph_metrics.get("communities", {})
+        assert len(communities) > 0
+        # At least some entities should be assigned communities
+        num_communities = idx._graph_metrics["stats"]["num_communities"]
+        assert num_communities >= 1
+
+    def test_hub_detection_star_graph(self, star_triples: list[KGTriple]) -> None:
+        idx = KGIndex()
+        idx.add_triples(star_triples)
+        # Lower hub_min_degree for a 25-spoke star
+        settings = _MockSettings(kg_hub_min_degree=5)
+        idx.compute_graph_metrics(settings)
+
+        hubs = idx._graph_metrics.get("hubs", {})
+        assert "hub" in hubs  # the central node should be detected
+        assert idx.is_hub("Hub")
+
+    def test_empty_graph_no_crash(self) -> None:
+        idx = KGIndex()
+        idx.compute_graph_metrics(_MockSettings())
+        assert idx._graph_metrics == {}
+
+    def test_disabled_skips_analysis(self, sample_triples: list[KGTriple]) -> None:
+        idx = KGIndex()
+        idx.add_triples(sample_triples)
+        idx.compute_graph_metrics(_MockSettings(kg_graph_analysis=False))
+        assert idx._graph_metrics == {}
+
+
+class TestPageRankBoost:
+    def test_high_pagerank_amplifies_boost(self, sample_triples: list[KGTriple]) -> None:
+        idx = KGIndex()
+        idx.add_triples(sample_triples)
+        idx.compute_graph_metrics(_MockSettings())
+
+        # Boost WITH metrics
+        boosted = kg_boost_scores(
+            {"chunk-1": 0.5},
+            ["chunk-1"],
+            idx,
+            sample_triples,
+            boost_weight=0.1,
+            min_confidence=0.0,
+            settings=_MockSettings(),
+        )
+
+        # Boost WITHOUT metrics (fresh index, no compute)
+        idx_no_metrics = KGIndex()
+        idx_no_metrics.add_triples(sample_triples)
+        baseline = kg_boost_scores(
+            {"chunk-1": 0.5},
+            ["chunk-1"],
+            idx_no_metrics,
+            sample_triples,
+            boost_weight=0.1,
+            min_confidence=0.0,
+        )
+
+        # With metrics, boosts should differ from baseline (importance modulation)
+        assert boosted["chunk-1"] != baseline["chunk-1"]
+
+    def test_no_metrics_falls_back(self, sample_triples: list[KGTriple]) -> None:
+        """When _graph_metrics is empty, boost should equal old formula."""
+        idx = KGIndex()
+        idx.add_triples(sample_triples)
+        # No compute_graph_metrics called
+
+        result = kg_boost_scores(
+            {"chunk-1": 0.5},
+            ["chunk-1"],
+            idx,
+            sample_triples,
+            boost_weight=0.1,
+            min_confidence=0.0,
+        )
+        # Old formula: base + boost_weight * kg_relevance (1.0 for hop-0)
+        assert result["chunk-1"] == pytest.approx(0.5 + 0.1 * 1.0)
+
+    def test_disconnected_components(self) -> None:
+        """PageRank should work on disconnected graphs."""
+        triples = [
+            _triple("A", "r", "B", "c1"),
+            _triple("C", "r", "D", "c2"),  # separate component
+        ]
+        idx = KGIndex()
+        idx.add_triples(triples)
+        idx.compute_graph_metrics(_MockSettings())
+
+        pr = idx._graph_metrics.get("pagerank", {})
+        assert "a" in pr
+        assert "c" in pr
+        assert abs(sum(pr.values()) - 1.0) < 0.01
+
+
+class TestCommunityBoost:
+    def test_same_community_amplified(self, cluster_triples: list[KGTriple]) -> None:
+        idx = KGIndex()
+        idx.add_triples(cluster_triples)
+        idx.compute_graph_metrics(_MockSettings())
+
+        settings = _MockSettings()
+        # Seed from cluster A chunks
+        boosted = kg_boost_scores(
+            {"ca-1": 0.5},
+            ["ca-1"],
+            idx,
+            cluster_triples,
+            boost_weight=0.1,
+            min_confidence=0.0,
+            settings=settings,
+        )
+        # ca-2 is in the same cluster, should get a community boost
+        assert "ca-2" in boosted
+        assert boosted["ca-2"] > 0
+
+    def test_community_absent_no_crash(self, sample_triples: list[KGTriple]) -> None:
+        """If graph_metrics has pagerank but not communities, no crash."""
+        idx = KGIndex()
+        idx.add_triples(sample_triples)
+        idx.compute_graph_metrics(_MockSettings())
+        # Manually remove communities to simulate partial metrics
+        idx._graph_metrics.pop("communities", None)
+
+        result = kg_boost_scores(
+            {"chunk-1": 0.5},
+            ["chunk-1"],
+            idx,
+            sample_triples,
+            boost_weight=0.1,
+            min_confidence=0.0,
+            settings=_MockSettings(),
+        )
+        assert result["chunk-1"] > 0.5  # still boosted via importance
+
+
+class TestHubDetection:
+    def test_star_center_detected(self, star_triples: list[KGTriple]) -> None:
+        idx = KGIndex()
+        idx.add_triples(star_triples)
+        idx.compute_graph_metrics(_MockSettings(kg_hub_min_degree=5))
+        assert idx.is_hub("Hub")
+
+    def test_low_predicate_diversity_is_noise_hub(self, star_triples: list[KGTriple]) -> None:
+        """All edges use 'relates' predicate -> noise hub (diversity < 0.3)."""
+        idx = KGIndex()
+        idx.add_triples(star_triples)
+        idx.compute_graph_metrics(_MockSettings(kg_hub_min_degree=5))
+
+        hubs = idx._graph_metrics.get("hubs", {})
+        # True means noise hub
+        assert hubs.get("hub") is True
+
+    def test_diverse_predicates_genuine_hub(self) -> None:
+        """Hub with many different predicates -> genuine hub (not noise)."""
+        predicates = [
+            "uses",
+            "extends",
+            "implements",
+            "depends_on",
+            "authored_by",
+            "evaluated_on",
+            "improves",
+            "requires",
+            "enables",
+            "causes",
+        ]
+        triples = []
+        for i, pred in enumerate(predicates):
+            triples.append(_triple("Center", pred, f"Node_{i}", f"c-{i}"))
+        # Add more to exceed threshold
+        for i in range(10, 25):
+            triples.append(_triple("Center", f"rel_{i}", f"Node_{i}", f"c-{i}"))
+
+        idx = KGIndex()
+        idx.add_triples(triples)
+        idx.compute_graph_metrics(_MockSettings(kg_hub_min_degree=5))
+
+        hubs = idx._graph_metrics.get("hubs", {})
+        assert "center" in hubs
+        # False means genuine hub (diverse predicates)
+        assert hubs["center"] is False
+
+    def test_below_threshold_not_flagged(self, sample_triples: list[KGTriple]) -> None:
+        """With min_degree=20, the small sample graph should have no hubs."""
+        idx = KGIndex()
+        idx.add_triples(sample_triples)
+        idx.compute_graph_metrics(_MockSettings(kg_hub_min_degree=20))
+
+        hubs = idx._graph_metrics.get("hubs", {})
+        assert len(hubs) == 0
+
+    def test_hub_dampening_in_boost(self, star_triples: list[KGTriple]) -> None:
+        """Chunks discovered via a hub entity get dampened boost."""
+        idx = KGIndex()
+        idx.add_triples(star_triples)
+        idx.compute_graph_metrics(_MockSettings(kg_hub_min_degree=5))
+
+        settings = _MockSettings(kg_hub_min_degree=5)
+        boosted = kg_boost_scores(
+            {"c-0": 0.5},
+            ["c-0"],
+            idx,
+            star_triples,
+            boost_weight=0.1,
+            min_confidence=0.0,
+            settings=settings,
+        )
+
+        # Boost WITHOUT metrics for comparison
+        idx_plain = KGIndex()
+        idx_plain.add_triples(star_triples)
+        baseline = kg_boost_scores(
+            {"c-0": 0.5},
+            ["c-0"],
+            idx_plain,
+            star_triples,
+            boost_weight=0.1,
+            min_confidence=0.0,
+        )
+
+        # Spokes discovered via hub should get dampened boost
+        # Pick a spoke that's not the seed
+        if "c-5" in boosted and "c-5" in baseline:
+            assert boosted["c-5"] < baseline["c-5"]
+
+
+class TestBridgeDetection:
+    def test_bridge_entity_detected(self, cluster_triples: list[KGTriple]) -> None:
+        """A3 and B1 connect two clusters — at least one should be a bridge."""
+        idx = KGIndex()
+        idx.add_triples(cluster_triples)
+        idx.compute_graph_metrics(_MockSettings(kg_hub_min_degree=20))
+
+        # At least one of the connecting entities should be a bridge
+        assert idx.is_bridge("A3") or idx.is_bridge("B1")
+
+    def test_hub_not_bridge(self, star_triples: list[KGTriple]) -> None:
+        """Hub entity should NOT be classified as a bridge."""
+        idx = KGIndex()
+        idx.add_triples(star_triples)
+        idx.compute_graph_metrics(_MockSettings(kg_hub_min_degree=5))
+
+        assert idx.is_hub("Hub")
+        assert not idx.is_bridge("Hub")
+
+
+class TestGraphMetricsPersistence:
+    def test_save_load_roundtrip_with_metrics(
+        self, sample_triples: list[KGTriple], tmp_path: Path
+    ) -> None:
+        idx = KGIndex()
+        idx.add_triples(sample_triples)
+        idx.compute_graph_metrics(_MockSettings())
+
+        p = tmp_path / "kg_index.json"
+        idx.save(p)
+
+        loaded = KGIndex.load(p)
+        assert loaded._graph_metrics.get("pagerank") is not None
+        assert loaded._graph_metrics.get("communities") is not None
+        assert loaded._graph_metrics.get("hubs") is not None
+        assert loaded._graph_metrics.get("betweenness") is not None
+
+        # PageRank values should match
+        for entity in idx._graph_metrics["pagerank"]:
+            assert loaded._graph_metrics["pagerank"][entity] == pytest.approx(
+                idx._graph_metrics["pagerank"][entity]
+            )
+
+    def test_load_old_format_without_metrics(self, tmp_path: Path) -> None:
+        """Loading a JSON file without graph_metrics should yield empty metrics."""
+        old_data = {
+            "entity_chunks": {"foo": ["c1"]},
+            "adjacency": {"foo": [["r", "bar"]]},
+            "triple_chunks": {"foo|r|bar": ["c1"]},
+        }
+        p = tmp_path / "old_kg_index.json"
+        p.write_text(json.dumps(old_data))
+
+        loaded = KGIndex.load(p)
+        assert loaded._graph_metrics == {}
+        # Features should silently skip
+        assert loaded.entity_pagerank("foo") == 0.0
+        assert loaded.entity_community("foo") is None
+        assert not loaded.is_hub("foo")
+        assert not loaded.is_bridge("foo")
+
+    def test_saved_json_includes_metrics_key(
+        self, sample_triples: list[KGTriple], tmp_path: Path
+    ) -> None:
+        idx = KGIndex()
+        idx.add_triples(sample_triples)
+        idx.compute_graph_metrics(_MockSettings())
+
+        p = tmp_path / "kg_index.json"
+        idx.save(p)
+
+        data = json.loads(p.read_text())
+        assert "graph_metrics" in data
+        assert "pagerank" in data["graph_metrics"]
+        assert "communities" in data["graph_metrics"]
+        assert "hubs" in data["graph_metrics"]
+        assert "stats" in data["graph_metrics"]

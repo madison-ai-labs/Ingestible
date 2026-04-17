@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -62,7 +63,11 @@ def _setup_doc(tmp_path: Path, doc_id: str = "test-doc") -> Settings:
 
 
 def test_re_enrich_clears_old_enrichment(tmp_path):
-    """Re-enrichment clears old enrichment fields before re-running."""
+    """Re-enrichment clears old enrichment fields before re-running.
+
+    Mocks enrich_chunks to raise so the test controls failure independently
+    of whether API keys are present in the environment.
+    """
     settings = _setup_doc(tmp_path)
     doc_id = "test-doc"
 
@@ -71,14 +76,17 @@ def test_re_enrich_clears_old_enrichment(tmp_path):
     old_chunks = load_chunks(doc_dir)
     assert old_chunks.l3_chunks[0].summary == "Old summary that should be cleared"
 
-    # Re-enrich (enrichment will fail since no LLM keys, but fields should be cleared)
-    result_dir = re_enrich(doc_id, settings)
+    # Force enrichment to fail so we can verify fields were cleared beforehand
+    with patch(
+        "ingestible.pipeline.stage4_enrichment.enrich_chunks", side_effect=RuntimeError("no keys")
+    ):
+        result_dir = re_enrich(doc_id, settings)
+
     assert result_dir.exists()
 
-    # Load and verify enrichment was cleared (enrichment stage will warn and continue)
+    # Old summary was cleared before enrichment ran; failure left it empty
     new_chunks = load_chunks(result_dir)
     assert new_chunks.l3_chunks[0].content == "Machine learning is a subset of AI."
-    # Summary should indicate failure because old was cleared and enrichment failed
     assert new_chunks.l3_chunks[0].summary in ("", "[enrichment failed]")
 
 

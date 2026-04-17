@@ -167,6 +167,7 @@ class HybridSearcher:
                 boost_weight=self._settings.kg_boost_weight,
                 max_hops=self._settings.kg_max_hops,
                 min_confidence=self._settings.kg_min_confidence,
+                settings=self._settings,
             )
             for cid in scores:
                 if cid not in sources:

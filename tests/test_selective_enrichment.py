@@ -8,7 +8,7 @@ all L3 chunks are unchanged.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from ingestible.config import Settings
 from ingestible.models.chunks import (
@@ -279,17 +279,20 @@ class TestTargetedReEnrichment:
         doc_dir = settings.documents_dir / doc_id
         build_indexes(chunks, doc_dir, embedder)
 
-        # Target only chunk p0 for re-enrichment
-        # Enrichment will fail (no real LLM key), but p1 should keep its summary
-        # because it's treated as "unchanged" via the synthetic previous_chunks
-        result_dir = re_enrich(doc_id, settings, changed_chunk_ids={f"{doc_id}-p0"})
+        # Target only chunk p0 for re-enrichment; force LLM to fail so we can
+        # verify that p1 (unchanged) keeps its summary while p0 is cleared.
+        with patch(
+            "ingestible.pipeline.stage4_enrichment.enrich_chunks",
+            side_effect=RuntimeError("no keys"),
+        ):
+            result_dir = re_enrich(doc_id, settings, changed_chunk_ids={f"{doc_id}-p0"})
         result = load_chunks(result_dir)
 
         # p1 should keep original summary (unchanged, copied from "previous")
         assert result.l3_chunks[1].summary == f"Original summary for {doc_id}-p1"
         assert result.l3_chunks[1].concepts == ["original"]
 
-        # p0 summary should indicate failure (enrichment failed, no LLM key)
+        # p0 was cleared before enrichment ran; failure left it empty
         assert result.l3_chunks[0].summary in ("", "[enrichment failed]")
 
     def test_full_re_enrich_clears_all(self, tmp_path):
@@ -314,9 +317,13 @@ class TestTargetedReEnrichment:
         embedder = Embedder(settings)
         build_indexes(chunks, settings.documents_dir / doc_id, embedder)
 
-        result_dir = re_enrich(doc_id, settings)
+        with patch(
+            "ingestible.pipeline.stage4_enrichment.enrich_chunks",
+            side_effect=RuntimeError("no keys"),
+        ):
+            result_dir = re_enrich(doc_id, settings)
         result = load_chunks(result_dir)
 
-        # All enrichment cleared (LLM call fails, no key)
+        # All enrichment cleared; LLM failure left summaries empty
         for c in result.l3_chunks:
             assert c.summary in ("", "[enrichment failed]")

@@ -191,6 +191,15 @@ class Settings(BaseSettings):
     kg_min_confidence: float = 0.5  # min triple confidence to follow
     kg_seed_top_n: int = 10  # top results to use as KG expansion seeds
 
+    # Knowledge graph analysis (networkx-powered)
+    kg_graph_analysis: bool = False  # master switch for graph-theoretic KG features
+    kg_pagerank_damping: float = 0.85  # PageRank damping factor
+    kg_community_boost: float = 1.2  # multiplier for same-community chunks
+    kg_hub_degree_multiplier: float = 3.0  # hub threshold = avg_degree * this
+    kg_hub_min_degree: int = 20  # minimum degree to even consider as hub
+    kg_bridge_boost: float = 1.5  # multiplier for bridge entity discoveries
+    kg_hub_dampening: float = 0.3  # multiplier for hub entity discoveries
+
     # LLM-as-judge evaluation
     llm_judge_enabled: bool = False
     llm_judge_concurrency: int = 5

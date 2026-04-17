@@ -388,6 +388,7 @@ def build_indexes(
         from ingestible.search.kg_retrieval import KGIndex
 
         kg_index = KGIndex.from_chunks(chunks)
+        kg_index.compute_graph_metrics(embedder._settings)
         kg_index.save(doc_dir / "kg_index.json")
         logger.info("KG index: %d entities indexed", len(kg_index._entity_chunks))
 
