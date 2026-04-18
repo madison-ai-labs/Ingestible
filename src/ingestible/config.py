@@ -99,6 +99,11 @@ class Settings(BaseSettings):
     # Access tag required to retrieve the redaction manifest via the API.
     # When empty, manifest access follows the document's own access_tags.
     redaction_access_tag: str = ""
+    # Force the NER language used for redaction, bypassing auto-detection.
+    # Useful when langdetect misidentifies the document language (e.g. short
+    # forms, mixed-language PDFs). ISO 639-1 code, e.g. "de", "fr".
+    # Empty string means "use detected_language from the parsed document".
+    redaction_language: str = ""
 
     # Prompt injection defence
     # When True, chunks containing high-confidence injection patterns (role markers,

@@ -190,6 +190,7 @@ def ingest(
     redact: bool | None = None,
     redaction_mode: str | None = None,
     redaction_entities: list[str] | None = None,
+    redaction_language: str | None = None,
 ) -> Path:
     """Run the full ingestion pipeline on a document. Returns the document directory.
 
@@ -348,12 +349,14 @@ def ingest(
 
                         # Per-request overrides take precedence over global settings
                         effective_settings = settings
-                        if redaction_mode or redaction_entities:
+                        if redaction_mode or redaction_entities or redaction_language:
                             overrides: dict = {}
                             if redaction_mode:
                                 overrides["redaction_mode"] = redaction_mode
                             if redaction_entities:
                                 overrides["redaction_entities"] = redaction_entities
+                            if redaction_language:
+                                overrides["redaction_language"] = redaction_language
                             effective_settings = settings.model_copy(update=overrides)
 
                         parsed, redaction_manifest = redact_document(

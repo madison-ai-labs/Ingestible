@@ -596,6 +596,15 @@ async def ingest_document(
             "Empty string uses the server default list."
         ),
     ),
+    redaction_language: str = Form(
+        "",
+        description=(
+            "ISO 639-1 language code to force for NER redaction (e.g. 'de', 'fr'). "
+            "Overrides the language auto-detected from the document. "
+            "Useful when langdetect misidentifies short forms or mixed-language PDFs. "
+            "Empty string uses the document's detected language."
+        ),
+    ),
 ):
     """Ingest a document into the knowledge store.
 
@@ -644,6 +653,7 @@ async def ingest_document(
             redact=redact or None,
             redaction_mode=redaction_mode or None,
             redaction_entities=parsed_redaction_entities,
+            redaction_language=redaction_language or None,
         )
 
         meta = load_document_meta(doc_dir)

@@ -110,6 +110,16 @@ def main(argv: list[str] | None = None) -> None:
             "Defaults to the server-configured list."
         ),
     )
+    p_ingest.add_argument(
+        "--redaction-language",
+        default=None,
+        metavar="LANG",
+        help=(
+            "ISO 639-1 language code to force for NER redaction (e.g. 'de', 'fr'). "
+            "Overrides auto-detection. Useful for short forms or mixed-language PDFs "
+            "where langdetect returns the wrong language."
+        ),
+    )
 
     # --- parse (parse-only, no storage) ---
     p_parse = sub.add_parser(
@@ -549,6 +559,7 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
             redact=True if getattr(args, "redact", False) else None,
             redaction_mode=getattr(args, "redaction_mode", None),
             redaction_entities=parsed_redaction_entities,
+            redaction_language=getattr(args, "redaction_language", None),
         )
         print(f"Ingested → {doc_dir}")
 
