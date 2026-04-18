@@ -80,6 +80,11 @@ class Settings(BaseSettings):
     cost_routing_enabled: bool = True
     cost_routing_model: str = "gpt-4o-mini"  # cheap model for bulk tasks
 
+    # Prompt injection defence
+    # When True, chunks containing high-confidence injection patterns (role markers,
+    # jailbreak keywords) are blocked from enrichment rather than just logged.
+    injection_strict_mode: bool = False
+
     # LLM resilience
     llm_timeout: int = 120  # seconds per LLM call
     llm_max_retries: int = 3

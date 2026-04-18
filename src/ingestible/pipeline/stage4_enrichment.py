@@ -31,7 +31,12 @@ from ingestible.models.enrichment import (
     L3Enrichment,
 )
 from ingestible.profiles import ExtractionProfile
-from ingestible.utils.injection import scan_for_injection, validate_enrichment_fields
+from ingestible.utils.injection import (
+    InjectionDetected,
+    check_strict,
+    scan_for_injection,
+    validate_enrichment_fields,
+)
 from ingestible.utils.retry import retry_llm_call
 
 logger = logging.getLogger(__name__)
@@ -435,6 +440,7 @@ async def enrich_chunks(
     budget_exceeded = False
 
     if l3_to_enrich:
+        strict_injection = settings.injection_strict_mode
         l3_tasks = [
             _enrich_l3(
                 c,
@@ -442,6 +448,7 @@ async def enrich_chunks(
                 sem,
                 prompt_suffix=prompt_suffix,
                 extract_citations=extract_citations,
+                strict_injection=strict_injection,
                 max_retries=max_retries,
                 base_delay=base_delay,
             )
@@ -464,6 +471,10 @@ async def enrich_chunks(
                 )
                 budget_exceeded = True
                 chunk.summary = "[enrichment stopped: budget exceeded]"
+                continue
+            if isinstance(result, InjectionDetected):
+                logger.warning("L3 enrichment blocked for %s: %s", chunk.chunk_id, result)
+                chunk.summary = "[enrichment blocked: injection detected]"
                 continue
             if isinstance(result, Exception):
                 logger.warning("L3 enrichment failed for %s: %s", chunk.chunk_id, result)
@@ -681,6 +692,7 @@ async def _enrich_l3(
     sem: asyncio.Semaphore,
     prompt_suffix: str = "",
     extract_citations: bool = False,
+    strict_injection: bool = False,
     max_retries: int = 3,
     base_delay: float = 1.0,
 ) -> L3Enrichment:
@@ -691,6 +703,8 @@ async def _enrich_l3(
             chunk.chunk_id,
             patterns,
         )
+        if strict_injection:
+            check_strict(chunk.chunk_id, patterns)
 
     citation_instruction = ""
     if extract_citations:

@@ -33,9 +33,10 @@ Ingestible ingests untrusted documents and passes their content to LLMs during e
 
 **L2/L1 enrichment uses LLM-generated summaries.** By the time L2 and above are enriched, the content is child summaries already produced by the LLM — not raw document text. A successful L3-level injection that corrupts a summary field could propagate upward. Mitigated by the output validator catching anomalous L3 summary values before they become L2 input.
 
-**No rejection gate.** All injection detection is advisory (log-only). Automated rejection or quarantine of flagged documents is not implemented — this is intentional to avoid false positives on legitimate content.
+**Strict injection mode** (`INGEST_INJECTION_STRICT_MODE=true`) — When enabled, chunks where the pre-enrichment scanner finds high-confidence patterns (`role_marker` or `jailbreak`) are blocked from enrichment entirely. `_enrich_l3` raises `InjectionDetected`, the gather loop catches it, and `chunk.summary` is set to `"[enrichment blocked: injection detected]"` — distinct from generic enrichment failure. Disabled by default to avoid false positives on legitimate security-related documents.
 
-### Potential future hardening
+**Separate enrichment model for high-risk bulk tasks** — L3 passage enrichment, KG triple extraction, and L1 chapter enrichment all run through `_make_cheap_client`, which routes to a cost-optimised model (`gpt-4o-mini` by default, configurable via `INGEST_COST_ROUTING_MODEL`) when `cost_routing_enabled=True`. L0 document enrichment uses the primary model. This limits blast radius for the stages most exposed to raw untrusted content.
 
-- **Rejection gate** — promote scanner warnings to errors for high-confidence patterns (role markers, jailbreak keywords) with a config flag to enable strict mode.
-- **Separate enrichment model** — use a smaller model for bulk L3 enrichment where injection risk is highest, reserving the primary model for trusted-context calls (L0 summary, eval judge).
+### Remaining gap
+
+**L2/L1 enrichment uses LLM-generated summaries.** By the time L2 and above are enriched, the content is child summaries already produced by the LLM — not raw document text. A successful L3-level injection that corrupts a summary field could propagate upward. Mitigated by the output validator catching anomalous L3 summary values before they become L2 input, and by strict mode blocking the chunk before the LLM sees it at all.

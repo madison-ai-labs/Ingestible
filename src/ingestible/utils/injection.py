@@ -53,6 +53,15 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 
+# These pattern families are very unlikely to appear in legitimate documents
+# and are used as the gate condition when strict mode is enabled.
+_HIGH_CONFIDENCE_PATTERNS: frozenset[str] = frozenset({"role_marker", "jailbreak"})
+
+
+class InjectionDetected(Exception):
+    """Raised when a high-confidence injection pattern is found and strict mode is on."""
+
+
 def scan_for_injection(text: str) -> list[str]:
     """Return names of injection pattern families found in text.
 
@@ -63,6 +72,18 @@ def scan_for_injection(text: str) -> list[str]:
     if not text:
         return []
     return [name for name, pattern in _PATTERNS if pattern.search(text)]
+
+
+def check_strict(chunk_id: str, patterns: list[str]) -> None:
+    """Raise InjectionDetected if any high-confidence patterns were found.
+
+    Call this after scan_for_injection when strict mode is enabled.
+    """
+    high = [p for p in patterns if p in _HIGH_CONFIDENCE_PATTERNS]
+    if high:
+        raise InjectionDetected(
+            f"chunk {chunk_id} blocked: high-confidence injection pattern(s) {high}"
+        )
 
 
 # ---------------------------------------------------------------------------
