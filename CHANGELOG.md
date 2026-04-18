@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.2.2 (2026-04-18)
+
+### Security
+- **Strict injection gate** — `INGEST_INJECTION_STRICT_MODE=true` blocks L3 chunks from enrichment when high-confidence injection patterns (`role_marker`, `jailbreak`) are detected. Raises `InjectionDetected`; chunk summary is set to `"[enrichment blocked: injection detected]"`. Off by default to avoid false positives on legitimate security content.
+- Documents existing cost-routing architecture as a security control: L3/KG/L1 enrichment runs on the bulk model, limiting blast radius for the stages most exposed to raw untrusted content.
+
+## v1.2.1 (2026-04-18)
+
+### Added
+- **networkx KG graph analysis** — knowledge graph retrieval uses networkx for multi-hop entity relationship traversal, improving KG-boosted search result coverage.
+
+### Security
+- **XML delimiter isolation** — all enrichment prompts (L3, L2, L1, L0, KG extraction) and the eval judge now wrap document content in `<document>…</document>` tags with an explicit instruction to treat contents as data, not instructions.
+- **Pre-enrichment injection scanner** (`utils/injection.py`) — scans raw L3 chunk content for injection pattern families (role override, role assumption, role markers, jailbreak keywords) before each LLM call. Logs warnings with chunk ID and matched families.
+- **Post-enrichment output validator** — checks enrichment output fields for anomalous values (imperative `summary`, sentence-length concept/keyword entries) that may indicate a successful injection corrupted structured output.
+- **Hardened HyDE and decompose system prompts** — explicitly frames the user turn as a search query and instructs the model not to follow embedded instructions.
+- Added `docs/security.md` documenting threat model, defences, and remaining gaps.
+
 ## v1.2.0 (2026-04-15)
 
 ### Added
