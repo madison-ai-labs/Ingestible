@@ -135,13 +135,18 @@ def _check_duplicate_content(
     return None
 
 
-def _count_steps(settings: Settings, skip_enrichment: bool) -> int:
+def _count_steps(
+    settings: Settings, skip_enrichment: bool, redact: bool | None = None
+) -> int:
     """Compute total pipeline steps based on enabled features."""
     # Always: parse, structure, chunk, validate, embed, save = 6
     steps = 6
     if settings.cleaning_enabled:
         steps += 1
     if settings.content_classification:
+        steps += 1
+    effective_redact = redact if redact is not None else settings.redaction_enabled
+    if effective_redact:
         steps += 1
     if not skip_enrichment:
         steps += 1  # enrichment
@@ -182,6 +187,9 @@ def ingest(
     tags: list[str] | None = None,
     original_filename: str | None = None,
     retain_original: bool = False,
+    redact: bool | None = None,
+    redaction_mode: str | None = None,
+    redaction_entities: list[str] | None = None,
 ) -> Path:
     """Run the full ingestion pipeline on a document. Returns the document directory.
 
@@ -230,7 +238,7 @@ def ingest(
         logging.getLogger("ingestible").setLevel(logging.INFO)
 
     doc_id = generate_doc_id(file_path)
-    total = _count_steps(settings, skip_enrichment)
+    total = _count_steps(settings, skip_enrichment, redact=redact)
     step = 0
 
     def _log(msg: str) -> None:
@@ -322,6 +330,49 @@ def ingest(
                 from ingestible.pipeline.stage1c_classify import classify_document
 
                 parsed.block_classifications = classify_document(parsed)
+
+            # Stage 1d: Redaction (if enabled, opt-in)
+            redaction_manifest = None
+            effective_redact = redact if redact is not None else settings.redaction_enabled
+            if effective_redact:
+                if use_checkpoint and (cp := load_checkpoint(doc_dir, "redacted")):
+                    from ingestible.models.redaction import RedactionManifest
+
+                    parsed = ParsedDocument(**cp["doc"])
+                    redaction_manifest = RedactionManifest.model_validate(cp["manifest"])
+                    logger.info("  Resumed from checkpoint: redacted")
+                else:
+                    _log("Redacting PII...")
+                    try:
+                        from ingestible.pipeline.stage1d_redact import redact_document
+
+                        # Per-request overrides take precedence over global settings
+                        effective_settings = settings
+                        if redaction_mode or redaction_entities:
+                            overrides: dict = {}
+                            if redaction_mode:
+                                overrides["redaction_mode"] = redaction_mode
+                            if redaction_entities:
+                                overrides["redaction_entities"] = redaction_entities
+                            effective_settings = settings.model_copy(update=overrides)
+
+                        parsed, redaction_manifest = redact_document(
+                            parsed, effective_settings
+                        )
+                        if use_checkpoint:
+                            save_checkpoint(
+                                doc_dir,
+                                "redacted",
+                                {"doc": parsed.model_dump(), "manifest": redaction_manifest.model_dump()},
+                            )
+                    except ImportError as e:
+                        logger.warning(
+                            "Redaction skipped — missing dependency: %s. "
+                            "Install with: pip install 'ingestible[redaction]'",
+                            e,
+                        )
+                    except Exception as e:
+                        logger.warning("Redaction failed, continuing without it: %s", e)
 
             # --- Profile resolution ---
             if settings.extraction_profile == "auto":
@@ -481,6 +532,7 @@ def ingest(
                 source_path=file_path,
                 original_filename=original_filename,
                 retain_original=retain_original,
+                redaction_manifest=redaction_manifest,
             )
 
             # Clean up checkpoints on success

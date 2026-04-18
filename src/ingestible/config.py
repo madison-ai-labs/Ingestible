@@ -80,6 +80,26 @@ class Settings(BaseSettings):
     cost_routing_enabled: bool = True
     cost_routing_model: str = "gpt-4o-mini"  # cheap model for bulk tasks
 
+    # PII Redaction (Stage 1d) — requires pip install "ingestible[redaction]"
+    redaction_enabled: bool = False
+    redaction_mode: str = "placeholder"  # placeholder | pseudonymize | suppress
+    redaction_entities: list[str] = Field(
+        default=[
+            "PERSON",
+            "EMAIL_ADDRESS",
+            "PHONE_NUMBER",
+            "IBAN_CODE",
+            "CREDIT_CARD",
+            "DATE_TIME",
+            "LOCATION",
+            "US_SSN",
+            "US_PASSPORT",
+        ]
+    )
+    # Access tag required to retrieve the redaction manifest via the API.
+    # When empty, manifest access follows the document's own access_tags.
+    redaction_access_tag: str = ""
+
     # Prompt injection defence
     # When True, chunks containing high-confidence injection patterns (role markers,
     # jailbreak keywords) are blocked from enrichment rather than just logged.

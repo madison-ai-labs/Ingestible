@@ -26,6 +26,7 @@ from ingestible.config import Settings
 from ingestible.models.chunks import ChunkSet, L0Chunk, L1Chunk, L2Chunk, L3Chunk
 from ingestible.models.document import DocumentStructure
 from ingestible.models.enrichment import Citation, KGTriple
+from ingestible.models.redaction import RedactionManifest
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ def save_document(
     source_path: Path | None = None,
     original_filename: str | None = None,
     retain_original: bool = False,
+    redaction_manifest: RedactionManifest | None = None,
 ) -> Path:
     """Persist a processed document to disk as a JSON file hierarchy.
 
@@ -72,9 +74,15 @@ def save_document(
         except OSError as e:
             logger.warning("Failed to persist original file for %s: %s", chunks.doc_id, e)
 
+    # redaction_manifest.json — access-gated, saved before meta so it exists
+    # when the API endpoint is called immediately after ingestion.
+    if redaction_manifest is not None:
+        redaction_manifest.doc_id = chunks.doc_id
+        _write_json(doc_dir / "redaction_manifest.json", redaction_manifest.model_dump())
+
     # meta.json
     meta = {
-        "schema_version": 3,
+        "schema_version": 4,
         "doc_id": chunks.doc_id,
         "title": structure.title,
         "total_pages": chunks.l0.total_pages,
@@ -96,6 +104,9 @@ def save_document(
         "original_media_type": original_media_type,
         "original_stored_name": original_stored_name,
         "retain_original": retain_original,
+        "redacted": redaction_manifest is not None,
+        "redaction_mode": redaction_manifest.mode if redaction_manifest else "",
+        "redaction_entity_types": redaction_manifest.entity_types if redaction_manifest else [],
         "l0": chunks.l0.model_dump(),
     }
 
@@ -190,10 +201,10 @@ def load_document_meta(doc_dir: Path) -> dict:
     """Load meta.json for a document."""
     meta = _read_json(doc_dir / "meta.json")
     schema_version = meta.get("schema_version", 1)
-    if schema_version > 3:
+    if schema_version > 4:
         raise ValueError(
             f"Document {doc_dir.name} uses schema version {schema_version}, "
-            f"but this version of Ingestible only supports up to version 3. "
+            f"but this version of Ingestible only supports up to version 4."
             f"Please upgrade Ingestible."
         )
     return meta
@@ -203,10 +214,10 @@ def load_chunks(doc_dir: Path) -> ChunkSet:
     """Reconstruct a ChunkSet from the stored file hierarchy."""
     meta = _read_json(doc_dir / "meta.json")
     schema_version = meta.get("schema_version", 1)
-    if schema_version > 3:
+    if schema_version > 4:
         raise ValueError(
             f"Document {doc_dir.name} uses schema version {schema_version}, "
-            f"but this version of Ingestible only supports up to version 3. "
+            f"but this version of Ingestible only supports up to version 4."
             f"Please upgrade Ingestible."
         )
     doc_id = meta["doc_id"]
@@ -368,6 +379,18 @@ def list_versions(doc_dir: Path) -> list[dict]:
         return data.get("versions", [])
     except (json.JSONDecodeError, OSError):
         return []
+
+
+def load_redaction_manifest(doc_dir: Path) -> RedactionManifest | None:
+    """Return the redaction manifest for a document, or None if not redacted."""
+    path = doc_dir / "redaction_manifest.json"
+    if not path.exists():
+        return None
+    try:
+        return RedactionManifest.model_validate(_read_json(path))
+    except Exception as e:
+        logger.warning("Failed to load redaction manifest from %s: %s", path, e)
+        return None
 
 
 def _write_json(path: Path, data: dict) -> None:

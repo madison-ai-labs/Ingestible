@@ -571,6 +571,31 @@ async def ingest_document(
             "(e.g. learning material, published standards)."
         ),
     ),
+    redact: bool = Form(
+        False,
+        description=(
+            "Enable PII redaction (Stage 1d). Requires pip install 'ingestible[redaction]'. "
+            "Scans parsed text for personal data before enrichment and embedding — "
+            "LLMs and the vector index never see the original values."
+        ),
+    ),
+    redaction_mode: str = Form(
+        "",
+        description=(
+            "Redaction strategy: 'placeholder' (default) replaces entities with [PERSON] etc.; "
+            "'pseudonymize' assigns consistent fictional labels within the document "
+            "(Person A, Location 1 …); 'suppress' replaces all entities with [REDACTED]. "
+            "Empty string uses the server default (INGEST_REDACTION_MODE)."
+        ),
+    ),
+    redaction_entities: str = Form(
+        "",
+        description=(
+            "Comma-separated Presidio entity types to redact "
+            "(e.g. PERSON,EMAIL_ADDRESS,PHONE_NUMBER). "
+            "Empty string uses the server default list."
+        ),
+    ),
 ):
     """Ingest a document into the knowledge store.
 
@@ -599,6 +624,12 @@ async def ingest_document(
         )
         parsed_tags = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
 
+        parsed_redaction_entities = (
+            [e.strip() for e in redaction_entities.split(",") if e.strip()]
+            if redaction_entities
+            else None
+        )
+
         doc_dir = ingest(
             tmp_path,
             settings,
@@ -610,6 +641,9 @@ async def ingest_document(
             tags=parsed_tags,
             original_filename=file.filename,
             retain_original=retain_original,
+            redact=redact or None,
+            redaction_mode=redaction_mode or None,
+            redaction_entities=parsed_redaction_entities,
         )
 
         meta = load_document_meta(doc_dir)
@@ -1063,6 +1097,49 @@ async def get_document_pdf(doc_id: str, request: Request):
         media_type="application/pdf",
         headers=common_headers,
     )
+
+
+@app.get("/documents/{doc_id}/redaction-manifest", tags=["Documents"])
+@limiter.limit(_RATE_DEFAULT)
+async def get_redaction_manifest(doc_id: str, request: Request):
+    """Return the redaction manifest for a document.
+
+    The manifest lists every entity that was redacted, its type, replacement
+    value, and page number. In pseudonymize mode it also includes the full
+    original → pseudonym mapping so privileged callers can de-anonymize.
+
+    Access is gated by ``INGEST_REDACTION_ACCESS_TAG`` when set, otherwise
+    falls back to the document's own access_tags. Returns 404 when the
+    document was not ingested with redaction enabled.
+    """
+    from ingestible.pipeline.stage6_storage import load_redaction_manifest
+
+    doc_id = _validate_doc_id(doc_id)
+    settings = get_cached_settings()
+    doc_dir = settings.documents_dir / doc_id
+
+    if not doc_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
+
+    meta = load_document_meta(doc_dir)
+
+    # Honour dedicated redaction access tag if configured, otherwise use doc tags
+    if settings.redaction_access_tag:
+        header = request.headers.get("X-Access-Tags", "")
+        user_tags = {t.strip() for t in header.split(",") if t.strip()}
+        if settings.redaction_access_tag not in user_tags:
+            raise HTTPException(status_code=403, detail="Access denied: redaction manifest")
+    else:
+        _check_doc_access(meta, request, settings)
+
+    manifest = load_redaction_manifest(doc_dir)
+    if manifest is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No redaction manifest found. Re-ingest with redact=true to enable.",
+        )
+
+    return manifest.model_dump()
 
 
 class UpdateMetaRequest(BaseModel):

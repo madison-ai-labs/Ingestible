@@ -82,6 +82,34 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help="Comma-separated category tags for filtering (e.g. compliance,coding,style)",
     )
+    p_ingest.add_argument(
+        "--redact",
+        action="store_true",
+        help=(
+            "Enable PII redaction before enrichment and embedding. "
+            "Requires: pip install 'ingestible[redaction]' && "
+            "python -m spacy download en_core_web_sm"
+        ),
+    )
+    p_ingest.add_argument(
+        "--redaction-mode",
+        choices=["placeholder", "pseudonymize", "suppress"],
+        default=None,
+        help=(
+            "Redaction strategy (default: placeholder). "
+            "'pseudonymize' assigns consistent labels within the document "
+            "(Person A, Location 1 …). 'suppress' uses generic [REDACTED]."
+        ),
+    )
+    p_ingest.add_argument(
+        "--redaction-entities",
+        default=None,
+        help=(
+            "Comma-separated Presidio entity types to redact "
+            "(e.g. PERSON,EMAIL_ADDRESS,PHONE_NUMBER). "
+            "Defaults to the server-configured list."
+        ),
+    )
 
     # --- parse (parse-only, no storage) ---
     p_parse = sub.add_parser(
@@ -470,6 +498,12 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
     if args.tags:
         parsed_tags = [t.strip() for t in args.tags.split(",") if t.strip()]
 
+    parsed_redaction_entities = None
+    if getattr(args, "redaction_entities", None):
+        parsed_redaction_entities = [
+            e.strip() for e in args.redaction_entities.split(",") if e.strip()
+        ]
+
     if _is_batch_input(args.file_path):
         from ingestible.pipeline.batch import ingest_batch
 
@@ -512,6 +546,9 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
             weight=args.weight,
             pinned=args.pinned,
             tags=parsed_tags,
+            redact=True if getattr(args, "redact", False) else None,
+            redaction_mode=getattr(args, "redaction_mode", None),
+            redaction_entities=parsed_redaction_entities,
         )
         print(f"Ingested → {doc_dir}")
 

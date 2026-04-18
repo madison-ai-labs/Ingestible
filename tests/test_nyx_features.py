@@ -64,7 +64,7 @@ class TestSchemaV3:
         settings = Settings(data_dir=tmp_path)
         save_document(_make_structure(), _make_chunks(), settings)
         meta = load_document_meta(settings.documents_dir / "test-doc")
-        assert meta["schema_version"] == 3
+        assert meta["schema_version"] == 4
         assert meta["weight"] == 0.0
         assert meta["pinned"] is False
         assert meta["tags"] == []

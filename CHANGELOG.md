@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.3.0 (2026-04-18)
+
+### Added
+- **PII Redaction — Stage 1d** (`pip install 'ingestible[redaction]'`) — scans parsed document text for personal data before enrichment and embedding. LLMs, the vector index, and stored chunks never see the original values.
+  - Three modes: `placeholder` (`[PERSON]`, `[EMAIL_ADDRESS]`), `pseudonymize` (consistent labels — Person A, Location 1 — within the document, critical for legal discovery), `suppress` (generic `[REDACTED]`)
+  - Detection via [Microsoft Presidio](https://github.com/microsoft/presidio) + spaCy NER. Regex recognizers active without a spaCy model (emails, phones, SSNs, IBANs, credit cards); NER entity types (PERSON, LOCATION, ORG) require `python -m spacy download en_core_web_sm`
+  - Pseudonym map is consistent across pages — every occurrence of the same entity gets the same label
+  - **Redaction manifest** saved as `{doc_dir}/redaction_manifest.json` — records every substitution, replacement, and (in pseudonymize mode) the full original → pseudonym mapping for privileged de-anonymization
+  - `GET /documents/{doc_id}/redaction-manifest` — access-gated endpoint to retrieve the manifest (`INGEST_REDACTION_ACCESS_TAG` for a dedicated gate, or the document's own access tags)
+  - `POST /ingest` params: `redact`, `redaction_mode`, `redaction_entities`
+  - CLI flags: `--redact`, `--redaction-mode`, `--redaction-entities`
+  - Config: `INGEST_REDACTION_ENABLED`, `INGEST_REDACTION_MODE`, `INGEST_REDACTION_ENTITIES`, `INGEST_REDACTION_ACCESS_TAG`
+- **Schema version 4** — `meta.json` gains `redacted`, `redaction_mode`, `redaction_entity_types` fields
+
 ## v1.2.2 (2026-04-18)
 
 ### Security
