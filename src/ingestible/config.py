@@ -239,6 +239,16 @@ class Settings(BaseSettings):
     pgvector_url: str = ""
     qdrant_url: str = "http://localhost:6333"
 
+    # ANCS export — Madison's structured memory store. One ANCS base URL, but a
+    # separate tenant key per trust class so provenance routes documents into
+    # isolated tenants (see adapters/ancs_trust.py). Empty key = that class is
+    # not provisioned and ingest into it is refused.
+    ancs_url: str = ""
+    ancs_timeout: float = 60.0
+    ancs_key_personal: str = ""      # user-authored material (still HYPOTHESIS+confirm)
+    ancs_key_reference: str = ""     # external references (recall-only, no promote)
+    ancs_key_untrusted: str = ""     # mail attachments / unknown provenance (most isolated)
+
     @property
     def documents_dir(self) -> Path:
         return self.data_dir / "documents"

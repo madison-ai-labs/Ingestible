@@ -2006,6 +2006,102 @@ async def cv_webhook(request: Request):
 
 
 # ---------------------------------------------------------------------------
+# ANCS export — Madison's structured memory store
+# ---------------------------------------------------------------------------
+
+
+class ANCSExportResponse(BaseModel):
+    """Result of ingesting a document and pushing it into ANCS."""
+
+    doc_id: str
+    trust_class: str = Field(description="Provenance-derived trust tier the doc was routed to")
+    can_promote: bool = Field(description="Whether this class is ever eligible for human-confirm promotion")
+    memory_items_created: int = 0
+    entities_created: int = 0
+    hyperedges_created: int = 0
+    kg_triples_ingested: int = 0
+
+
+@app.post("/ancs/ingest", response_model=ANCSExportResponse, tags=["ANCS"])
+@limiter.limit(_RATE_INGEST)
+async def ancs_ingest(
+    request: Request,
+    file: UploadFile = File(..., description="Document file to ingest into Madison's memory"),
+    source_channel: str = Form(
+        "unknown",
+        description=(
+            "OUT-OF-BAND provenance: how Madison obtained this file "
+            "('user_authored', 'download', 'mail_attachment', 'unknown'). This — and "
+            "ONLY this — decides the trust tier / ANCS tenant. Document content is "
+            "never trusted to classify itself. Unknown/forged → most isolated tenant."
+        ),
+    ),
+    source_uri: str = Form("", description="Optional provenance URI; defaults to ingestible://{class}/{doc_id}"),
+):
+    """Ingest a document and push its structured form into ANCS.
+
+    Runs the full pipeline WITH knowledge-graph extraction (LLM path), then exports
+    the L0–L3 hierarchy plus the typed KG triples to ANCS, which materializes them
+    as semantic hyperedges (multi-hop-traversable). The document is routed to a
+    trust-isolated ANCS tenant chosen purely from `source_channel` provenance.
+    """
+    from ingestible.adapters.ancs_export import export_to_ancs
+    from ingestible.adapters.ancs_trust import classify_trust, resolve_ancs_config
+
+    base_settings = get_cached_settings()
+    if not getattr(base_settings, "ancs_url", ""):
+        raise HTTPException(status_code=503, detail="ANCS export not configured (INGEST_ANCS_URL)")
+
+    # 1) Classify trust from PROVENANCE only (never from the bytes). Default-deny.
+    policy = classify_trust(source_channel)
+
+    # 2) Refuse early if the chosen class's tenant isn't provisioned — don't fall
+    #    back to a more-trusted tenant.
+    try:
+        # (re-resolved after ingest with the real source_uri; this is the guard)
+        resolve_ancs_config(policy, base_settings)
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    # 3) Ingest with KG extraction enabled (LLM path — kg_spacy stays off; the
+    #    spaCy path is measured lossy and we want quality for Madison).
+    settings = get_settings(extract_knowledge_graph=True)
+    suffix = Path(file.filename or "upload.pdf").suffix
+    content = await file.read()
+    _check_upload_size(content, settings)
+    _check_ingestion_quotas(request, len(content), False)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        doc_dir = ingest(tmp_path, settings, skip_enrichment=False, verbose=False,
+                         original_filename=file.filename)
+        meta = load_document_meta(doc_dir)
+        doc_id = meta.get("doc_id", doc_dir.name)
+        chunks = load_chunks(doc_dir)
+
+        # 4) Export to the trust-class tenant. Provenance URI embeds the class.
+        uri = source_uri or f"ingestible://{policy.trust_class.value}/{doc_id}"
+        cfg = resolve_ancs_config(policy, base_settings, source_uri=uri)
+        result = export_to_ancs(chunks, cfg)
+        if result.error:
+            raise HTTPException(status_code=502, detail=f"ANCS export failed: {result.error}")
+
+        return ANCSExportResponse(
+            doc_id=doc_id,
+            trust_class=policy.trust_class.value,
+            can_promote=policy.can_promote,
+            memory_items_created=result.memory_items_created,
+            entities_created=result.entities_created,
+            hyperedges_created=result.hyperedges_created,
+            kg_triples_ingested=result.kg_triples_ingested,
+        )
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
 # Web UI
 # ---------------------------------------------------------------------------
 
