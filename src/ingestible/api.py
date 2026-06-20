@@ -2075,8 +2075,15 @@ async def ancs_ingest(
         tmp_path = tmp.name
 
     try:
-        doc_dir = ingest(tmp_path, settings, skip_enrichment=False, verbose=False,
-                         original_filename=file.filename)
+        # ingest() runs enrichment via asyncio.run() internally; run it in a
+        # threadpool so it gets a thread WITHOUT this route's running event loop
+        # (otherwise enrichment — and the KG extraction we need — is skipped).
+        from starlette.concurrency import run_in_threadpool
+
+        doc_dir = await run_in_threadpool(
+            lambda: ingest(tmp_path, settings, skip_enrichment=False, verbose=False,
+                           original_filename=file.filename)
+        )
         meta = load_document_meta(doc_dir)
         doc_id = meta.get("doc_id", doc_dir.name)
         chunks = load_chunks(doc_dir)
