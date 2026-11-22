@@ -49,8 +49,11 @@ def client_and_capture(tmp_path, monkeypatch):
         captured["base_url"] = cfg.base_url
         captured["source_uri"] = cfg.source_uri
         return ancs_export_mod.ANCSIngestResult(
-            doc_id="doc-1", memory_items_created=3, entities_created=2,
-            hyperedges_created=4, kg_triples_ingested=2,
+            doc_id="doc-1",
+            memory_items_created=3,
+            entities_created=2,
+            hyperedges_created=4,
+            kg_triples_ingested=2,
         )
 
     monkeypatch.setattr(ancs_export_mod, "export_to_ancs", fake_export)
@@ -61,7 +64,13 @@ def client_and_capture(tmp_path, monkeypatch):
 def _post(client, channel: str):
     return client.post(
         "/ancs/ingest",
-        files={"file": ("memo.txt", io.BytesIO(b"The Helios reactor powers the Aurora grid."), "text/plain")},
+        files={
+            "file": (
+                "memo.txt",
+                io.BytesIO(b"The Helios reactor powers the Aurora grid."),
+                "text/plain",
+            )
+        },
         data={"source_channel": channel},
     )
 

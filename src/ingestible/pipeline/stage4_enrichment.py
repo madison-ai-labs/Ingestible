@@ -506,7 +506,8 @@ async def enrich_chunks(
             child_summaries = [
                 c.summary
                 for c in chunks.l3_chunks
-                if c.parent_section_id == chunk.chunk_id and c.summary
+                if c.parent_section_id == chunk.chunk_id
+                and c.summary
                 and not c.summary.startswith("[")
             ]
             child_concepts = []

@@ -135,9 +135,7 @@ def _check_duplicate_content(
     return None
 
 
-def _count_steps(
-    settings: Settings, skip_enrichment: bool, redact: bool | None = None
-) -> int:
+def _count_steps(settings: Settings, skip_enrichment: bool, redact: bool | None = None) -> int:
     """Compute total pipeline steps based on enabled features."""
     # Always: parse, structure, chunk, validate, embed, save = 6
     steps = 6
@@ -359,14 +357,15 @@ def ingest(
                                 overrides["redaction_language"] = redaction_language
                             effective_settings = settings.model_copy(update=overrides)
 
-                        parsed, redaction_manifest = redact_document(
-                            parsed, effective_settings
-                        )
+                        parsed, redaction_manifest = redact_document(parsed, effective_settings)
                         if use_checkpoint:
                             save_checkpoint(
                                 doc_dir,
                                 "redacted",
-                                {"doc": parsed.model_dump(), "manifest": redaction_manifest.model_dump()},
+                                {
+                                    "doc": parsed.model_dump(),
+                                    "manifest": redaction_manifest.model_dump(),
+                                },
                             )
                     except ImportError as e:
                         logger.warning(

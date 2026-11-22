@@ -223,8 +223,10 @@ class TestEnrichmentQuality:
         chunks = _build_test_chunks()
         client = _mock_llm_client()
 
-        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client), \
-             patch("ingestible.pipeline.stage4_enrichment._make_cheap_client", return_value=client):
+        with (
+            patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client),
+            patch("ingestible.pipeline.stage4_enrichment._make_cheap_client", return_value=client),
+        ):
             result = asyncio.run(enrich_chunks(chunks, settings))
         return result
 
@@ -436,8 +438,10 @@ class TestContentTierSkipping:
 
         client = _mock_llm_client()
 
-        with patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client), \
-             patch("ingestible.pipeline.stage4_enrichment._make_cheap_client", return_value=client):
+        with (
+            patch("ingestible.pipeline.stage4_enrichment._make_client", return_value=client),
+            patch("ingestible.pipeline.stage4_enrichment._make_cheap_client", return_value=client),
+        ):
             result = asyncio.run(enrich_chunks(chunks, settings))
 
         t0_chunk = result.l3_chunks[0]

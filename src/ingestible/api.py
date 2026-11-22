@@ -2015,7 +2015,9 @@ class ANCSExportResponse(BaseModel):
 
     doc_id: str
     trust_class: str = Field(description="Provenance-derived trust tier the doc was routed to")
-    can_promote: bool = Field(description="Whether this class is ever eligible for human-confirm promotion")
+    can_promote: bool = Field(
+        description="Whether this class is ever eligible for human-confirm promotion"
+    )
     memory_items_created: int = 0
     entities_created: int = 0
     hyperedges_created: int = 0
@@ -2036,7 +2038,9 @@ async def ancs_ingest(
             "never trusted to classify itself. Unknown/forged → most isolated tenant."
         ),
     ),
-    source_uri: str = Form("", description="Optional provenance URI; defaults to ingestible://{class}/{doc_id}"),
+    source_uri: str = Form(
+        "", description="Optional provenance URI; defaults to ingestible://{class}/{doc_id}"
+    ),
 ):
     """Ingest a document and push its structured form into ANCS.
 
@@ -2081,8 +2085,13 @@ async def ancs_ingest(
         from starlette.concurrency import run_in_threadpool
 
         doc_dir = await run_in_threadpool(
-            lambda: ingest(tmp_path, settings, skip_enrichment=False, verbose=False,
-                           original_filename=file.filename)
+            lambda: ingest(
+                tmp_path,
+                settings,
+                skip_enrichment=False,
+                verbose=False,
+                original_filename=file.filename,
+            )
         )
         meta = load_document_meta(doc_dir)
         doc_id = meta.get("doc_id", doc_dir.name)

@@ -27,16 +27,16 @@ class SourceChannel(str, Enum):
     """How Madison obtained the document. This is OUT-OF-BAND provenance — it is
     asserted by the trusted caller (Madison), not read from the document."""
 
-    USER_AUTHORED = "user_authored"     # the user deliberately wrote/added it
-    DOWNLOAD = "download"               # fetched from an external source (web, arxiv…)
-    MAIL_ATTACHMENT = "mail_attachment" # arrived via email — attacker-influenceable
-    UNKNOWN = "unknown"                 # unspecified → treated as least trusted
+    USER_AUTHORED = "user_authored"  # the user deliberately wrote/added it
+    DOWNLOAD = "download"  # fetched from an external source (web, arxiv…)
+    MAIL_ATTACHMENT = "mail_attachment"  # arrived via email — attacker-influenceable
+    UNKNOWN = "unknown"  # unspecified → treated as least trusted
 
 
 class TrustClass(str, Enum):
-    PERSONAL = "personal"     # user's own material
-    REFERENCE = "reference"   # external but deliberately collected
-    UNTRUSTED = "untrusted"   # attacker-influenceable / unknown provenance
+    PERSONAL = "personal"  # user's own material
+    REFERENCE = "reference"  # external but deliberately collected
+    UNTRUSTED = "untrusted"  # attacker-influenceable / unknown provenance
 
 
 @dataclass(frozen=True)
@@ -45,7 +45,7 @@ class TrustPolicy:
 
     trust_class: TrustClass
     tenant_key_setting: str  # Settings attribute holding this class's ANCS key
-    can_promote: bool        # may anything here EVER reach SUPPORTED (via human confirm)?
+    can_promote: bool  # may anything here EVER reach SUPPORTED (via human confirm)?
     note: str
 
 
@@ -54,15 +54,21 @@ class TrustPolicy:
 # gate (E8), never automatically.
 _POLICIES: dict[TrustClass, TrustPolicy] = {
     TrustClass.PERSONAL: TrustPolicy(
-        TrustClass.PERSONAL, "ancs_key_personal", True,
+        TrustClass.PERSONAL,
+        "ancs_key_personal",
+        True,
         "User-authored; recallable and eligible for human-confirm promotion.",
     ),
     TrustClass.REFERENCE: TrustPolicy(
-        TrustClass.REFERENCE, "ancs_key_reference", False,
+        TrustClass.REFERENCE,
+        "ancs_key_reference",
+        False,
         "External reference; recall-only, never promoted to a self-fact.",
     ),
     TrustClass.UNTRUSTED: TrustPolicy(
-        TrustClass.UNTRUSTED, "ancs_key_untrusted", False,
+        TrustClass.UNTRUSTED,
+        "ancs_key_untrusted",
+        False,
         "Attacker-influenceable/unknown; most isolated, recall-only.",
     ),
 }

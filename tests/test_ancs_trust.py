@@ -64,7 +64,7 @@ def test_resolve_config_refuses_unprovisioned_class() -> None:
         ancs_url: str = "http://ancs.local"
         ancs_timeout: float = 60.0
         ancs_key_personal: str = "pkey"
-        ancs_key_reference: str = ""   # not provisioned
+        ancs_key_reference: str = ""  # not provisioned
         ancs_key_untrusted: str = ""
 
     s = FakeSettings()

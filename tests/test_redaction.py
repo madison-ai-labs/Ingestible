@@ -35,7 +35,15 @@ def _settings(**kwargs) -> Settings:
         redaction_mode=kwargs.pop("redaction_mode", "placeholder"),
         redaction_entities=kwargs.pop(
             "redaction_entities",
-            ["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "IBAN_CODE", "CREDIT_CARD", "DATE_TIME", "LOCATION"],
+            [
+                "PERSON",
+                "EMAIL_ADDRESS",
+                "PHONE_NUMBER",
+                "IBAN_CODE",
+                "CREDIT_CARD",
+                "DATE_TIME",
+                "LOCATION",
+            ],
         ),
         **kwargs,
     )
@@ -56,6 +64,7 @@ def clear_analyzer_cache():
 presidio_available = False
 try:
     import presidio_analyzer  # noqa: F401
+
     presidio_available = True
 except ImportError:
     pass
@@ -69,6 +78,7 @@ pytestmark = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 # Placeholder mode — entity detection
 # ---------------------------------------------------------------------------
+
 
 class TestPlaceholderMode:
     def test_email_redacted(self):
@@ -137,6 +147,7 @@ class TestPlaceholderMode:
 # Suppress mode
 # ---------------------------------------------------------------------------
 
+
 class TestSuppressMode:
     def test_all_entities_become_redacted(self):
         doc = _doc("Alice Johnson called from alice@example.com.")
@@ -158,6 +169,7 @@ class TestSuppressMode:
 # ---------------------------------------------------------------------------
 # Pseudonymize mode
 # ---------------------------------------------------------------------------
+
 
 class TestPseudonymizeMode:
     def test_same_name_gets_same_pseudonym(self):
@@ -194,8 +206,7 @@ class TestPseudonymizeMode:
         # All PERSON pseudonyms should follow "Person X" format
         for orig, pseudo in manifest.pseudonym_map.items():
             if any(
-                e.entity_type == "PERSON" and e.original.lower() == orig
-                for e in manifest.entities
+                e.entity_type == "PERSON" and e.original.lower() == orig for e in manifest.entities
             ):
                 assert pseudo.startswith("Person ") or pseudo.startswith("Entity ")
 
@@ -215,6 +226,7 @@ class TestPseudonymizeMode:
 # Language isolation — German document should not produce English NER false positives
 # ---------------------------------------------------------------------------
 
+
 class TestLanguageIsolation:
     def test_german_text_no_ner_false_positives(self):
         """German words must not be misclassified as PERSON/LOCATION by English NER."""
@@ -230,8 +242,12 @@ class TestLanguageIsolation:
         )
         # Words like "Kündigung", "Termin", "Adresse" should NOT appear as redacted entities
         false_positive_words = {
-            "kündigung", "termin", "adresse", "polizzennummer",
-            "versicherungsvertrag", "bestätigung",
+            "kündigung",
+            "termin",
+            "adresse",
+            "polizzennummer",
+            "versicherungsvertrag",
+            "bestätigung",
         }
         redacted_originals = {e.original.lower() for e in manifest.entities}
         overlap = false_positive_words & redacted_originals
@@ -283,6 +299,7 @@ class TestLanguageIsolation:
 # Multi-page consistency
 # ---------------------------------------------------------------------------
 
+
 class TestMultiPage:
     def test_page_number_recorded_in_manifest(self):
         doc = _doc("alice@example.com", "bob@example.com")
@@ -314,6 +331,7 @@ class TestMultiPage:
 # ---------------------------------------------------------------------------
 # Manifest completeness
 # ---------------------------------------------------------------------------
+
 
 class TestManifest:
     def test_entity_types_recorded(self):

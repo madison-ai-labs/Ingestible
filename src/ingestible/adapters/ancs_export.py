@@ -36,8 +36,8 @@ class ANCSConfig:
 
     base_url: str
     api_key: str
-    source_uri: str | None = None   # provenance; ties items back to the source
-    tenant_id: str | None = None    # usually derived server-side from api_key
+    source_uri: str | None = None  # provenance; ties items back to the source
+    tenant_id: str | None = None  # usually derived server-side from api_key
     timeout: float = 60.0
 
 

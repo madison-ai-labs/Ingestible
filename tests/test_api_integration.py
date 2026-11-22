@@ -306,15 +306,11 @@ class TestPdfServing:
             assert resp.status_code == 403
 
             # Wrong tag → 403
-            resp = client.get(
-                f"/documents/{doc_id}/pdf", headers={"X-Access-Tags": "team-beta"}
-            )
+            resp = client.get(f"/documents/{doc_id}/pdf", headers={"X-Access-Tags": "team-beta"})
             assert resp.status_code == 403
 
             # Matching tag → 200
-            resp = client.get(
-                f"/documents/{doc_id}/pdf", headers={"X-Access-Tags": "team-alpha"}
-            )
+            resp = client.get(f"/documents/{doc_id}/pdf", headers={"X-Access-Tags": "team-alpha"})
             assert resp.status_code == 200
             assert resp.content == self.PDF_BYTES
         finally:
@@ -322,9 +318,7 @@ class TestPdfServing:
 
     def test_pdf_range_request(self, api_setup):
         self._ingest_pdf_doc(api_setup)
-        resp = api_setup["client"].get(
-            "/documents/pdf-doc-1/pdf", headers={"Range": "bytes=0-9"}
-        )
+        resp = api_setup["client"].get("/documents/pdf-doc-1/pdf", headers={"Range": "bytes=0-9"})
         assert resp.status_code == 206
         assert resp.headers["content-range"] == f"bytes 0-9/{len(self.PDF_BYTES)}"
         assert resp.headers["content-length"] == "10"
@@ -332,9 +326,7 @@ class TestPdfServing:
 
     def test_pdf_range_suffix(self, api_setup):
         self._ingest_pdf_doc(api_setup)
-        resp = api_setup["client"].get(
-            "/documents/pdf-doc-1/pdf", headers={"Range": "bytes=-16"}
-        )
+        resp = api_setup["client"].get("/documents/pdf-doc-1/pdf", headers={"Range": "bytes=-16"})
         assert resp.status_code == 206
         assert resp.content == self.PDF_BYTES[-16:]
 

@@ -52,5 +52,7 @@ async def add_context_prefixes(
             chunk.context_prefix = prefix
             set_count += 1
 
-    logger.info("Set context_prefix on %d / %d chunks (heuristic)", set_count, len(chunks.l3_chunks))
+    logger.info(
+        "Set context_prefix on %d / %d chunks (heuristic)", set_count, len(chunks.l3_chunks)
+    )
     return chunks

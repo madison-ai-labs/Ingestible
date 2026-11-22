@@ -44,17 +44,35 @@ logger = logging.getLogger(__name__)
 _NER_ENTITY_TYPES: frozenset[str] = frozenset({"PERSON", "LOCATION", "ORG", "NRP"})
 
 # Handled by regex — language-independent
-_REGEX_ENTITY_TYPES: frozenset[str] = frozenset({
-    "EMAIL_ADDRESS", "PHONE_NUMBER", "IBAN_CODE", "CREDIT_CARD",
-    "DATE_TIME", "US_SSN", "US_PASSPORT", "IP_ADDRESS", "URL",
-    "MEDICAL_LICENSE",
-})
+_REGEX_ENTITY_TYPES: frozenset[str] = frozenset(
+    {
+        "EMAIL_ADDRESS",
+        "PHONE_NUMBER",
+        "IBAN_CODE",
+        "CREDIT_CARD",
+        "DATE_TIME",
+        "US_SSN",
+        "US_PASSPORT",
+        "IP_ADDRESS",
+        "URL",
+        "MEDICAL_LICENSE",
+    }
+)
 
 # spaCy NER labels that are not PII — suppress from results
 _NER_LABELS_TO_IGNORE: list[str] = [
-    "CARDINAL", "MONEY", "QUANTITY", "ORDINAL", "PERCENT",
-    "PRODUCT", "WORK_OF_ART", "EVENT", "LAW", "LANGUAGE",
-    "TIME", "FAC",
+    "CARDINAL",
+    "MONEY",
+    "QUANTITY",
+    "ORDINAL",
+    "PERCENT",
+    "PRODUCT",
+    "WORK_OF_ART",
+    "EVENT",
+    "LAW",
+    "LANGUAGE",
+    "TIME",
+    "FAC",
 ]
 
 # ISO 639-1 language code → spaCy model name
@@ -126,17 +144,21 @@ def _get_analyzer(entity_types: list[str], language: str = "en"):
 
     if ner_requested and model_name:
         try:
-            provider = NlpEngineProvider(nlp_configuration={
-                "nlp_engine_name": "spacy",
-                "models": [{"lang_code": lang, "model_name": model_name}],
-            })
+            provider = NlpEngineProvider(
+                nlp_configuration={
+                    "nlp_engine_name": "spacy",
+                    "models": [{"lang_code": lang, "model_name": model_name}],
+                }
+            )
             nlp_engine = provider.create_engine()
             logger.debug("Loaded spaCy model %s for language '%s'", model_name, lang)
         except OSError:
             logger.warning(
                 "spaCy model '%s' not found — NER redaction disabled for language '%s'. "
                 "Install with: python -m spacy download %s",
-                model_name, lang, model_name,
+                model_name,
+                lang,
+                model_name,
             )
             nlp_engine = None
             active_ner_types = []
@@ -172,6 +194,7 @@ def _get_analyzer(entity_types: list[str], language: str = "en"):
 # Core redaction logic
 # ---------------------------------------------------------------------------
 
+
 def _normalize_entity_key(text: str) -> str:
     """Canonical key for entity de-duplication.
 
@@ -179,6 +202,7 @@ def _normalize_entity_key(text: str) -> str:
     'Alice Johnson' and "Alice Johnson's" resolve to the same entry.
     """
     import re
+
     normalized = re.sub(r"['\u2019]s$", "", text.strip())
     return normalized.rstrip(".,;:!?").lower()
 
@@ -248,9 +272,9 @@ def _apply_redactions(
     entities: list[RedactedEntity] = []
 
     for result in sorted_results:
-        original = text[result.start:result.end]
+        original = text[result.start : result.end]
         repl = _replacement(original, result.entity_type, mode, pseudonym_map)
-        text = text[: result.start] + repl + text[result.end:]
+        text = text[: result.start] + repl + text[result.end :]
         entities.append(
             RedactedEntity(
                 entity_type=result.entity_type,
@@ -308,7 +332,7 @@ def redact_document(
             )
             for r in _filter_results(results, active_types):
                 if r.entity_type in _PSEUDONYMIZABLE:
-                    original = page.markdown[r.start:r.end]
+                    original = page.markdown[r.start : r.end]
                     key = _normalize_entity_key(original)
                     bucket = texts_by_type.setdefault(r.entity_type, [])
                     if key not in [_normalize_entity_key(t) for t in bucket]:

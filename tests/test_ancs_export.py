@@ -143,6 +143,7 @@ def test_export_posts_and_parses_result() -> None:
         captured["url"] = str(request.url)
         captured["auth"] = request.headers.get("authorization")
         import json as _json
+
         captured["body"] = _json.loads(request.content)
         return httpx.Response(
             200,

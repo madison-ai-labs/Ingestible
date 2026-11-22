@@ -245,9 +245,9 @@ class Settings(BaseSettings):
     # not provisioned and ingest into it is refused.
     ancs_url: str = ""
     ancs_timeout: float = 60.0
-    ancs_key_personal: str = ""      # user-authored material (still HYPOTHESIS+confirm)
-    ancs_key_reference: str = ""     # external references (recall-only, no promote)
-    ancs_key_untrusted: str = ""     # mail attachments / unknown provenance (most isolated)
+    ancs_key_personal: str = ""  # user-authored material (still HYPOTHESIS+confirm)
+    ancs_key_reference: str = ""  # external references (recall-only, no promote)
+    ancs_key_untrusted: str = ""  # mail attachments / unknown provenance (most isolated)
 
     @property
     def documents_dir(self) -> Path:
