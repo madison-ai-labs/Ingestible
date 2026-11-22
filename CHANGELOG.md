@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.4.0 (2026-11-22)
+
+### Changed
+- **Relicensed under the Apache License 2.0.** Ingestible is now open source. `LICENSE` contains the Apache-2.0 text, a `NOTICE` file was added, and `pyproject.toml` declares `license = "Apache-2.0"`. Releases 1.0.0 through 1.1.1 were published under the PolyForm Small Business License 1.0.0; the commercial license (`COMMERCIAL-LICENSE.md`) is gone.
+- Website and docs: self-hosting is free under Apache-2.0; the paid one-time self-hosted license is removed. Hosted cloud tiers and the Enterprise SLA are unchanged.
+- First PyPI release since 1.1.1; it contains everything listed under 1.2.0 through 1.3.0, which were tagged in this changelog but never published to PyPI.
+
 ## v1.3.0 (2026-04-18)
 
 ### Added

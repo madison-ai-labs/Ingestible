@@ -15,7 +15,7 @@ function Hero() {
             className="inline-flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full border border-zinc-800 text-zinc-400 hover:border-amber-500/40 hover:text-amber-400 transition-colors mb-8"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-subtle" />
-            Now open source under Apache-2.0
+            v1.4.0 &mdash; Now open source under Apache-2.0
           </a>
         </div>
 

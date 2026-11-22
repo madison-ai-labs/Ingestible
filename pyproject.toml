@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ingestible"
-version = "1.3.0"
+version = "1.4.0"
 description = "Document ingestion pipeline — transforms documents into a queryable knowledge store"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
