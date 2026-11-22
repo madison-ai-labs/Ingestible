@@ -6,13 +6,13 @@ build-backend = "hatchling.build"
 name = "ingestible"
 version = "1.3.0"
 description = "Document ingestion pipeline — transforms documents into a queryable knowledge store"
-license = "LicenseRef-PolyForm-Small-Business-1.0.0"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 readme = "README.md"
 keywords = ["rag", "document-ingestion", "embeddings", "search", "ai", "llm", "chunking", "pdf"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
-    "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",

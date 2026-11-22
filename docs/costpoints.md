@@ -83,11 +83,11 @@ Tier limits are stored in the `tier_limits` Supabase table and enforced in the A
 
 #### Enterprise / On-Premise
 
-| | Self-Hosted License | Enterprise SLA |
+| | Self-Hosted (Apache-2.0) | Enterprise SLA |
 |---|---|---|
-| Price | $2,499 one-time | $499/mo (annual) |
+| Price | Free (open source) | $499/mo (annual) |
 | Usage limits | None | None |
-| Updates | 1 year included | Continuous |
+| Updates | All releases | Continuous |
 | Support | Community | Dedicated (48h response) |
 | Compliance | — | SOC2, HIPAA on request |
 

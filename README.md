@@ -8,7 +8,7 @@
   <a href="https://github.com/SimplyLiz/Ingestible/actions/workflows/ci.yml"><img src="https://github.com/SimplyLiz/Ingestible/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <a href="https://github.com/SimplyLiz/Ingestible/pkgs/container/ingestible"><img src="https://img.shields.io/badge/docker-ghcr.io-blue?logo=docker&logoColor=white" alt="Docker"></a>
   <a href="https://pypi.org/project/ingestible"><img src="https://img.shields.io/badge/python-3.11--3.13-3776AB?logo=python&logoColor=white" alt="Python 3.11-3.13"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Small%20Business-blue" alt="License"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License"></a>
 </p>
 
 ---
@@ -416,6 +416,6 @@ Ingestible is a **data processing pipeline**, not an AI system under Art. 3(1). 
 
 ## License
 
-[PolyForm Small Business 1.0.0](LICENSE) — free for individuals, small businesses, nonprofits, and open-source projects.
+[Apache License 2.0](LICENSE) — free to use, modify, and redistribute, including commercially. See [NOTICE](NOTICE).
 
-Need a commercial license? See [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md).
+Note: PDF parsing depends on [PyMuPDF](https://github.com/pymupdf/PyMuPDF) (via `pymupdf4llm`), which is licensed under AGPL-3.0 or a commercial license from Artifex. Check its terms if you redistribute Ingestible as part of a closed product.

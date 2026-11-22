@@ -98,7 +98,7 @@ When `INGEST_CONTENT_CLASSIFICATION=true`, Stage 1c (`stage1c_classify.py`) labe
 ## Conventions
 
 - Commit messages: NEVER include co-authored-by, Claude, or the user's name
-- License: PolyForm Small Business 1.0.0 (not Apache — `pyproject.toml` reflects this)
+- License: Apache-2.0 (since 1.4.0; `LICENSE`, `NOTICE`, `pyproject.toml` reflect this)
 - All new `{doc_id}` API endpoints must call `_validate_doc_id(doc_id)` as the first line
 - LLM client calls must use `retry_llm_call()` from `utils/retry.py`
 - Embedding device must use `_resolve_device()` — never hardcode `"mps"` or `"cuda"`

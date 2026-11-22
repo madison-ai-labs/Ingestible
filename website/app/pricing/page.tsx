@@ -238,32 +238,32 @@ function Enterprise() {
             On-premise &amp; Enterprise
           </h2>
           <p className="mt-4 text-zinc-400 max-w-2xl mx-auto">
-            Deploy Ingestible on your own infrastructure. Full source access, no usage limits,
-            complete data sovereignty.
+            Ingestible is open source under Apache-2.0. Deploy it on your own
+            infrastructure for free, with no usage limits and complete data sovereignty.
           </p>
         </div>
 
         <div className="grid sm:grid-cols-2 gap-8 reveal-stagger">
-          {/* One-time license */}
+          {/* Open source self-hosting */}
           <div className="card-lift rounded-2xl border border-zinc-800 bg-zinc-900/50 p-8 flex flex-col">
             <span className="inline-block text-xs font-semibold px-2.5 py-1 rounded-full border border-zinc-700 text-zinc-400 mb-4 self-start">
               Self-hosted
             </span>
             <div className="flex items-baseline gap-1 mb-2">
-              <span className="text-3xl font-bold text-zinc-50">$2,499</span>
-              <span className="text-sm text-zinc-500">one-time</span>
+              <span className="text-3xl font-bold text-zinc-50">$0</span>
+              <span className="text-sm text-zinc-500">Apache-2.0</span>
             </div>
             <p className="text-sm text-zinc-500 leading-relaxed mb-6">
-              Own the software outright. Ideal for small teams and startups that want
-              full control without ongoing costs.
+              Install from PyPI or run the Docker image. Use, modify, and redistribute
+              it freely, including in commercial products.
             </p>
 
             <ul className="space-y-2.5 mb-8 flex-1">
               {[
-                "Full source access",
+                "Full source code (Apache-2.0)",
                 "No usage limits",
                 "Deploy anywhere (Docker, bare metal, K8s)",
-                "1 year of updates included",
+                "All releases, no update window",
                 "Community + documentation support",
                 "No SLA",
               ].map((f) => (
@@ -275,10 +275,10 @@ function Enterprise() {
             </ul>
 
             <a
-              href="mailto:enterprise@ingestible.dev"
+              href="https://pypi.org/project/ingestible/"
               className="btn-press block w-full text-center text-sm font-semibold px-6 py-3 rounded-xl bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition-colors"
             >
-              Get license
+              Install from PyPI
             </a>
           </div>
 
@@ -298,7 +298,7 @@ function Enterprise() {
 
             <ul className="space-y-2.5 mb-8 flex-1">
               {[
-                "Everything in self-hosted license",
+                "Everything in self-hosted",
                 "Continuous updates",
                 "48-hour support response time",
                 "Dedicated support channel (Slack/Teams)",
@@ -346,7 +346,7 @@ function FAQ() {
     },
     {
       q: "What's the difference between Business cloud and on-premise?",
-      a: "Business cloud ($29.99/mo) includes managed storage, corpus search, and a 99.9% uptime SLA \u2014 we run everything. On-premise gives you full source access to deploy on your own infrastructure. The one-time license is a flat fee with 1 year of updates. The Enterprise SLA subscription adds ongoing updates, a dedicated support channel, and compliance docs.",
+      a: "Business cloud ($29.99/mo) includes managed storage, corpus search, and a 99.9% uptime SLA \u2014 we run everything. On-premise means running the open-source (Apache-2.0) release on your own infrastructure, free of charge. The Enterprise SLA subscription adds a dedicated support channel, guaranteed response times, and compliance docs.",
     },
   ];
 

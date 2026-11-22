@@ -70,8 +70,8 @@ export function Footer() {
         </div>
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-8 border-t border-zinc-800/60">
           <span className="text-xs text-zinc-600">
-            &copy; {new Date().getFullYear()} Ingestible &mdash; PolyForm Small
-            Business 1.0.0
+            &copy; {new Date().getFullYear()} Ingestible &mdash; Apache License
+            2.0
           </span>
           <div className="flex items-center gap-6">
             <a

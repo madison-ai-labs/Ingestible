@@ -15,7 +15,7 @@ function Hero() {
             className="inline-flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full border border-zinc-800 text-zinc-400 hover:border-amber-500/40 hover:text-amber-400 transition-colors mb-8"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-subtle" />
-            v1.1.1 &mdash; Now with pluggable vector backends
+            Now open source under Apache-2.0
           </a>
         </div>
 
@@ -670,8 +670,8 @@ function CTA() {
           Ready to stop burning tokens?
         </h2>
         <p className="mt-4 text-zinc-400 max-w-lg mx-auto">
-          Ingestible is open-source under the PolyForm Small Business license.
-          Free for small teams, affordable for everyone else.
+          Ingestible is open source under the Apache License 2.0.
+          Free to use, modify, and self-host, commercially or not.
         </p>
         <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
           <a
