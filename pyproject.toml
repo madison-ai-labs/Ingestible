@@ -56,6 +56,11 @@ dependencies = [
     "gunicorn>=22.0",
 ]
 
+[project.urls]
+Repository = "https://github.com/madison-ai-labs/Ingestible"
+Issues = "https://github.com/madison-ai-labs/Ingestible/issues"
+Changelog = "https://github.com/madison-ai-labs/Ingestible/blob/main/CHANGELOG.md"
+
 [project.optional-dependencies]
 # Local embedding models (adds ~2GB: torch + sentence-transformers + chromadb)
 local = [
